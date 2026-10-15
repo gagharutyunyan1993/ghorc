@@ -1,21 +1,25 @@
 'use strict';
-// Сторож транскриптов: опрос ~/.claude/projects/**/*.jsonl. Только уведомляет, ничего не убивает.
-// Пороги по STRATEGY §10: рост >10 МиБ/мин две минуты подряд; >100 МиБ; >250 МиБ и рост; subagents/*.jsonl >500 МиБ.
+// Transcript watchdog: polls ~/.claude/projects/**/*.jsonl. It only notifies and never kills anything.
+// Thresholds per STRATEGY §10: growth >10 MiB/min for two minutes in a row; >100 MiB; >250 MiB and growing; subagents/*.jsonl >500 MiB.
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
+const tmp = require('./lib/tmp.cjs');
 
 const args = process.argv.slice(2);
 if (args.includes('--help')) {
   console.log(
     [
-      'watchdog.cjs [--interval <сек, 30>] [--rateMiBPerMin 10] [--streakSec 120] [--warnMiB 100] [--stopMiB 250]',
-      '             [--subagentsMiB 500] [--root <каталог, по умолчанию ~/.claude/projects>] [--once] [--notify "<команда>"]',
-      'Тревоги: рост выше rateMiBPerMin непрерывно streakSec секунд; размер выше warnMiB (проверить содержимое);',
-      'выше stopMiB и всё ещё растёт; файл в subagents/ выше subagentsMiB.',
-      '--notify: команда запускается через шелл (.cmd/.bat работают) в фоне, таймер 10 с; текст тревоги - ОДИН аргумент в кавычках (и переменная GHORC_ALERT).',
-      'Сторож никого не останавливает.',
+      'watchdog.cjs [--interval <sec, 30>] [--rateMiBPerMin 10] [--streakSec 120] [--warnMiB 100] [--stopMiB 250]',
+      '             [--subagentsMiB 500] [--root <dir, default ~/.claude/projects>] [--once] [--notify "<command>"]',
+      '             [--notify-file <path>] [--pid-file <path, default <tmp>/ghorc/watchdog.pid>]',
+      'Alerts: growth above rateMiBPerMin continuously for streakSec seconds; size above warnMiB (check the content);',
+      'above stopMiB and still growing; a file under subagents/ above subagentsMiB.',
+      '--notify: the command runs through the shell (.cmd/.bat work) in the background with a 10 s timer; the alert text is ONE quoted argument (and the GHORC_ALERT variable).',
+      '--notify-file: every alert is also appended as a line "<ISO time> <text>" to this file (scripts/ctx.cjs shows unread lines).',
+      'Unless --once is given, the pid is written to the pid file at start and removed on exit.',
+      'The watchdog stops nobody.',
     ].join('\n'),
   );
   process.exit(0);
@@ -33,9 +37,11 @@ const subMiB = Number(opt('--subagentsMiB', 500));
 const root = opt('--root', path.join(os.homedir(), '.claude', 'projects'));
 const once = args.includes('--once');
 const notify = opt('--notify', null);
+const notifyFile = opt('--notify-file', null);
+const pidFile = opt('--pid-file', tmp.pidFile());
 const MiB = 1024 * 1024;
 
-// Один аргумент для шелла: Windows - двойные кавычки, иначе одинарные.
+// One shell argument: double quotes on Windows, single quotes elsewhere.
 function quoteArg(s) {
   if (process.platform === 'win32') return '"' + String(s).replace(/"/g, '\\"') + '"';
   return "'" + String(s).replace(/'/g, "'\\''") + "'";
@@ -58,8 +64,16 @@ function walk(dir, out) {
 
 function alert(text) {
   console.log(`[ghorc watchdog] ${text}`);
+  if (notifyFile) {
+    try {
+      fs.mkdirSync(path.dirname(path.resolve(notifyFile)), { recursive: true });
+      fs.appendFileSync(notifyFile, `${new Date().toISOString()} ${text.replace(/\r?\n/g, ' ')}\n`);
+    } catch {
+      /* the alert file is optional */
+    }
+  }
   if (!notify) return;
-  // Через шелл (работают .cmd/.bat); не ждём завершения, убиваем через 10 с.
+  // Through the shell (.cmd/.bat work); we do not wait for it and kill it after 10 s.
   try {
     const child = spawn(`${notify} ${quoteArg(text)}`, {
       shell: true,
@@ -67,18 +81,18 @@ function alert(text) {
       windowsHide: true,
       env: { ...process.env, GHORC_ALERT: text },
     });
-    child.on('error', (e) => console.log(`[ghorc watchdog] notify не запустился: ${e.message}`));
+    child.on('error', (e) => console.log(`[ghorc watchdog] notify failed to start: ${e.message}`));
     const timer = setTimeout(() => {
       try {
         child.kill();
       } catch {
-        /* уже завершился */
+        /* already exited */
       }
     }, 10000);
     timer.unref();
     child.on('exit', () => clearTimeout(timer));
   } catch {
-    /* уведомление необязательно */
+    /* the notification is optional */
   }
 }
 
@@ -108,7 +122,7 @@ function pass() {
       if (rate > rateMiB) {
         if (st.fastSince === null) st.fastSince = st.t;
         if (!st.streakAlerted && now - st.fastSince >= streakMs) {
-          alert(`рост выше ${rateMiB} MiB/мин дольше ${streakMs / 1000} с: ${info}`);
+          alert(`growth above ${rateMiB} MiB/min for longer than ${streakMs / 1000} s: ${info}`);
           st.streakAlerted = true;
         }
       } else {
@@ -116,22 +130,40 @@ function pass() {
         st.streakAlerted = false;
       }
       if (size > stopMiB * MiB && delta > 0 && !st.stopped) {
-        alert(`ТРЕВОГА, больше ${stopMiB} MiB и растёт: ${info}`);
+        alert(`ALARM, over ${stopMiB} MiB and growing: ${info}`);
         st.stopped = true;
       }
     }
     if (size > warnMiB * MiB && !st.warned) {
-      alert(`больше ${warnMiB} MiB, проверь характер содержимого: ${info}`);
+      alert(`over ${warnMiB} MiB, check what the content is: ${info}`);
       st.warned = true;
     }
     if (size > subMiB * MiB && /[\\/]subagents[\\/]/.test(p) && !st.subAlerted) {
-      alert(`ТРЕВОГА, файл субагента больше ${subMiB} MiB: ${info}`);
+      alert(`ALARM, subagent file over ${subMiB} MiB: ${info}`);
       st.subAlerted = true;
     }
     st.size = size;
     st.t = now;
     prev.set(p, st);
   }
+}
+
+if (!once) {
+  try {
+    fs.mkdirSync(path.dirname(pidFile), { recursive: true });
+    fs.writeFileSync(pidFile, String(process.pid));
+  } catch {
+    /* the lock is optional */
+  }
+  const cleanup = () => {
+    try {
+      if (tmp.readPid(pidFile) === process.pid) fs.unlinkSync(pidFile);
+    } catch {
+      /* already gone */
+    }
+  };
+  process.on('exit', cleanup);
+  for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => process.exit(0));
 }
 
 pass();

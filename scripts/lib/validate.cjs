@@ -1,5 +1,5 @@
 'use strict';
-// Проверка ghorc.json: JSON, известные ключи, типы, компиляция регэкспов.
+// ghorc.json check: JSON validity, known keys, types, regex compilation.
 const fs = require('node:fs');
 const { findConfig, readJson, TEMPLATE } = require('./config.cjs');
 
@@ -11,7 +11,7 @@ function typeOf(v) {
   return Array.isArray(v) ? 'array' : v === null ? 'null' : typeof v;
 }
 
-// Возвращает { path, problems: string[] }. path=null - файла нет (не ошибка).
+// Returns { path, problems: string[] }. path=null means there is no file (not an error).
 function check(cwd) {
   const file = findConfig(cwd);
   if (!file) return { path: null, problems: [] };
@@ -20,40 +20,40 @@ function check(cwd) {
   try {
     data = JSON.parse(fs.readFileSync(file, 'utf8'));
   } catch (e) {
-    return { path: file, problems: [`невалидный JSON: ${e.message}`] };
+    return { path: file, problems: [`invalid JSON: ${e.message}`] };
   }
-  if (!isObj(data)) return { path: file, problems: ['корень должен быть объектом'] };
+  if (!isObj(data)) return { path: file, problems: ['the root must be an object'] };
   const tpl = readJson(TEMPLATE) || {};
 
   for (const key of Object.keys(data)) {
     if (key.startsWith('_comment')) continue;
     if (!(key in tpl)) {
-      problems.push(`неизвестный ключ: ${key}`);
+      problems.push(`unknown key: ${key}`);
       continue;
     }
     const want = typeOf(tpl[key]);
     if (typeOf(data[key]) !== want) {
-      problems.push(`${key}: ожидался ${want}, получен ${typeOf(data[key])}`);
+      problems.push(`${key}: expected ${want}, got ${typeOf(data[key])}`);
       continue;
     }
     if (isObj(tpl[key])) {
       for (const sub of Object.keys(data[key])) {
         if (sub.startsWith('_comment')) continue;
-        if (!(sub in tpl[key])) problems.push(`неизвестный ключ: ${key}.${sub}`);
+        if (!(sub in tpl[key])) problems.push(`unknown key: ${key}.${sub}`);
         else if (typeOf(data[key][sub]) !== typeOf(tpl[key][sub])) {
-          problems.push(`${key}.${sub}: ожидался ${typeOf(tpl[key][sub])}, получен ${typeOf(data[key][sub])}`);
+          problems.push(`${key}.${sub}: expected ${typeOf(tpl[key][sub])}, got ${typeOf(data[key][sub])}`);
         }
       }
     }
   }
   if (Array.isArray(data.heavyCommands)) {
     data.heavyCommands.forEach((p, i) => {
-      if (typeof p !== 'string') return problems.push(`heavyCommands[${i}]: не строка`);
-      if (p === '') return problems.push(`heavyCommands[${i}]: пустой шаблон совпадает со всем`);
+      if (typeof p !== 'string') return problems.push(`heavyCommands[${i}]: not a string`);
+      if (p === '') return problems.push(`heavyCommands[${i}]: an empty pattern matches everything`);
       try {
         new RegExp(p, 'i');
       } catch (e) {
-        problems.push(`heavyCommands[${i}]: регэксп не компилируется (${e.message})`);
+        problems.push(`heavyCommands[${i}]: regex does not compile (${e.message})`);
       }
     });
   }

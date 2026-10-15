@@ -1,6 +1,6 @@
 'use strict';
-// Загрузка конфига проекта: <корень>/.claude/ghorc.json поверх templates/ghorc.json.
-// Корень ищется так: CLAUDE_PROJECT_DIR, затем подъём от cwd до корня git (включительно).
+// Project config loading: <root>/.claude/ghorc.json over templates/ghorc.json.
+// The root is found as: CLAUDE_PROJECT_DIR, then walking up from cwd to the git root (inclusive).
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
@@ -19,7 +19,7 @@ function isObj(v) {
   return v !== null && typeof v === 'object' && !Array.isArray(v);
 }
 
-// Объекты сливаются рекурсивно, массивы и скаляры заменяются.
+// Objects merge recursively; arrays and scalars are replaced.
 function merge(base, over) {
   if (!isObj(base) || !isObj(over)) return over === undefined ? base : over;
   const out = { ...base };
@@ -27,7 +27,7 @@ function merge(base, over) {
   return out;
 }
 
-// Каталоги от cwd вверх до корня git включительно (если .git не найден - до корня диска).
+// Directories from cwd up to the git root inclusive (if .git is not found, up to the drive root).
 function ancestors(cwd) {
   const out = [];
   let dir = path.resolve(cwd || process.cwd());
@@ -46,8 +46,8 @@ function envProjectDir() {
   return v && v.trim() ? v : null;
 }
 
-// Основной корень репозитория при работе в worktree: родитель `git rev-parse --git-common-dir`.
-// null - не git, git недоступен или bare-репозиторий.
+// Main repository root when working in a worktree: the parent of `git rev-parse --git-common-dir`.
+// null: not git, git unavailable, or a bare repository.
 function gitCommonRoot(cwd) {
   try {
     const base = path.resolve(cwd || process.cwd());
@@ -62,7 +62,7 @@ function gitCommonRoot(cwd) {
   }
 }
 
-// Корень проекта: CLAUDE_PROJECT_DIR, иначе основной корень git (в т.ч. из worktree), иначе подъём до .git, иначе cwd.
+// Project root: CLAUDE_PROJECT_DIR, else the main git root (including from a worktree), else walk up to .git, else cwd.
 function projectRoot(cwd) {
   const env = envProjectDir();
   if (env) return path.resolve(env);
@@ -73,7 +73,7 @@ function projectRoot(cwd) {
   return fs.existsSync(path.join(last, '.git')) ? last : path.resolve(cwd || process.cwd());
 }
 
-// Путь к найденному ghorc.json или null.
+// Path to the found ghorc.json, or null.
 function findConfig(cwd) {
   const dirs = [];
   const env = envProjectDir();
@@ -88,12 +88,12 @@ function findConfig(cwd) {
   return null;
 }
 
-// Для сообщений: найденный путь или ожидаемый в корне проекта.
+// For messages: the found path, or the expected one in the project root.
 function configPath(cwd) {
   return findConfig(cwd) || path.join(projectRoot(cwd), '.claude', 'ghorc.json');
 }
 
-// load(cwd) -> итоговый конфиг. found(cwd) -> есть ли читаемый файл проекта.
+// load(cwd) -> the final config. found(cwd) -> whether a readable project file exists.
 function load(cwd) {
   const defaults = readJson(TEMPLATE) || {};
   const file = findConfig(cwd);

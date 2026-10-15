@@ -1,40 +1,48 @@
 {
-  "_comment": "Копия кладётся в <проект>/.claude/ghorc.json. Любой ключ можно опустить: недостающее берётся из этих значений по умолчанию. Поля _comment* игнорируются.",
+  "_comment": "A copy goes to <project>/.claude/ghorc.json. Any key may be omitted: missing values come from these defaults. Keys starting with _comment are ignored.",
   "checks": {
-    "_comment": "Команды проверок проекта. Агенты запускают только fast; full запускает лид.",
+    "_comment": "Project check commands. Agents run only fast; the lead runs full.",
     "fast": "",
     "full": ""
   },
-  "_comment_heavyCommands": "Регэкспы (строки) тяжёлых команд, запрещённых субагентам. Пример: \"\\\\bnpm\\\\s+run\\\\s+test:e2e\\\\b\". Пустой список - хук ничего не запрещает.",
+  "_comment_heavyCommands": "Regexes (strings) of heavy commands that subagents may not run. Example: \"\\bnpm\\s+run\\s+test:e2e\\b\". An empty list means the hook forbids nothing.",
   "heavyCommands": [],
   "readGuard": {
-    "_comment": "Хук на Read: maxRepeat - сколько подряд чтений одного пути разрешено; maxImageBytes - предел размера картинки; leadNoMedia - лиду запрещено читать PDF и картинки.",
+    "_comment": "Read hook: maxRepeat - how many identical reads in a row are allowed; maxImageBytes - image size limit; leadNoMedia - the lead may not read PDFs and images.",
     "maxRepeat": 3,
     "maxImageBytes": 2097152,
     "leadNoMedia": true
   },
   "heavyGuard": {
-    "_comment": "requireLeadEnv: true - тяжёлые команды разрешены только процессу с переменной окружения GHORC_ROLE=lead.",
+    "_comment": "requireLeadEnv: true - heavy commands are allowed only for a process with the environment variable GHORC_ROLE=lead.",
     "requireLeadEnv": false
   },
   "thresholds": {
-    "_comment": "Пороги контекста лида в токенах: ctxPrepare - обновить STATE; ctxHandoff - не брать новое, передать смену.",
+    "_comment": "Lead context thresholds in tokens: ctxPrepare - refresh STATE; ctxHandoff - take nothing new, hand the shift over.",
     "ctxPrepare": 120000,
     "ctxHandoff": 150000
   },
   "lead": {
-    "_comment": "Модель и усилие лида; используются при запуске кандидата в /handoff. remind: напоминать лиду про skill orc при старте (GHORC_ROLE=lead напоминает всегда; воркеры стартуют с GHORC_ROLE=worker и не получают напоминания).",
+    "_comment": "Lead model and effort; used when launching the candidate in /handoff and by /ghorc:setup. remind: remind the lead about skill orc at start (GHORC_ROLE=lead always reminds; workers start with GHORC_ROLE=worker and get no reminder).",
     "model": "opus",
     "effort": "medium",
     "remind": true
   },
+  "watchdog": {
+    "_comment": "Transcript watchdog started by SessionStart for a lead session. autostart: start it detached (one per machine, pid lock in <tmp>/ghorc/watchdog.pid); intervalSec: poll period; rateMiBPerMin: growth alarm; warnMiB: size to check; stopMiB: size alarm if still growing. Alerts go to <tmp>/ghorc/alerts.log; scripts/ctx.cjs shows unread ones.",
+    "autostart": true,
+    "intervalSec": 30,
+    "rateMiBPerMin": 10,
+    "warnMiB": 100,
+    "stopMiB": 250
+  },
   "handoff": {
-    "_comment": "Постоянные разрешения владельца. allowSendKeysExit: новый лид может послать /exit в старую вкладку через herdr agent send-keys. candidatePermissionArgs: аргументы режима прав кандидата (как у старого лида), например [\"--permission-mode\", \"acceptEdits\"].",
+    "_comment": "Standing owner permissions. allowSendKeysExit: the new lead may send /exit to the old tab through herdr agent send-keys. candidatePermissionArgs: permission-mode arguments for the candidate (as for the old lead), for example [\"--permission-mode\", \"acceptEdits\"].",
     "allowSendKeysExit": false,
     "candidatePermissionArgs": [],
     "statePath": "STATE.md",
     "handoffPath": "HANDOFF.md"
   },
-  "_comment_criticalPaths": "Критичные области проекта (деньги, контракты, политика, хуки): правки здесь идут на reviewer-critical. Пример: [\"src/billing/**\", \"POLICY.md\"].",
+  "_comment_criticalPaths": "Critical areas of the project (money, contracts, policy, hooks): edits here go to ghorc:reviewer-critical. Example: [\"src/billing/**\", \"POLICY.md\"].",
   "criticalPaths": []
 }

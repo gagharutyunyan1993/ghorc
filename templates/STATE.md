@@ -1,29 +1,29 @@
-# STATE (40-80 строк; детали в файлах, здесь ссылки)
-Обновлено: <дата, время>   Сессия: <session_id>
+# STATE (40-80 lines; details live in files, link them here)
+Updated: <date, time>   Session: <session_id>
 
-## Пакет, стадия, следующий шаг
-- Пакет: <ID>   Стадия: <стадия>
-- Следующий шаг: <одно действие>
+## Package, stage, next step
+- Package: <ID>   Stage: <stage>
+- Next step: <one action>
 
-## Ветка, worktree, SHA
-- Ветка: <имя>   Worktree: <путь>   HEAD: <SHA>   HEAD основной ветки: <SHA>
+## Branch, worktree, SHA
+- Branch: <name>   Worktree: <path>   HEAD: <SHA>   Main branch HEAD: <SHA>
 
-## Работающие агенты и процессы
-- <роль, id, задача; фоновые команды; herdr-воркеры с pane id; или «нет»>
+## Running agents and processes
+- <role, id, task; background commands; herdr workers with pane id; or "none">
 
-## Решения и ссылки на них
-- <решение, дата, ссылка>
+## Decisions and links to them
+- <decision, date, link>
 
-## Открытые блокеры
-- <блокер или «нет»>
+## Open blockers
+- <blocker or "none">
 
-## Проверки
-| Дерево (SHA) | Команда | Результат | Артефакт |
+## Checks
+| Tree (SHA) | Command | Result | Artifact |
 |---|---|---|---|
-| <SHA> | <команда> | <зелёный/красный> | <путь> |
+| <SHA> | <command> | <green/red> | <path> |
 
-## Полномочия
-- <действующие разрешения владельца: платные вызовы, слияние, релиз, handoff.allowSendKeysExit>
+## Authority
+- <standing owner permissions: paid calls, merge, release, handoff.allowSendKeysExit>
 
-## Необработанные сообщения и обещанные действия
-- <список или «нет»>
+## Unprocessed messages and promised actions
+- <list or "none">

@@ -1,12 +1,13 @@
 'use strict';
-// Печатает файлы <cwd>/.claude/ctx-*.json, новые первыми; самый новый помечен *.
+// Prints <cwd>/.claude/ctx-*.json files, newest first (the newest is marked *), then the last 5 unread watchdog alerts.
 const fs = require('node:fs');
 const path = require('node:path');
 const { projectRoot } = require('./lib/config.cjs');
+const { unreadAlerts, markAlertsRead } = require('./lib/tmp.cjs');
 
 const args = process.argv.slice(2);
 if (args.includes('--help')) {
-  console.log('ctx.cjs [--max-age <минуты>] [--session <id>] [--cwd <каталог>]: показывает контекст сессий из .claude/ctx-*.json.');
+  console.log('ctx.cjs [--max-age <minutes>] [--session <id>] [--cwd <dir>]: shows session context from .claude/ctx-*.json, then the last 5 unread watchdog alerts (and marks them read).');
   process.exit(0);
 }
 function opt(name) {
@@ -30,17 +31,17 @@ try {
       try {
         data = JSON.parse(fs.readFileSync(p, 'utf8'));
       } catch {
-        /* битый файл */
+        /* broken file */
       }
       return { f, mtime, data, age: Math.round((Date.now() - mtime) / 60000) };
     })
     .filter((r) => r.age <= maxAge)
     .sort((a, b) => b.mtime - a.mtime);
 } catch {
-  /* нет каталога */
+  /* no directory */
 }
 
-if (!rows.length) console.log('нет файлов ctx-*.json (статус-строка не настроена или сессия не писала)');
+if (!rows.length) console.log('no ctx-*.json files (the status line is not configured or no session has written yet)');
 rows.forEach((r, i) => {
   const d = r.data;
   const u = d.current_usage;
@@ -51,4 +52,12 @@ rows.forEach((r, i) => {
     `${i === 0 ? '*' : ' '} ${r.f}  ${model}  ctx ${pct}  used=${used === null ? '?' : used}/${d.context_window_size ?? '?'}  age=${r.age}m`,
   );
 });
+
+const { lines, size } = unreadAlerts();
+if (lines.length) {
+  const shown = lines.slice(-5);
+  console.log(`watchdog alerts (${lines.length} unread${lines.length > shown.length ? ', last ' + shown.length + ' shown' : ''}):`);
+  for (const l of shown) console.log(`  ${l}`);
+  markAlertsRead(size);
+}
 process.exit(0);

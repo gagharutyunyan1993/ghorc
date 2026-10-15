@@ -1,6 +1,6 @@
 'use strict';
-// PreToolUse(Read): повторные чтения, PDF без pages, большие картинки, медиа у лида.
-// PostToolUse(Edit|Write|NotebookEdit|Bash|PowerShell): сброс счётчика повторов.
+// PreToolUse(Read): repeated reads, PDFs without pages, large images, media for the lead.
+// PostToolUse(Edit|Write|NotebookEdit|Bash|PowerShell): resets the repeat counter.
 const fs = require('node:fs');
 const path = require('node:path');
 const { deny, readState, writeState, run } = require('./lib/hook-io.cjs');
@@ -8,10 +8,10 @@ const { load } = require('./lib/config.cjs');
 
 if (process.argv.includes('--help')) {
   console.log(
-    'read-guard.cjs: хук Claude Code. Вход: JSON события на stdin. ' +
-      'PreToolUse(Read) может вернуть deny; PostToolUse(Edit|Write|NotebookEdit|Bash|PowerShell) сбрасывает счётчик повторов ' +
-      '(Bash и PowerShell - только если команда упоминает читаемый файл). Повтор - полностью одинаковый вызов: ' +
-      'путь, offset, limit, pages. Настройки: readGuard.* в <проект>/.claude/ghorc.json.',
+    'read-guard.cjs: Claude Code hook. Input: the event JSON on stdin. ' +
+      'PreToolUse(Read) may return deny; PostToolUse(Edit|Write|NotebookEdit|Bash|PowerShell) resets the repeat counter ' +
+      '(Bash and PowerShell only if the command mentions the file being read). A repeat is a fully identical call: ' +
+      'path, offset, limit, pages. Settings: readGuard.* in <project>/.claude/ghorc.json.',
   );
   process.exit(0);
 }
@@ -35,7 +35,7 @@ run((input) => {
     if (EDIT_TOOLS.includes(input.tool_name)) {
       writeState(sid, stateName, {});
     } else if (SHELL_TOOLS.includes(input.tool_name)) {
-      // Любая команда не сбрасывает всё: только если она упоминает читаемый файл.
+      // A command does not reset everything: only if it mentions the file being read.
       const st = readState(sid, stateName);
       const cmd = String((input.tool_input && input.tool_input.command) || '').toLowerCase();
       if (st.path && cmd.includes(path.basename(st.path).toLowerCase())) writeState(sid, stateName, {});
@@ -60,13 +60,13 @@ run((input) => {
   const isMediaRole = /(^|:)media$/.test(String(input.agent_type || ''));
 
   if (leadNoMedia && !input.agent_id && (isPdf || isImage)) {
-    return deny('лид не читает медиа; отдай роли media.');
+    return deny('the lead does not read media; hand it to the media role.');
   }
   if (isPdf && !ti.pages) {
     return deny(
       isMediaRole
-        ? 'PDF без pages не читать: сначала pdftotext или pdftoppm, затем читай по страницам (pages).'
-        : 'PDF без pages не читать: сделай pdftotext/pdftoppm или укажи pages, лучше отдай роли media.',
+        ? 'Do not read a PDF without pages: run pdftotext or pdftoppm first, then read by page (pages).'
+        : 'Do not read a PDF without pages: run pdftotext/pdftoppm or set pages, or better hand it to the media role.',
     );
   }
   if (isImage) {
@@ -74,23 +74,23 @@ run((input) => {
     try {
       size = fs.statSync(path.resolve(input.cwd || process.cwd(), file)).size;
     } catch {
-      /* нет файла - пусть Read сам скажет */
+      /* no file: let Read report it */
     }
     if (size > maxImage) {
       return deny(
-        `картинка ${size} байт больше лимита ${maxImage}: уменьши (pdftoppm -r, resize)` +
-          (isMediaRole ? '.' : ' или отдай роли media.'),
+        `image of ${size} bytes exceeds the limit ${maxImage}: shrink it (pdftoppm -r, resize)` +
+          (isMediaRole ? '.' : ' or hand it to the media role.'),
       );
     }
   }
 
-  if (!sid) return; // без session_id общего состояния не заводим
+  if (!sid) return; // without session_id we keep no shared state
   const key = [abs, ti.offset ?? '', ti.limit ?? '', ti.pages ?? ''].join('|');
   const st = readState(sid, stateName);
   if (st.key === key) {
     if (st.count >= maxRepeat) {
       return deny(
-        `тот же вызов Read повторён ${st.count} раз подряд без правок: не перечитывай, используй уже полученное или сначала измени файл (Edit/Write).`,
+        `the same Read call was repeated ${st.count} times in a row without edits: do not re-read, use what you already have or change the file first (Edit/Write).`,
       );
     }
     writeState(sid, stateName, { key, path: abs, count: st.count + 1 });

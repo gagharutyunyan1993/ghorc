@@ -1,8 +1,8 @@
 'use strict';
-// Общие помощники хуков: чтение stdin, решение deny, состояние в tmpdir.
+// Shared hook helpers: reading stdin, the deny decision, per-session state in tmpdir.
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
+const { tmpDir } = require('./tmp.cjs');
 
 function readStdin() {
   try {
@@ -21,7 +21,7 @@ function parseInput(raw) {
   }
 }
 
-// Единственный разрешённый вывод хука в stdout - JSON решения.
+// The only output a hook may write to stdout is the decision JSON.
 function deny(reason) {
   process.stdout.write(
     JSON.stringify({
@@ -39,7 +39,7 @@ function safeId(s) {
 }
 
 function stateDir(sessionId) {
-  return path.join(os.tmpdir(), 'ghorc', safeId(sessionId));
+  return path.join(tmpDir(), safeId(sessionId));
 }
 
 function readState(sessionId, name) {
@@ -56,11 +56,11 @@ function writeState(sessionId, name, data) {
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, name), JSON.stringify(data));
   } catch {
-    /* состояние необязательно */
+    /* state is optional */
   }
 }
 
-// Обёртка: любой сбой - тихий выход 0 (разрешить).
+// Wrapper: any failure exits 0 silently (allow).
 function run(fn) {
   try {
     const input = parseInput(readStdin());

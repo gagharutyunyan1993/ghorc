@@ -1,15 +1,17 @@
 'use strict';
-// statusLine: одна строка + файл <корень проекта>/.claude/ctx-<session_id>.json для лида.
+// statusLine: one line + the file <project root>/.claude/ctx-<session_id>.json for the lead.
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { projectRoot, gitCommonRoot } = require('./lib/config.cjs');
+const { tmpDir } = require('./lib/tmp.cjs');
 
 if (process.argv.includes('--help')) {
   console.log(
-    'statusline.cjs: команда statusLine. Читает JSON со stdin, печатает "model ·effort | ctx NN% (used/size) | 5h | 7d | role | branch | session" ' +
-      'и пишет <корень проекта>/.claude/ctx-<session_id>.json. GHORC_STATUSLINE_DUMP=<файл> дописывает сырой stdin. ' +
-      'NO_COLOR / GHORC_STATUSLINE_PLAIN=1 отключают цвет. См. README.',
+    'statusline.cjs: statusLine command. Reads JSON from stdin, prints "model ·effort | ctx NN% (used/size) | 5h | 7d | role | branch | session" ' +
+      'and writes <project root>/.claude/ctx-<session_id>.json. GHORC_STATUSLINE_DUMP=<file> appends the raw stdin. ' +
+      'The first raw stdin is also saved once to <tmpdir>/ghorc/statusline-sample.json. ' +
+      'NO_COLOR / GHORC_STATUSLINE_PLAIN=1 disable color. See README.',
   );
   process.exit(0);
 }
@@ -42,7 +44,7 @@ function num(v) {
   return typeof v === 'number' && isFinite(v) ? v : null;
 }
 
-// Форма rate_limits.* не документирована: ищем правдоподобные ключи, остальное пропускаем.
+// The shape of rate_limits.* is undocumented: look for plausible keys and skip the rest.
 function limitPct(o) {
   if (typeof o === 'number') return o;
   if (!o || typeof o !== 'object') return null;
@@ -104,14 +106,27 @@ try {
   raw = fs.readFileSync(0, 'utf8');
   input = JSON.parse(raw) || {};
 } catch {
-  /* пустой ввод */
+  /* empty input */
 }
 
 try {
   const dump = process.env.GHORC_STATUSLINE_DUMP;
   if (dump && raw.trim()) fs.appendFileSync(dump, raw.replace(/\r?\n/g, ' ').trim() + '\n');
 } catch {
-  /* дамп необязателен */
+  /* the dump is optional */
+}
+try {
+  // One-time live sample (no env needed): captured so the real rate_limits shape can be learned.
+  if (raw.trim()) {
+    const sampleDir = tmpDir();
+    const sample = path.join(sampleDir, 'statusline-sample.json');
+    if (!fs.existsSync(sample)) {
+      fs.mkdirSync(sampleDir, { recursive: true });
+      fs.writeFileSync(sample, raw);
+    }
+  }
+} catch {
+  /* the sample is optional */
 }
 
 const cw = input.context_window || {};
@@ -139,8 +154,8 @@ try {
   else {
     ctx = paint(band(pct), `ctx ${Math.round(pct)}% (${fmt(used)}/${fmt(size)})`);
   }
-  // Порог автокомпакта: переменная CLAUDE_AUTOCOMPACT_PCT_OVERRIDE = процент заполнения, при котором компакт (facts-plugin
-  // умолчание не фиксирует), поэтому маркер печатается только когда переменная задана.
+  // Autocompact threshold: CLAUDE_AUTOCOMPACT_PCT_OVERRIDE is the fill percentage at which compaction happens;
+  // the default is not documented, so the marker is printed only when the variable is set.
   const ac = Number(process.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE);
   if (process.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE && isFinite(ac) && ac > 0 && ac <= 100) {
     ctx += paint(DIM, ` →ac ${Math.round(ac)}%`);
@@ -194,5 +209,5 @@ try {
     fs.renameSync(tmp, target);
   }
 } catch {
-  /* не мешаем строке состояния */
+  /* never break the status line */
 }

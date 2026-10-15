@@ -1,33 +1,34 @@
-## Оркестрация (ghorc)
+<!-- ghorc -->
+## Orchestration (ghorc)
 
-Плагин `ghorc` даёт роли, skills и хуки. Настройки проекта - `.claude/ghorc.json`. Лид в начале сессии загружает skill `orc`.
+The `ghorc` plugin provides roles, skills and hooks. Project settings live in `.claude/ghorc.json`. At the start of a session the lead loads the `orc` skill.
 
-### Роли
-| Роль | Модель / усилие | Для чего |
+### Roles
+| Role | Model / effort | Purpose |
 |---|---|---|
-| `ghorc:implementer` | sonnet / medium (деньги, миграции - high) | код, тесты, документы по брифу |
-| `ghorc:reviewer` | sonnet / medium | обычное ревью по диффу |
-| `ghorc:reviewer-critical` | opus / high | критичное ревью, итоговый вердикт критичного пакета |
-| `ghorc:scout` | sonnet / low | факты с `file:line` в файл |
-| `ghorc:integrator` | sonnet / medium | конфликты слияния, красные проверки |
-| `ghorc:release` | sonnet / medium | релиз, только по слову владельца |
-| `ghorc:consult` | sonnet / low | консультации во внешних моделях |
-| `ghorc:media` | sonnet / low | единственная роль для PDF и изображений |
+| `ghorc:implementer` | sonnet / medium (money, migrations - high) | code, tests, documents from a brief |
+| `ghorc:reviewer` | sonnet / medium | ordinary diff review |
+| `ghorc:reviewer-critical` | opus / high | critical review, final verdict of a critical package |
+| `ghorc:scout` | sonnet / low | facts with `file:line` written to a file |
+| `ghorc:integrator` | sonnet / medium | merge conflicts, red checks |
+| `ghorc:release` | sonnet / medium | release, only on the owner's word |
+| `ghorc:consult` | sonnet / low | consultations with external models |
+| `ghorc:media` | sonnet / low | the only role for PDFs and images |
 
-### Проверки проекта
-- fast: `<команда>` (запускают агенты и лид)
-- full: `<команда>` (один, только лид, в фоне, после fast)
-- Голый тест-раннер и full у агентов запрещены.
+### Project checks
+- fast: `<command>` (run by agents and the lead)
+- full: `<command>` (one at a time, lead only, in the background, after fast)
+- A bare test runner and full are forbidden for agents.
 
-### Критичные области
-`<деньги, контракты, политика, хуки: пути и инварианты>`. Правки здесь - `reviewer-critical`.
+### Critical areas
+`<money, contracts, policy, hooks: paths and invariants>`. Edits here go to `ghorc:reviewer-critical`.
 
-### Правила лида
-- Лид запускается явно: `--model opus --effort medium`. При каждом вызове Agent передавай `effort` явно по таблице skill `orc`; не полагайся на frontmatter и глобальные настройки.
-- Лид не читает PDF и изображения (роль `media`), не читает логи и файлы >100 строк целиком, не пишет код пакетов, не гоняет проверки синхронно, не опрашивает агентов.
-- Мелочь (≤2 команды, вывод ≤100 строк) - сам; остальное агентам, крупное в файл.
-- Пороги контекста (`node "<plugin>/scripts/ctx.cjs"`): 120K - обновить STATE; 150K - новый пакет не брать, skill `handoff`; ~170K - передача на границе этапа.
-- Бриф - skill `brief`; обычный ≤500 слов. Отчёт агента ≤25 строк (ревью ≤30), крупное в файл.
-- Ревью: максимум 3 круга; второй CHANGES_REQUIRED - лид меняет постановку.
-- Лимит: лид + 2 рабочих суммарно; одна тяжёлая проверка на машину.
-- Состояние - `STATE.md` (40-80 строк), источник истины - он, не разговор.
+### Lead rules
+- The lead is started explicitly: `--model opus --effort medium`. On every Agent call pass `effort` explicitly from the table in skill `ghorc:orc`; do not rely on frontmatter or global settings.
+- The lead does not read PDFs and images (role `ghorc:media`), does not read logs or files over 100 lines whole, does not write package code, does not run checks synchronously, does not poll agents.
+- Small things (at most 2 commands, output at most 100 lines) - do them yourself; the rest goes to agents, large output to a file.
+- Context thresholds (`node "<plugin>/scripts/ctx.cjs"`): 120K - refresh STATE; 150K - take no new package, skill `ghorc:handoff`; ~170K - hand over at a stage boundary.
+- A brief is written with skill `ghorc:brief`; an ordinary one is at most 500 words. An agent report is at most 25 lines (review at most 30), large output to a file.
+- Review: at most 3 rounds; a second CHANGES_REQUIRED means the lead changes the task statement.
+- Limit: the lead plus 2 workers in total; one heavy check per machine.
+- State lives in `STATE.md` (40-80 lines); it is the source of truth, not the conversation.

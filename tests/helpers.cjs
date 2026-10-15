@@ -5,12 +5,16 @@ const os = require('node:os');
 const path = require('node:path');
 
 const SCRIPTS = path.join(__dirname, '..', 'scripts');
+// Per-process temp area: keeps tests away from the real <tmp>/ghorc and from the real ~/.claude/projects.
+const TEST_TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'ghorc-testtmp-'));
+const TEST_ROOT = path.join(TEST_TMP, 'transcripts');
+fs.mkdirSync(TEST_ROOT, { recursive: true });
 
 function runScript(name, input, opts = {}) {
   const r = spawnSync(process.execPath, [path.join(SCRIPTS, name), ...(opts.args || [])], {
     input: typeof input === 'string' ? input : JSON.stringify(input),
     encoding: 'utf8',
-    env: { ...process.env, CLAUDE_PROJECT_DIR: '', GHORC_ROLE: '', ...(opts.env || {}) },
+    env: { ...process.env, CLAUDE_PROJECT_DIR: '', GHORC_ROLE: '', GHORC_TMP: TEST_TMP, GHORC_WATCHDOG_ROOT: TEST_ROOT, ...(opts.env || {}) },
     cwd: opts.cwd,
   });
   return { code: r.status, out: r.stdout, err: r.stderr };
@@ -38,12 +42,25 @@ function tmpProject(config) {
 let n = 0;
 const made = [];
 process.on('exit', () => {
-  for (const d of made) fs.rmSync(d, { recursive: true, force: true });
+  // A session-start test may have autostarted the watchdog: stop it before removing its files.
+  try {
+    const pid = Number(fs.readFileSync(path.join(TEST_TMP, 'watchdog.pid'), 'utf8'));
+    if (pid) process.kill(pid);
+  } catch {
+    /* none running */
+  }
+  for (const d of [...made, TEST_TMP]) {
+    try {
+      fs.rmSync(d, { recursive: true, force: true });
+    } catch {
+      /* a log file may still be open for a moment */
+    }
+  }
 });
 function sid() {
   const id = `test-${process.pid}-${Date.now()}-${n++}`;
-  made.push(path.join(os.tmpdir(), 'ghorc', id));
+  made.push(path.join(TEST_TMP, id));
   return id;
 }
 
-module.exports = { runScript, isDeny, tmpProject, sid };
+module.exports = { runScript, isDeny, tmpProject, sid, TEST_TMP, TEST_ROOT };

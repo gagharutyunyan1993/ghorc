@@ -23,7 +23,7 @@ const post = (s, cwd, tool, tool_input = {}, agent_id = 'ag1') => ({
   tool_input,
 });
 
-test('P1-1: чтение файла по частям (разные offset) не считается повтором', () => {
+test('P1-1: reading a file in parts (different offsets) is not a repeat', () => {
   const s = sid();
   const cwd = tmpProject();
   for (const offset of [1, 2001, 4001, 6001, 8001]) {
@@ -31,7 +31,7 @@ test('P1-1: чтение файла по частям (разные offset) не
   }
 });
 
-test('P1-1: PDF по разным pages разрешён, одинаковый вызов повторяется до лимита', () => {
+test('P1-1: PDF with different pages is allowed, an identical call repeats up to the limit', () => {
   const s = sid();
   const cwd = tmpProject({ readGuard: { leadNoMedia: false } });
   for (const pages of ['1-5', '6-10', '11-15', '16-20']) {
@@ -42,7 +42,7 @@ test('P1-1: PDF по разным pages разрешён, одинаковый �
   assert.equal(isDeny(runScript('read-guard.cjs', read(s2, cwd, 'a.txt', { offset: 5 }))), true);
 });
 
-test('P2-1: пути нормализуются (относительный и абсолютный - один файл)', () => {
+test('P2-1: paths are normalized (relative and absolute are one file)', () => {
   const s = sid();
   const cwd = tmpProject();
   const abs = path.join(cwd, 'a.txt');
@@ -52,7 +52,7 @@ test('P2-1: пути нормализуются (относительный и �
   assert.equal(isDeny(runScript('read-guard.cjs', read(s, cwd, abs))), true);
 });
 
-test('P2-2: PowerShell и NotebookEdit сбрасывают счётчик', () => {
+test('P2-2: PowerShell and NotebookEdit reset the counter', () => {
   for (const tool of ['NotebookEdit', 'PowerShell']) {
     const s = sid();
     const cwd = tmpProject();
@@ -63,7 +63,7 @@ test('P2-2: PowerShell и NotebookEdit сбрасывают счётчик', () 
   }
 });
 
-test('P2-3: посторонняя команда Bash счётчик не сбрасывает', () => {
+test('P2-3: an unrelated Bash command does not reset the counter', () => {
   const s = sid();
   const cwd = tmpProject();
   for (let i = 0; i < 3; i++) runScript('read-guard.cjs', read(s, cwd, 'a.txt'));
@@ -73,23 +73,23 @@ test('P2-3: посторонняя команда Bash счётчик не сб�
   assert.doesNotMatch(JSON.parse(r.out).hookSpecificOutput.permissionDecisionReason, /Bash/);
 });
 
-test('P2-10: роли media не советуют «отдай роли media»', () => {
+test('P2-10: the media role is not told to hand it to the media role', () => {
   const s = sid();
   const cwd = tmpProject();
   const input = { ...read(s, cwd, 'x.pdf'), agent_type: 'ghorc:media' };
   const r = runScript('read-guard.cjs', input);
   assert.equal(isDeny(r), true);
-  assert.doesNotMatch(JSON.parse(r.out).hookSpecificOutput.permissionDecisionReason, /роли media/);
+  assert.doesNotMatch(JSON.parse(r.out).hookSpecificOutput.permissionDecisionReason, /to the media role/);
 });
 
-test('P2-5: без session_id счётчик не ведётся', () => {
+test('P2-5: no counter is kept without session_id', () => {
   const cwd = tmpProject();
   for (let i = 0; i < 6; i++) {
     assert.equal(isDeny(runScript('read-guard.cjs', read(undefined, cwd, 'a.txt'))), false);
   }
 });
 
-test('P1-3: конфиг находится из подкаталога проекта (подъём до корня git)', () => {
+test('P1-3: the config is found from a project subdirectory (walk up to the git root)', () => {
   const cwd = tmpProject({ heavyCommands: ['\\bnpm\\s+test\\b'] });
   fs.mkdirSync(path.join(cwd, '.git'));
   const sub = path.join(cwd, 'a', 'b');
@@ -98,7 +98,7 @@ test('P1-3: конфиг находится из подкаталога прое
   assert.equal(isDeny(runScript('heavy-check-guard.cjs', input)), true);
 });
 
-test('P1-3: CLAUDE_PROJECT_DIR имеет приоритет над cwd', () => {
+test('P1-3: CLAUDE_PROJECT_DIR takes priority over cwd', () => {
   const proj = tmpProject({ heavyCommands: ['zzheavy'] });
   const other = tmpProject();
   const input = { hook_event_name: 'PreToolUse', session_id: sid(), cwd: other, agent_id: 'ag1', tool_name: 'Bash', tool_input: { command: 'run zzheavy' } };
@@ -106,7 +106,7 @@ test('P1-3: CLAUDE_PROJECT_DIR имеет приоритет над cwd', () => 
   assert.equal(isDeny(runScript('heavy-check-guard.cjs', input)), false);
 });
 
-test('P1-3: config.load и found из подкаталога', () => {
+test('P1-3: config.load and found from a subdirectory', () => {
   const config = require('../scripts/lib/config.cjs');
   const cwd = tmpProject({ readGuard: { maxRepeat: 9 } });
   fs.mkdirSync(path.join(cwd, '.git'));
@@ -116,48 +116,48 @@ test('P1-3: config.load и found из подкаталога', () => {
   assert.equal(config.found(sub), true);
 });
 
-test('P1-2: напоминание про skill orc только лиду', () => {
+test('P1-2: the skill orc reminder goes to the lead only', () => {
   const cwd = tmpProject();
   const input = { hook_event_name: 'SessionStart', session_id: sid(), cwd };
-  assert.match(runScript('session-start.cjs', input).out, /skill orc/);
-  assert.match(runScript('session-start.cjs', input, { env: { GHORC_ROLE: 'lead' } }).out, /skill orc/);
-  assert.doesNotMatch(runScript('session-start.cjs', input, { env: { GHORC_ROLE: 'worker' } }).out, /skill orc/);
-  assert.doesNotMatch(runScript('session-start.cjs', { ...input, agent_id: 'a1' }).out, /skill orc/);
+  assert.match(runScript('session-start.cjs', input).out, /skill ghorc:orc/);
+  assert.match(runScript('session-start.cjs', input, { env: { GHORC_ROLE: 'lead' } }).out, /skill ghorc:orc/);
+  assert.doesNotMatch(runScript('session-start.cjs', input, { env: { GHORC_ROLE: 'worker' } }).out, /skill ghorc:orc/);
+  assert.doesNotMatch(runScript('session-start.cjs', { ...input, agent_id: 'a1' }).out, /skill ghorc:orc/);
   const off = tmpProject({ lead: { remind: false } });
-  assert.doesNotMatch(runScript('session-start.cjs', { ...input, cwd: off }).out, /skill orc/);
-  assert.match(runScript('session-start.cjs', { ...input, cwd: off }, { env: { GHORC_ROLE: 'lead' } }).out, /skill orc/);
+  assert.doesNotMatch(runScript('session-start.cjs', { ...input, cwd: off }).out, /skill ghorc:orc/);
+  assert.match(runScript('session-start.cjs', { ...input, cwd: off }, { env: { GHORC_ROLE: 'lead' } }).out, /skill ghorc:orc/);
 });
 
-test('P2-4: check-config ловит битый регэксп, session-start пишет одну строку', () => {
-  const cwd = tmpProject({ heavyCommands: ['(['], readGuard: { maxRepeat: 'три' }, bogus: 1 });
+test('P2-4: check-config catches a broken regex, session-start prints one line', () => {
+  const cwd = tmpProject({ heavyCommands: ['(['], readGuard: { maxRepeat: 'three' }, bogus: 1 });
   const r = runScript('check-config.cjs', '', { args: ['--cwd', cwd] });
   assert.equal(r.code, 1);
-  assert.match(r.out, /регэксп не компилируется/);
-  assert.match(r.out, /неизвестный ключ: bogus/);
+  assert.match(r.out, /regex does not compile/);
+  assert.match(r.out, /unknown key: bogus/);
   assert.match(r.out, /readGuard\.maxRepeat/);
   const s = runScript('session-start.cjs', { hook_event_name: 'SessionStart', session_id: sid(), cwd });
-  assert.equal(s.out.split('\n').filter((l) => l.startsWith('конфиг неверен')).length, 1);
+  assert.equal(s.out.split('\n').filter((l) => l.startsWith('config invalid')).length, 1);
 });
 
-test('P2-4: check-config --sample и валидный конфиг', () => {
+test('P2-4: check-config --sample and a valid config', () => {
   const cwd = tmpProject({ heavyCommands: ['\\bnpm\\s+(run\\s+)?test\\b(?!:)'] });
   const r = runScript('check-config.cjs', '', { args: ['--cwd', cwd, '--sample', 'NPM  test; echo done', '--sample', 'git status'] });
   assert.equal(r.code, 0);
-  assert.match(r.out, /образец "NPM  test; echo done": ТЯЖЁЛАЯ/);
-  assert.match(r.out, /образец "git status": обычная/);
-  assert.match(r.out, /ошибок нет/);
+  assert.match(r.out, /sample "NPM  test; echo done": HEAVY/);
+  assert.match(r.out, /sample "git status": ordinary/);
+  assert.match(r.out, /no errors/);
 });
 
-test('P2-4: невалидный JSON конфига не ломает хуки (fail open)', () => {
+test('P2-4: invalid config JSON does not break the hooks (fail open)', () => {
   const cwd = tmpProject();
   fs.mkdirSync(path.join(cwd, '.claude'));
   fs.writeFileSync(path.join(cwd, '.claude', 'ghorc.json'), '{bad');
   const r = runScript('check-config.cjs', '', { args: ['--cwd', cwd] });
   assert.equal(r.code, 1);
-  assert.match(r.out, /невалидный JSON/);
+  assert.match(r.out, /invalid JSON/);
 });
 
-test('P2-6: --notify получает текст тревоги одним аргументом', () => {
+test('P2-6: --notify receives the alert text as one argument', () => {
   const root = tmpProject();
   fs.mkdirSync(path.join(root, 'dir with space'));
   fs.writeFileSync(path.join(root, 'dir with space', 'big file.jsonl'), Buffer.alloc(2 * 1024 * 1024));
@@ -172,15 +172,15 @@ test('P2-6: --notify получает текст тревоги одним ар�
   assert.equal(got.env, got.argv[0]);
 });
 
-test('P2-7: watchdog тревожит о файле субагента выше порога', () => {
+test('P2-7: the watchdog alerts about a subagent file above the threshold', () => {
   const root = tmpProject();
   fs.mkdirSync(path.join(root, 'subagents'));
   fs.writeFileSync(path.join(root, 'subagents', 'a.jsonl'), Buffer.alloc(2 * 1024 * 1024));
   const r = runScript('watchdog.cjs', '', { args: ['--once', '--root', root, '--warnMiB', '100', '--subagentsMiB', '1'] });
-  assert.match(r.out, /файл субагента больше 1 MiB/);
+  assert.match(r.out, /subagent file over 1 MiB/);
 });
 
-test('P2-8: statusline пишет в корень проекта (git), атомарно, ctx --session', () => {
+test('P2-8: statusline writes to the project root (git), atomically, ctx --session', () => {
   const proj = tmpProject();
   fs.mkdirSync(path.join(proj, '.git'));
   const sub = path.join(proj, 'sub');
@@ -194,14 +194,14 @@ test('P2-8: statusline пишет в корень проекта (git), атом
   const r = runScript('ctx.cjs', '', { args: ['--cwd', sub, '--session', s2] });
   assert.equal(r.out.trim().split('\n').length, 1);
   assert.match(r.out, new RegExp(`ctx-${s2}`));
-  // workspace.project_dir важнее cwd
+  // workspace.project_dir beats cwd
   const pd = tmpProject();
   const s3 = sid();
   runScript('statusline.cjs', { session_id: s3, cwd: sub, workspace: { project_dir: pd }, context_window: {} });
   assert.ok(fs.existsSync(path.join(pd, '.claude', `ctx-${s3}.json`)));
 });
 
-test('круг 2: --notify через шелл, один аргумент (в т.ч. .cmd на Windows)', { skip: process.platform !== 'win32' && 'только Windows' }, () => {
+test('round 2: --notify through the shell, one argument (including .cmd on Windows)', { skip: process.platform !== 'win32' && 'Windows only' }, () => {
   const root = tmpProject();
   fs.writeFileSync(path.join(root, 'big file.jsonl'), Buffer.alloc(2 * 1024 * 1024));
   const out = path.join(root, 'n.json');
@@ -216,7 +216,7 @@ test('круг 2: --notify через шелл, один аргумент (в т
   assert.match(argv[0], /big file\.jsonl/);
 });
 
-test('круг 2: корень проекта из worktree - основной репозиторий (git worktree add)', () => {
+test('round 2: the project root from a worktree is the main repository (git worktree add)', () => {
   const { spawnSync } = require('node:child_process');
   const config = require('../scripts/lib/config.cjs');
   const repo = fs.realpathSync(tmpProject());
@@ -230,14 +230,14 @@ test('круг 2: корень проекта из worktree - основной �
   try {
     const real = (p) => fs.realpathSync(p).toLowerCase();
     assert.equal(real(config.projectRoot(wt)), real(repo));
-    // statusline из worktree пишет ctx в основной репозиторий
+    // statusline from a worktree writes ctx to the main repository
     const s = sid();
     runScript('statusline.cjs', { session_id: s, cwd: wt, context_window: { used_percentage: 3 } });
     assert.ok(fs.existsSync(path.join(repo, '.claude', `ctx-${s}.json`)));
     assert.ok(!fs.existsSync(path.join(wt, '.claude')));
-    // ctx.cjs из worktree видит тот же файл
+    // ctx.cjs from a worktree sees the same file
     assert.match(runScript('ctx.cjs', '', { args: ['--cwd', wt, '--session', s] }).out, new RegExp(`ctx-${s}`));
-    // конфиг основного репозитория находится из worktree
+    // the main repository config is found from the worktree
     fs.mkdirSync(path.join(repo, '.claude'), { recursive: true });
     fs.writeFileSync(path.join(repo, '.claude', 'ghorc.json'), JSON.stringify({ readGuard: { maxRepeat: 8 } }));
     assert.equal(config.load(wt).readGuard.maxRepeat, 8);

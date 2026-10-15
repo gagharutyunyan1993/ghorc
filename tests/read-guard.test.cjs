@@ -23,16 +23,16 @@ const post = (s, tool, extra = {}) => ({
   tool_input: {},
 });
 
-test('4-е подряд чтение того же файла запрещено, 3 первых разрешены', () => {
+test('the 4th identical read in a row is denied, the first 3 are allowed', () => {
   const s = sid();
   const cwd = tmpProject();
   for (let i = 1; i <= 3; i++) {
-    assert.equal(isDeny(runScript('read-guard.cjs', pre(s, 'a.txt', { agent_id: 'ag1', cwd }))), false, `чтение ${i}`);
+    assert.equal(isDeny(runScript('read-guard.cjs', pre(s, 'a.txt', { agent_id: 'ag1', cwd }))), false, `read ${i}`);
   }
   assert.equal(isDeny(runScript('read-guard.cjs', pre(s, 'a.txt', { agent_id: 'ag1', cwd }))), true);
 });
 
-test('Read после Edit разрешён (счётчик сброшен)', () => {
+test('Read after Edit is allowed (counter reset)', () => {
   const s = sid();
   const cwd = tmpProject();
   for (let i = 0; i < 3; i++) runScript('read-guard.cjs', pre(s, 'a.txt', { agent_id: 'ag1', cwd }));
@@ -40,28 +40,28 @@ test('Read после Edit разрешён (счётчик сброшен)', ()
   assert.equal(isDeny(runScript('read-guard.cjs', pre(s, 'a.txt', { agent_id: 'ag1', cwd }))), false);
 });
 
-test('счётчики агентов раздельны', () => {
+test('agent counters are separate', () => {
   const s = sid();
   const cwd = tmpProject();
   for (let i = 0; i < 3; i++) runScript('read-guard.cjs', pre(s, 'a.txt', { agent_id: 'ag1', cwd }));
   assert.equal(isDeny(runScript('read-guard.cjs', pre(s, 'a.txt', { agent_id: 'ag2', cwd }))), false);
 });
 
-test('maxRepeat берётся из конфига', () => {
+test('maxRepeat comes from the config', () => {
   const s = sid();
   const cwd = tmpProject({ readGuard: { maxRepeat: 1 } });
   runScript('read-guard.cjs', pre(s, 'a.txt', { agent_id: 'ag1', cwd }));
   assert.equal(isDeny(runScript('read-guard.cjs', pre(s, 'a.txt', { agent_id: 'ag1', cwd }))), true);
 });
 
-test('PDF без pages запрещён агенту, с pages разрешён', () => {
+test('PDF without pages is denied to an agent, with pages allowed', () => {
   const s = sid();
   const cwd = tmpProject();
   assert.equal(isDeny(runScript('read-guard.cjs', pre(s, 'x.pdf', { agent_id: 'ag1', cwd }))), true);
   assert.equal(isDeny(runScript('read-guard.cjs', pre(s, 'x.pdf', { agent_id: 'ag1', cwd }, { pages: '1-2' }))), false);
 });
 
-test('картинка больше лимита запрещена агенту, меньше - разрешена', () => {
+test('an image above the limit is denied to an agent, below it allowed', () => {
   const s = sid();
   const cwd = tmpProject({ readGuard: { maxImageBytes: 1000 } });
   const big = path.join(os.tmpdir(), `orc-big-${process.pid}.png`);
@@ -77,7 +77,7 @@ test('картинка больше лимита запрещена агенту
   }
 });
 
-test('лид (нет agent_id) не читает PDF и картинки; leadNoMedia=false отключает', () => {
+test('the lead (no agent_id) does not read PDFs and images; leadNoMedia=false disables this', () => {
   const s = sid();
   const cwd = tmpProject();
   const r = runScript('read-guard.cjs', pre(s, 'x.pdf', { cwd }, { pages: '1' }));
@@ -88,17 +88,17 @@ test('лид (нет agent_id) не читает PDF и картинки; leadNo
   assert.equal(isDeny(runScript('read-guard.cjs', pre(s, 'x.png', { cwd: cwd2 }))), false);
 });
 
-test('обычный текстовый файл лидом читается', () => {
+test('the lead can read an ordinary text file', () => {
   assert.equal(isDeny(runScript('read-guard.cjs', pre(sid(), 'a.md', { cwd: tmpProject() }))), false);
 });
 
-test('мусор на stdin: exit 0, пустой вывод', () => {
-  const r = runScript('read-guard.cjs', 'не json {{{');
+test('garbage on stdin: exit 0, empty output', () => {
+  const r = runScript('read-guard.cjs', 'not json {{{');
   assert.equal(r.code, 0);
   assert.equal(r.out, '');
 });
 
-test('--help печатает справку', () => {
+test('--help prints usage', () => {
   const r = runScript('read-guard.cjs', '', { args: ['--help'] });
   assert.equal(r.code, 0);
   assert.match(r.out, /read-guard/);

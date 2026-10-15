@@ -7,7 +7,7 @@
       "name": "ghorc",
       "source": "./",
       "description": "Orchestration kit: roles, lead skills, guard hooks, statusline, watchdog.",
-      "version": "0.2.0"
+      "version": "0.3.0"
     }
   ]
 }
