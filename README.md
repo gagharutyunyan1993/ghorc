@@ -370,7 +370,8 @@ herdr agent read lead-next
 **Guards:** candidate `blocked` or no READY by the deadline - the old lead reports, closes the candidate and its tab,
 voids the `handoff_id` and continues. One candidate per `handoff_id`. After 2 failed handoffs, ask the owner.
 The candidate does not start its own rotation. Never delete uncommitted changes for a "clean intake"; never kill
-processes by the name `claude`. A candidate with a large context from the start points to oversized startup instructions.
+processes by the name `claude`. A candidate with a large context from the start points to oversized startup
+instructions.
 
 **Without herdr** (`HERDR_ENV` is not `1`) the skill runs no herdr command and prints the fallback: write STATE.md at
 `handoff.statePath`, the owner runs `/clear`, then says "read STATE.md and continue". Cheaper, but it does not free
