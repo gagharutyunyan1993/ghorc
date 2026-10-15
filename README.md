@@ -243,7 +243,8 @@ context window: check `context_window_size` in `ctx.cjs` (18% of 1M is about 180
 ### Brief
 
 Seven tags in order: `<role>`, `<context>`, `<read_first>`, `<you_own>`, `<steps>`, `<constraints>`,
-`<report_back>`. `/ghorc:brief` has the full templates. A filled example:
+`<report_back>`. `/ghorc:brief` has the full templates. Reports, scratch and large outputs go to
+`<project>/.claude/ghorc-out/` (setup git-excludes it). A filled example:
 
 ```
 <role>You are the implementer of task E12. You work alone and spawn no subagents.</role>
@@ -335,12 +336,13 @@ Each alert names the transcript path, its size and growth rate.
 **When:** context reaches 150K at a package boundary, or ~170K at the nearest stage boundary.
 
 **Preconditions:** `HERDR_ENV=1` (the lead runs inside herdr); no background agents or commands of the lead; herdr
-workers listed in HANDOFF with pane ids; owner messages that arrived during the handoff written to STATE first.
+workers listed in HANDOFF with pane ids; STATE.md written first with the mandatory sections `in_flight`,
+`unanswered_owner_messages` (verbatim, with time), `head` (git HEAD) and `seq` (+1 on every write).
 
 **Sequence** (`/ghorc:handoff` drives it with `lead.*` and `handoff.*`; never use `--wait`):
 
 1. Fill `handoff.handoffPath` from `templates/HANDOFF.md`, `status: DRAFT`.
-2. Start the candidate in a new tab, prompt it (the skill has the full prompt text), wait up to 10 minutes, read:
+2. Start the candidate in a new tab, prompt it (the skill has the full prompt text), wait for READY, read:
 
 ```
 herdr tab create
@@ -348,23 +350,27 @@ herdr tab create
 GHORC_ROLE=lead herdr agent start lead-next --kind claude -- --model opus --effort medium <permArgs>
 # PowerShell
 $env:GHORC_ROLE='lead'; herdr agent start lead-next --kind claude -- --model opus --effort medium <permArgs>
-herdr agent prompt lead-next "Read HANDOFF.md, verify it against git, answer READY handoff=<id>."
+herdr agent prompt lead-next "Read HANDOFF.md, verify it against git, answer READY handoff=<id>; wait for ACTIVATE."
 herdr agent wait lead-next --until idle,blocked
 herdr agent read lead-next
 ```
 
 3. **READY:** the candidate answers `READY handoff=<id>`, state path, next action, restrictions, discrepancies. With
-   discrepancies the old lead fixes HANDOFF and asks again in the same tab.
-4. **STOP:** on an accepted READY the old lead writes `status: SENT`, prints `HANDOFF SENT - STOP` and does nothing
-   more. `/exit` in the old tab comes from the owner, or from the new lead via `herdr agent send-keys` when
-   `handoff.allowSendKeysExit` is `true`.
-5. The new lead starts only after `herdr agent get` shows the old one finished, reads the last owner message there with
-   `herdr agent read`, and verifies SHA, branch and processes itself: READY is a report, not proof.
+   discrepancies the old lead fixes HANDOFF and asks again in the same tab. The old lead polls `herdr agent get` every
+   60 s up to `handoff.readyTimeoutMin` (default 10) minutes.
+4. **ACTIVATE and STOP:** on an accepted READY the old lead writes `status: SENT` (STATE `seq` + 1), sends
+   `herdr agent prompt lead-next "ACTIVATE <handoff_id>"` as its last action (the owner does it when
+   `handoff.allowSendKeysExit` is `false`), prints `HANDOFF SENT - STOP` and does nothing more. `/exit` in the old tab
+   comes from the owner, or from the new lead via `herdr agent send-keys` when `allowSendKeysExit` is `true`.
+5. The candidate acts only on `ACTIVATE <id>` and refuses a different id. It re-reads STATE.md and refuses if `head`
+   moved without a note or `seq` changed. It then waits until `herdr agent get` shows the old lead finished, reads the
+   last owner message there with `herdr agent read`, answers every `unanswered_owner_messages` item, collects every
+   `in_flight` item, and verifies SHA, branch and processes itself: READY is a report, not proof.
 
-**Guards:** candidate `blocked` or no READY in 10 minutes - the old lead closes the candidate and its tab, voids the
-`handoff_id` and continues. One candidate per `handoff_id`. After 2 failed handoffs, ask the owner. The candidate does
-not start its own rotation. Never delete uncommitted changes for a "clean intake"; never kill processes by the name
-`claude`. A candidate with a large context from the start points to oversized startup instructions.
+**Guards:** candidate `blocked` or no READY by the deadline - the old lead reports, closes the candidate and its tab,
+voids the `handoff_id` and continues. One candidate per `handoff_id`. After 2 failed handoffs, ask the owner.
+The candidate does not start its own rotation. Never delete uncommitted changes for a "clean intake"; never kill
+processes by the name `claude`. A candidate with a large context from the start points to oversized startup instructions.
 
 **Without herdr** (`HERDR_ENV` is not `1`) the skill runs no herdr command and prints the fallback: write STATE.md at
 `handoff.statePath`, the owner runs `/clear`, then says "read STATE.md and continue". Cheaper, but it does not free
@@ -412,6 +418,7 @@ cwd. Writers and readers therefore agree, in a worktree too.
 | `handoff.candidatePermissionArgs` | string[] | `[]` | handoff | permission arguments for the candidate |
 | `handoff.statePath` | string | `"STATE.md"` | lead, handoff | state file path |
 | `handoff.handoffPath` | string | `"HANDOFF.md"` | handoff | handoff file path |
+| `handoff.readyTimeoutMin` | number | `10` | handoff | skill-level; READY wait, polled every 60 s (not in template) |
 | `criticalPaths` | string[] | `[]` | lead, agents | areas whose edits go to `ghorc:reviewer-critical` |
 
 "Lead", "agents" and "handoff" mean the key is read by the model through skills and role prompts, not by a script.

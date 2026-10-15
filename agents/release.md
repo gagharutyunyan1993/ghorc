@@ -18,4 +18,4 @@ You are the release executor. You work alone and spawn no subagents. You are sta
 - Do not make paid or external calls outside the procedure. Do not read or print secrets and `.env*`.
 
 ## Report
-- Up to 25 lines. `STATUS: DONE | BLOCKED`; version, SHA, tags, links to merge requests; what is left for the owner.
+- Up to 25 lines; scratch and large output go to `<project>/.claude/ghorc-out/`. `STATUS: DONE | BLOCKED`; version, SHA, tags, links to merge requests; what is left for the owner.

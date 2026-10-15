@@ -1,15 +1,18 @@
 # STATE (40-80 lines; details live in files, link them here)
-Updated: <date, time>   Session: <session_id>
+Updated: <date, time>   Session: <session_id>   seq: <N, +1 on every write>   handoff_id: <id or none>
 
 ## Package, stage, next step
 - Package: <ID>   Stage: <stage>
 - Next step: <one action>
 
 ## Branch, worktree, SHA
-- Branch: <name>   Worktree: <path>   HEAD: <SHA>   Main branch HEAD: <SHA>
+- Branch: <name>   Worktree: <path>   Main branch HEAD: <SHA>
 
-## Running agents and processes
-- <role, id, task; background commands; herdr workers with pane id; or "none">
+## head (mandatory)
+- head: <git HEAD SHA at the last STATE write; the candidate refuses if it moved without a note>
+
+## in_flight (mandatory)
+- <agent/worker id, kind, expected output path, how to collect; or "none">
 
 ## Decisions and links to them
 - <decision, date, link>
@@ -25,5 +28,8 @@ Updated: <date, time>   Session: <session_id>
 ## Authority
 - <standing owner permissions: paid calls, merge, release, handoff.allowSendKeysExit>
 
-## Unprocessed messages and promised actions
+## unanswered_owner_messages (mandatory)
+- <HH:MM verbatim owner message not yet answered; or "none">
+
+## Promised actions
 - <list or "none">

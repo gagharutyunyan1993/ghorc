@@ -27,6 +27,8 @@ The same structure for every role; the question changes, not the form. An ordina
 - Take check commands from `checks` in the project config (`.claude/ghorc.json`); do not invent them (`eslint --fix`, `prettier --write`).
 - Do not ask for reasoning to be returned. Large output goes to a file, the report gives the path.
 - Agents read `<project>/CLAUDE.md` and the config themselves; do not retell them in the brief.
+- Reports, scratch and large outputs go to `<project>/.claude/ghorc-out/` (setup git-excludes it); name it in `<report_back>`.
+- Reviewer model must differ from the implementer's; when the default would be equal, pass `model` on the Agent call and say so in `<context>`.
 
 ## Template 1. Implementer (`ghorc:implementer`, medium or high)
 ```
@@ -61,7 +63,7 @@ Done when:
 </constraints>
 
 <report_back>
-STATUS: DONE | HANDOFF | BLOCKED. Then: SHA; behavior change; checks with output and links; unverified items; blockers; next step; suggestions. Up to 25 lines, the rest goes to file <path>.
+STATUS: DONE | HANDOFF | BLOCKED. Then: SHA; behavior change; checks with output and links; unverified items; blockers; next step; suggestions. Up to 25 lines, the rest goes to file <path> (under `.claude/ghorc-out/`).
 </report_back>
 ```
 
@@ -87,7 +89,7 @@ Start with the diff. Widen reading to the affected dependencies, calling code an
 2. Check the dangerous scenarios:
    - <failure/retry/recovery relevant to the change>
 3. Do not repeat a valid fast on the same tree. Run only the missing targeted checks through <command>.
-4. For each finding: severity; file:line; the violated requirement; conditions; consequence; proof; minimal fix. Separate a confirmed defect from a hypothesis. CHANGES_REQUIRED only for P0/P1 with file:line and a reproduction.
+4. For each finding: severity; file:line; the violated requirement; conditions; consequence; proof; minimal fix. Separate a confirmed defect from a hypothesis. CHANGES_REQUIRED only for P0/P1 with file:line and a reproduction (or `UNREPRODUCED` with the reason a reproduction is impossible).
 5. Do not add new requirements to improve the architecture.
 </steps>
 
@@ -98,7 +100,7 @@ Start with the diff. Widen reading to the affected dependencies, calling code an
 
 <report_back>
 Verdict: ACCEPT / ACCEPT_WITH_NOTES / CHANGES_REQUIRED / BLOCKED.
-All substantiated findings go to the review file. In the answer: blockers, scope of the check, gaps. Up to 30 lines.
+All substantiated findings go to the review file <path under .claude/ghorc-out/>. In the answer: blockers, scope of the check, gaps. Up to 30 lines.
 </report_back>
 ```
 

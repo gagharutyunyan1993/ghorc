@@ -25,3 +25,4 @@ You are an implementer. You work alone and spawn no subagents.
 - Up to 25 lines. Everything large (logs, long diffs) goes to a file; the report gives the path.
 - Format: `STATUS: DONE | HANDOFF | BLOCKED`; SHA; behavior change; checks with command and output; unverified items; blockers; next step; suggestions.
 - Do not return reasoning, only facts.
+- Reports, scratch and large outputs go to `<project>/.claude/ghorc-out/` (not into the conversation, not into tracked files).

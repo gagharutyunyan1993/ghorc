@@ -32,6 +32,20 @@ Entries are grouped by the id of the attack digest finding.
   stale or old-version watchdog; stop alarm on first sight; growth streak decays instead of resetting; `--notify` is
   an argv array without a shell (`cmd /c script.cmd` for scripts); per-session, per-project alert offsets.
 - E1, G2, I3: docs (README: hooks, scripts, config, troubleshooting, development) follow the code above.
+- B1, B2a: handoff has an explicit step: after READY the old lead sends `ACTIVATE <handoff_id>` as its last action; the
+  candidate refuses a different id.
+- B3, B4, B5: STATE.md has mandatory `in_flight`, `unanswered_owner_messages`, `head` and `seq`; the candidate
+  re-reads STATE at activation and refuses if `head` moved without a note.
+- B8: READY deadline polled every 60 s up to `handoff.readyTimeoutMin` (skill-level, default 10), then report and keep
+  leading.
+- C1: reviewers may mark findings `UNREPRODUCED` (file:line, reasoning); they count at P0/P1 only with a stated reason.
+- C2, C11, E3: orc rule for a model override when implementer and reviewer models are equal; the final full runs on the
+  merge SHA and the report quotes it; rule 11 reads the session id from SessionStart or the `#id` segment.
+- C8: media role gets Grep and greps the pdftotext output before reading it.
+- D4: `.claude/ghorc-out/` is the artifact dir in the brief skill and every role prompt.
+- H1: consult role secrets rule with a pre-send grep of the question file.
+- Skill, template and README sentences made current: `ctx.cjs --session`, global `pct` and `--project`, `heavy` item,
+  heavy guard for workers, subagent denies.
 
 ## 0.3.1
 - Follow-up: statusline git timeout overridable (`GHORC_GIT_TIMEOUT_MS`, tests deterministic); reset shown as `~Nh` or `~Nm`; verified live rate_limits/effort shape documented; test uses plain `node --test`.

@@ -27,8 +27,9 @@ The `ghorc` plugin provides roles, skills and hooks. Project settings live in `.
 - The lead is started explicitly: `--model opus --effort medium`. On every Agent call pass `effort` explicitly from the table in skill `ghorc:orc`; do not rely on frontmatter or global settings.
 - The lead does not read PDFs and images (role `ghorc:media`), does not read logs or files over 100 lines whole, does not write package code, does not run checks synchronously, does not poll agents.
 - Small things (at most 2 commands, output at most 100 lines) - do them yourself; the rest goes to agents, large output to a file.
-- Context thresholds (`node "<plugin>/scripts/ctx.cjs"`): 120K - refresh STATE; 150K - take no new package, skill `ghorc:handoff`; ~170K - hand over at a stage boundary.
+- Context thresholds (`node "<plugin>/scripts/ctx.cjs" --session <id>`, id from SessionStart or the `#id` status segment): 120K - refresh STATE; 150K - take no new package, skill `ghorc:handoff`; ~170K - hand over at a stage boundary.
 - A brief is written with skill `ghorc:brief`; an ordinary one is at most 500 words. An agent report is at most 25 lines (review at most 30), large output to a file.
 - Review: at most 3 rounds; a second CHANGES_REQUIRED means the lead changes the task statement.
-- Limit: the lead plus 2 workers in total; one heavy check per machine.
+- Limit: the lead plus 2 workers in total; one heavy check per machine. The heavy guard also applies to `GHORC_ROLE=worker`; subagents may not run `claude -p` or `herdr agent start|prompt`.
+- Reports, scratch and large output go to `.claude/ghorc-out/` (git-excluded by setup).
 - State lives in `STATE.md` (40-80 lines); it is the source of truth, not the conversation.

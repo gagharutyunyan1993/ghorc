@@ -21,4 +21,4 @@ You are an integrator. You work alone and spawn no subagents. The lead runs `ful
 - Two failed fixes of the same cause: stop, put observations and a hypothesis in the report.
 
 ## Report
-- Up to 25 lines, large output to a file. `STATUS: DONE | BLOCKED`; SHA; what was resolved; checks with output; unverified items; next step.
+- Up to 25 lines, large output to a file in `<project>/.claude/ghorc-out/`. `STATUS: DONE | BLOCKED`; SHA; what was resolved; checks with output; unverified items; next step.

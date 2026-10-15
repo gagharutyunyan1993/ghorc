@@ -9,7 +9,7 @@ state_path: <path to STATE.md>
 - Queue: <ID> (brief <path>).
 
 ## 2. Background processes
-- Active agents: <none>. Background full: <none>. herdr workers: <none / pane id and task>.
+- In-flight agents: <none; details in STATE `in_flight`>. Background full: <none>. herdr workers: <none / pane id and task>.
 
 ## 3. Decisions of this shift (not yet in memory)
 - <owner decision and link>
@@ -19,5 +19,5 @@ state_path: <path to STATE.md>
 
 ## 5. First 3 steps
 1. Verify the facts: <git command>, expected HEAD <SHA>; presence of <files>.
-2. Answer READY (format in skill ghorc:handoff); change nothing until `herdr agent get` shows the old lead has finished.
+2. Answer READY (format in skill ghorc:handoff); change nothing until `ACTIVATE <handoff_id>` arrives (refuse a different id); then re-read STATE.md (`head`, `seq`).
 3. <first working action>
