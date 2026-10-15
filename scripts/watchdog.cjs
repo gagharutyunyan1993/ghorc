@@ -1,17 +1,20 @@
 'use strict';
 // Сторож транскриптов: опрос ~/.claude/projects/**/*.jsonl. Только уведомляет, ничего не убивает.
+// Пороги по STRATEGY §10: рост >10 МиБ/мин две минуты подряд; >100 МиБ; >250 МиБ и рост; subagents/*.jsonl >500 МиБ.
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { spawn } = require('node:child_process');
+const { spawnSync } = require('node:child_process');
 
 const args = process.argv.slice(2);
 if (args.includes('--help')) {
   console.log(
     [
-      'watchdog.cjs [--interval <сек, 30>] [--rateMiBPerMin 10] [--warnMiB 100] [--stopMiB 250]',
-      '             [--root <каталог, по умолчанию ~/.claude/projects>] [--once] [--notify "<команда>"]',
-      'Тревоги: рост выше rateMiBPerMin два интервала подряд; размер выше warnMiB; выше stopMiB и всё ещё растёт.',
+      'watchdog.cjs [--interval <сек, 30>] [--rateMiBPerMin 10] [--streakSec 120] [--warnMiB 100] [--stopMiB 250]',
+      '             [--subagentsMiB 500] [--root <каталог, по умолчанию ~/.claude/projects>] [--once] [--notify "<команда>"]',
+      'Тревоги: рост выше rateMiBPerMin непрерывно streakSec секунд; размер выше warnMiB (проверить содержимое);',
+      'выше stopMiB и всё ещё растёт; файл в subagents/ выше subagentsMiB.',
+      '--notify: команда запускается без шелла, текст тревоги - ОДИН последний аргумент (и переменная ORC_ALERT).',
       'Сторож никого не останавливает.',
     ].join('\n'),
   );
@@ -23,12 +26,23 @@ function opt(name, def) {
 }
 const interval = Number(opt('--interval', 30));
 const rateMiB = Number(opt('--rateMiBPerMin', 10));
+const streakMs = Number(opt('--streakSec', 120)) * 1000;
 const warnMiB = Number(opt('--warnMiB', 100));
 const stopMiB = Number(opt('--stopMiB', 250));
+const subMiB = Number(opt('--subagentsMiB', 500));
 const root = opt('--root', path.join(os.homedir(), '.claude', 'projects'));
 const once = args.includes('--once');
 const notify = opt('--notify', null);
 const MiB = 1024 * 1024;
+
+// Разбор командной строки на аргументы с учётом кавычек (без шелла).
+function splitArgs(s) {
+  const out = [];
+  const re = /"([^"]*)"|'([^']*)'|(\S+)/g;
+  let m;
+  while ((m = re.exec(s))) out.push(m[1] ?? m[2] ?? m[3]);
+  return out;
+}
 
 function walk(dir, out) {
   let entries = [];
@@ -47,46 +61,60 @@ function walk(dir, out) {
 
 function alert(text) {
   console.log(`[orc-kit watchdog] ${text}`);
-  if (notify) {
-    try {
-      spawn(notify, [text], { shell: true, stdio: 'ignore', detached: true }).unref();
-    } catch {
-      /* уведомление необязательно */
-    }
+  if (!notify) return;
+  try {
+    const [cmd, ...rest] = splitArgs(notify);
+    if (cmd) spawnSync(cmd, [...rest, text], { stdio: 'ignore', timeout: 10000, env: { ...process.env, ORC_ALERT: text } });
+  } catch {
+    /* уведомление необязательно */
   }
 }
 
-const prev = new Map(); // path -> { size, t, fastStreak, warned, stopped }
+const prev = new Map(); // path -> { size, t, fastSince, streakAlerted, warned, stopped, subAlerted }
 
 function pass() {
   const now = Date.now();
-  for (const p of walk(root, [])) {
+  const files = walk(root, []);
+  const live = new Set(files);
+  for (const k of [...prev.keys()]) if (!live.has(k)) prev.delete(k);
+
+  for (const p of files) {
     let size;
     try {
       size = fs.statSync(p).size;
     } catch {
       continue;
     }
-    const st = prev.get(p) || { size, t: now, fastStreak: 0, warned: false, stopped: false };
+    const first = !prev.has(p);
+    const st = prev.get(p) || { size, t: now, fastSince: null, streakAlerted: false, warned: false, stopped: false, subAlerted: false };
     const dtMin = (now - st.t) / 60000;
     const delta = size - st.size;
     const rate = dtMin > 0 ? delta / MiB / dtMin : 0;
-    const growing = delta > 0;
-    if (prev.has(p)) {
-      st.fastStreak = rate > rateMiB ? st.fastStreak + 1 : 0;
-      const info = `${p} size=${(size / MiB).toFixed(1)}MiB rate=${rate.toFixed(1)}MiB/min`;
-      if (st.fastStreak === 2) alert(`быстрый рост два интервала подряд: ${info}`);
-      if (size > stopMiB * MiB && growing) {
-        if (!st.stopped) alert(`ТРЕВОГА, больше ${stopMiB} MiB и растёт: ${info}`);
-        st.stopped = true;
-      } else if (size > warnMiB * MiB && !st.warned) {
-        alert(`больше ${warnMiB} MiB: ${info}`);
-        st.warned = true;
+    const info = `${p} size=${(size / MiB).toFixed(1)}MiB rate=${rate.toFixed(1)}MiB/min`;
+
+    if (!first) {
+      if (rate > rateMiB) {
+        if (st.fastSince === null) st.fastSince = st.t;
+        if (!st.streakAlerted && now - st.fastSince >= streakMs) {
+          alert(`рост выше ${rateMiB} MiB/мин дольше ${streakMs / 1000} с: ${info}`);
+          st.streakAlerted = true;
+        }
+      } else {
+        st.fastSince = null;
+        st.streakAlerted = false;
       }
-    } else if (once && size > warnMiB * MiB) {
-      // единственный проход: нет истории роста, но размер сообщаем
-      alert(`больше ${warnMiB} MiB: ${p} size=${(size / MiB).toFixed(1)}MiB`);
-      if (size > stopMiB * MiB) alert(`больше ${stopMiB} MiB (рост за один проход не измерить): ${p}`);
+      if (size > stopMiB * MiB && delta > 0 && !st.stopped) {
+        alert(`ТРЕВОГА, больше ${stopMiB} MiB и растёт: ${info}`);
+        st.stopped = true;
+      }
+    }
+    if (size > warnMiB * MiB && !st.warned) {
+      alert(`больше ${warnMiB} MiB, проверь характер содержимого: ${info}`);
+      st.warned = true;
+    }
+    if (size > subMiB * MiB && /[\\/]subagents[\\/]/.test(p) && !st.subAlerted) {
+      alert(`ТРЕВОГА, файл субагента больше ${subMiB} MiB: ${info}`);
+      st.subAlerted = true;
     }
     st.size = size;
     st.t = now;

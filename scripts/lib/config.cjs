@@ -1,5 +1,6 @@
 'use strict';
-// Загрузка конфига проекта: <cwd>/.claude/orc-kit.json поверх templates/orc-kit.json.
+// Загрузка конфига проекта: <корень>/.claude/orc-kit.json поверх templates/orc-kit.json.
+// Корень ищется так: CLAUDE_PROJECT_DIR, затем подъём от cwd до корня git (включительно).
 const fs = require('node:fs');
 const path = require('node:path');
 
@@ -25,19 +26,63 @@ function merge(base, over) {
   return out;
 }
 
-function configPath(cwd) {
-  return path.join(cwd || process.cwd(), '.claude', 'orc-kit.json');
+// Каталоги от cwd вверх до корня git включительно (если .git не найден - до корня диска).
+function ancestors(cwd) {
+  const out = [];
+  let dir = path.resolve(cwd || process.cwd());
+  for (let i = 0; i < 64; i++) {
+    out.push(dir);
+    if (fs.existsSync(path.join(dir, '.git'))) break;
+    const up = path.dirname(dir);
+    if (up === dir) break;
+    dir = up;
+  }
+  return out;
 }
 
-// load(cwd) -> итоговый конфиг. found(cwd) -> есть ли файл проекта.
+function envProjectDir() {
+  const v = process.env.CLAUDE_PROJECT_DIR;
+  return v && v.trim() ? v : null;
+}
+
+// Корень проекта: CLAUDE_PROJECT_DIR, иначе корень git от cwd, иначе сам cwd.
+function projectRoot(cwd) {
+  const env = envProjectDir();
+  if (env) return path.resolve(env);
+  const list = ancestors(cwd);
+  const last = list[list.length - 1];
+  return fs.existsSync(path.join(last, '.git')) ? last : path.resolve(cwd || process.cwd());
+}
+
+// Путь к найденному orc-kit.json или null.
+function findConfig(cwd) {
+  const dirs = [];
+  const env = envProjectDir();
+  if (env) dirs.push(path.resolve(env));
+  for (const d of ancestors(cwd)) if (!dirs.includes(d)) dirs.push(d);
+  for (const d of dirs) {
+    const p = path.join(d, '.claude', 'orc-kit.json');
+    if (fs.existsSync(p)) return p;
+  }
+  return null;
+}
+
+// Для сообщений: найденный путь или ожидаемый в корне проекта.
+function configPath(cwd) {
+  return findConfig(cwd) || path.join(projectRoot(cwd), '.claude', 'orc-kit.json');
+}
+
+// load(cwd) -> итоговый конфиг. found(cwd) -> есть ли читаемый файл проекта.
 function load(cwd) {
   const defaults = readJson(TEMPLATE) || {};
-  const project = readJson(configPath(cwd));
+  const file = findConfig(cwd);
+  const project = file ? readJson(file) : null;
   return project ? merge(defaults, project) : defaults;
 }
 
 function found(cwd) {
-  return readJson(configPath(cwd)) !== null;
+  const file = findConfig(cwd);
+  return file !== null && readJson(file) !== null;
 }
 
-module.exports = { load, found, merge, configPath, TEMPLATE };
+module.exports = { load, found, merge, configPath, findConfig, projectRoot, ancestors, readJson, TEMPLATE };

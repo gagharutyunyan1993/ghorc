@@ -2,10 +2,11 @@
 // Печатает файлы <cwd>/.claude/ctx-*.json, новые первыми; самый новый помечен *.
 const fs = require('node:fs');
 const path = require('node:path');
+const { projectRoot } = require('./lib/config.cjs');
 
 const args = process.argv.slice(2);
 if (args.includes('--help')) {
-  console.log('ctx.cjs [--max-age <минуты>] [--cwd <каталог>]: показывает контекст сессий из .claude/ctx-*.json.');
+  console.log('ctx.cjs [--max-age <минуты>] [--session <id>] [--cwd <каталог>]: показывает контекст сессий из .claude/ctx-*.json.');
   process.exit(0);
 }
 function opt(name) {
@@ -13,13 +14,15 @@ function opt(name) {
   return i >= 0 ? args[i + 1] : undefined;
 }
 const maxAge = opt('--max-age') !== undefined ? Number(opt('--max-age')) : Infinity;
-const dir = path.join(opt('--cwd') || process.cwd(), '.claude');
+const session = opt('--session');
+const dir = path.join(projectRoot(opt('--cwd') || process.cwd()), '.claude');
 
 let rows = [];
 try {
   rows = fs
     .readdirSync(dir)
     .filter((f) => /^ctx-.*\.json$/.test(f))
+    .filter((f) => !session || f === `ctx-${session}.json`)
     .map((f) => {
       const p = path.join(dir, f);
       const mtime = fs.statSync(p).mtimeMs;

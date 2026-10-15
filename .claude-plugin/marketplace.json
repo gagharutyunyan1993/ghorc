@@ -7,7 +7,7 @@
       "name": "orc-kit",
       "source": "./",
       "description": "Orchestration kit: roles, lead skills, guard hooks, statusline, watchdog.",
-      "version": "0.1.0"
+      "version": "0.1.1"
     }
   ]
 }

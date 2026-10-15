@@ -10,7 +10,7 @@ function runScript(name, input, opts = {}) {
   const r = spawnSync(process.execPath, [path.join(SCRIPTS, name), ...(opts.args || [])], {
     input: typeof input === 'string' ? input : JSON.stringify(input),
     encoding: 'utf8',
-    env: { ...process.env, ...(opts.env || {}) },
+    env: { ...process.env, CLAUDE_PROJECT_DIR: '', ORC_ROLE: '', ...(opts.env || {}) },
     cwd: opts.cwd,
   });
   return { code: r.status, out: r.stdout, err: r.stderr };
@@ -27,6 +27,7 @@ function isDeny(r) {
 
 function tmpProject(config) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'orc-kit-test-'));
+  made.push(dir);
   if (config) {
     fs.mkdirSync(path.join(dir, '.claude'), { recursive: true });
     fs.writeFileSync(path.join(dir, '.claude', 'orc-kit.json'), JSON.stringify(config));
@@ -35,8 +36,14 @@ function tmpProject(config) {
 }
 
 let n = 0;
+const made = [];
+process.on('exit', () => {
+  for (const d of made) fs.rmSync(d, { recursive: true, force: true });
+});
 function sid() {
-  return `test-${process.pid}-${Date.now()}-${n++}`;
+  const id = `test-${process.pid}-${Date.now()}-${n++}`;
+  made.push(path.join(os.tmpdir(), 'orc-kit', id));
+  return id;
 }
 
 module.exports = { runScript, isDeny, tmpProject, sid };

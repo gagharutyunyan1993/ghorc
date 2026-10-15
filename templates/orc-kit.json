@@ -23,9 +23,10 @@
     "ctxHandoff": 150000
   },
   "lead": {
-    "_comment": "Модель и усилие лида; используются при запуске кандидата в /handoff.",
+    "_comment": "Модель и усилие лида; используются при запуске кандидата в /handoff. remind: напоминать лиду про skill orc при старте (ORC_ROLE=lead напоминает всегда; воркеры стартуют с ORC_ROLE=worker и не получают напоминания).",
     "model": "opus",
-    "effort": "medium"
+    "effort": "medium",
+    "remind": true
   },
   "handoff": {
     "_comment": "Постоянные разрешения владельца. allowSendKeysExit: новый лид может послать /exit в старую вкладку через herdr agent send-keys. candidatePermissionArgs: аргументы режима прав кандидата (как у старого лида), например [\"--permission-mode\", \"acceptEdits\"].",

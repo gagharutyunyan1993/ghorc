@@ -2,6 +2,7 @@
 // statusLine: одна строка + файл <cwd>/.claude/ctx-<session_id>.json для лида.
 const fs = require('node:fs');
 const path = require('node:path');
+const { projectRoot } = require('./lib/config.cjs');
 
 if (process.argv.includes('--help')) {
   console.log(
@@ -41,11 +42,14 @@ process.stdout.write(parts.join(' | ') + '\n');
 try {
   const sid = input.session_id;
   const cwd = input.cwd || (input.workspace && input.workspace.current_dir);
-  if (sid && cwd) {
-    const dir = path.join(cwd, '.claude');
+  const root = (input.workspace && input.workspace.project_dir) || (cwd ? projectRoot(cwd) : null);
+  if (sid && root) {
+    const dir = path.join(root, '.claude');
     fs.mkdirSync(dir, { recursive: true });
+    const target = path.join(dir, `ctx-${String(sid).replace(/[^A-Za-z0-9_.-]/g, '_')}.json`);
+    const tmp = `${target}.${process.pid}.tmp`;
     fs.writeFileSync(
-      path.join(dir, `ctx-${String(sid).replace(/[^A-Za-z0-9_.-]/g, '_')}.json`),
+      tmp,
       JSON.stringify({
         session_id: sid,
         used_percentage: pct,
@@ -55,6 +59,7 @@ try {
         ts: Date.now(),
       }),
     );
+    fs.renameSync(tmp, target);
   }
 } catch {
   /* не мешаем строке состояния */

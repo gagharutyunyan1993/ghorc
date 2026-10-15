@@ -21,7 +21,7 @@ run((input) => {
   const patterns = Array.isArray(cfg.heavyCommands) ? cfg.heavyCommands : [];
   const heavy = patterns.some((p) => {
     try {
-      return new RegExp(p).test(command);
+      return new RegExp(p, 'i').test(command);
     } catch {
       return false;
     }
