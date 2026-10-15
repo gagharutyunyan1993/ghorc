@@ -36,14 +36,19 @@ Entries are grouped by the id of the attack digest finding.
   candidate refuses a different id.
 - B3, B4, B5: STATE.md has mandatory `in_flight`, `unanswered_owner_messages`, `head` and `seq`; the candidate
   re-reads STATE at activation and refuses if `head` moved without a note.
-- B8: READY deadline polled every 60 s up to `handoff.readyTimeoutMin` (skill-level, default 10), then report and keep
-  leading.
+- B8: READY deadline polled every 60 s up to `handoff.readyTimeoutMin` (default 10, in the template and the
+  validator), then report and keep leading.
 - C1: reviewers may mark findings `UNREPRODUCED` (file:line, reasoning); they count at P0/P1 only with a stated reason.
 - C2, C11, E3: orc rule for a model override when implementer and reviewer models are equal; the final full runs on the
   merge SHA and the report quotes it; rule 11 reads the session id from SessionStart or the `#id` segment.
 - C8: media role gets Grep and greps the pdftotext output before reading it.
 - D4: `.claude/ghorc-out/` is the artifact dir in the brief skill and every role prompt.
 - H1: consult role secrets rule with a pre-send grep of the question file.
+- Review fixes: SessionStart kills no stale watchdog pid (it may be a foreign process); a watchdog exits when the
+  pid file names another pid. Heavy matching also sees through shell wrappers (`bash -c`, `cmd /c`,
+  `powershell -Command`), `$(...)`, backticks, `&`, parentheses, braces and npm global options; `claude --print` is
+  an agent start; the lead may start agents with an invalid config. read-guard starts a new count for a file whose
+  mtime or size changed; heap snapshots are not screenshots. `handoff.readyTimeoutMin` is in the template.
 - Skill, template and README sentences made current: `ctx.cjs --session`, global `pct` and `--project`, `heavy` item,
   heavy guard for workers, subagent denies.
 

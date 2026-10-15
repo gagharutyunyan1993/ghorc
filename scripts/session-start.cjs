@@ -17,7 +17,8 @@ if (process.argv.includes('--help')) {
       'Role: GHORC_ROLE=lead|worker; an empty GHORC_ROLE prints role=unknown (set GHORC_ROLE) and is treated as the lead. ' +
       'It deletes ctx files, session state and alert offsets older than 7 days. ' +
       'A lead session also starts scripts/watchdog.cjs detached when watchdog.autostart is true: one watchdog per project root, ' +
-      'restarted when its pid is dead, its heartbeat is stale (2 intervals) or its version differs from the plugin version.',
+      'restarted when its pid is dead, its heartbeat is stale (2 intervals) or its version differs from the plugin version. ' +
+      'Nothing is killed: the new pid file makes an older watchdog exit on its next poll.',
   );
   process.exit(0);
 }
@@ -48,13 +49,8 @@ function startWatchdog(cfg, root, version, input) {
     const interval = Number(w.intervalSec ?? 30);
     const status = tmp.watchdogStatus(root, version, interval);
     if (status.alive) return false;
-    if (status.pid && status.reason !== 'dead pid' && status.pid !== process.pid) {
-      try {
-        process.kill(status.pid); // stale or old-version watchdog: best effort
-      } catch {
-        /* already gone or not ours to kill */
-      }
-    }
+    // No kill: a stale pid may belong to a foreign process (pid reuse after a reboot or a hard kill). The new pid file
+    // below hands the root over; a still-running older watchdog sees a pid that is not its own and exits by itself.
     fs.mkdirSync(tmp.tmpDir(), { recursive: true });
     const log = fs.openSync(tmp.logFile(root), 'a');
     const args = [
@@ -121,8 +117,11 @@ run((input) => {
   const status = [];
   status.push(found(cwd) ? 'config: ok' : 'config not found: copy templates/ghorc.json to .claude/ghorc.json');
   try {
-    const { problems } = check(cwd);
-    if (problems.length) status.push(`config invalid: ${problems[0]}`.slice(0, 150) + ' (node scripts/check-config.cjs)');
+    const { problems, fatal } = check(cwd);
+    if (problems.length) {
+      const label = fatal.length ? `config invalid: ${fatal[0]}` : `config warning: ${problems[0]}`;
+      status.push(label.slice(0, 150) + ' (node scripts/check-config.cjs)');
+    }
   } catch {
     /* the check is optional */
   }

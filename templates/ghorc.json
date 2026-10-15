@@ -41,9 +41,10 @@
     "stopMiB": 250
   },
   "handoff": {
-    "_comment": "Standing owner permissions. allowSendKeysExit: the new lead may send /exit to the old tab through herdr agent send-keys. candidatePermissionArgs: permission-mode arguments for the candidate (as for the old lead), for example [\"--permission-mode\", \"acceptEdits\"].",
+    "_comment": "Standing owner permissions. allowSendKeysExit: the new lead may send /exit to the old tab through herdr agent send-keys. candidatePermissionArgs: permission-mode arguments for the candidate (as for the old lead), for example [\"--permission-mode\", \"acceptEdits\"]. readyTimeoutMin: minutes the old lead waits for READY from the candidate (polled every 60 s).",
     "allowSendKeysExit": false,
     "candidatePermissionArgs": [],
+    "readyTimeoutMin": 10,
     "statePath": "STATE.md",
     "handoffPath": "HANDOFF.md"
   },

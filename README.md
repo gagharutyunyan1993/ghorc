@@ -106,11 +106,12 @@ Plugin skills and agents are namespaced by Claude Code, so they cannot collide w
 
 - **`read-guard.cjs`, PreToolUse `Read` and MCP `*screenshot*|*snapshot*|*read_page*` tools.** Counts reads per
   agent and per resolved path (lower-cased on Windows; offset, limit and pages do not make a new key) and denies:
-  more than `maxRepeat` reads of one path between edits of it; a PDF without `pages`; PDF pages above
-  `pdfPageBudget`; image bytes above `mediaByteBudget`; an image above `maxImageBytes`; any PDF or image for a
-  subagent whose `agent_type` is not in `mediaRoles` ("media is read by the media role"); any media for the lead
-  (`leadNoMedia`); more than `maxScreenshots` MCP screenshot/snapshot/read_page calls. A file that cannot be
-  stat-ed still counts as a read. Images: `.png .jpg .jpeg .gif .webp .bmp`; extensions match case-insensitively.
+  more than `maxRepeat` reads of one path between edits of it (a changed mtime or size also starts a new count);
+  a PDF without `pages`; PDF pages above `pdfPageBudget`; image bytes above `mediaByteBudget`; an image above
+  `maxImageBytes`; any PDF or image for a subagent whose `agent_type` is not in `mediaRoles` ("media is read by the
+  media role"); any media for the lead (`leadNoMedia`); more than `maxScreenshots` MCP screenshot/snapshot/read_page
+  calls (heap snapshots excluded). A file that cannot be stat-ed still counts as a read. Images:
+  `.png .jpg .jpeg .gif .webp .bmp`; extensions match case-insensitively.
   "Lead" means no `agent_id` and `GHORC_ROLE` not `worker`, so a herdr worker started with `GHORC_ROLE=worker`
   may read media (still within the budgets).
 - **`read-guard.cjs`, PostToolUse `Edit|Write|NotebookEdit`.** Denies nothing; resets the counter of the edited
@@ -151,7 +152,9 @@ session and per agent, in `<tmp>/ghorc-<user>/<session_id>/read-<agent>.json` (w
   file grew by `warnMiB`/2 since its last alert or the level rose. A file already above `stopMiB` when first seen
   raises the stop alarm at once. The growth streak drops by one on a slow poll instead of resetting. The pid file
   (JSON: pid, version, root, start time) and a heartbeat file are touched every poll; SessionStart restarts a
-  watchdog whose pid is dead, whose version differs or whose heartbeat is older than two intervals.
+  watchdog whose pid is dead, whose version differs or whose heartbeat is older than two intervals. It kills
+  nothing (a stale pid may be a foreign process): it writes a new pid file, and an older watchdog that sees a pid
+  other than its own there exits on its next poll.
 - `setup.cjs --check | --apply <all|id,id,...> [--project] [--cwd <dir>]`: checks and applies the recommended setup;
   `--project` moves the `pct` item from global settings to this project (see "Manual steps").
 - `check-config.cjs [--cwd <dir>] [--sample "<command>"]...`: validates `ghorc.json`, shows which `heavyCommands`
@@ -419,7 +422,7 @@ cwd. Writers and readers therefore agree, in a worktree too.
 | `handoff.candidatePermissionArgs` | string[] | `[]` | handoff | permission arguments for the candidate |
 | `handoff.statePath` | string | `"STATE.md"` | lead, handoff | state file path |
 | `handoff.handoffPath` | string | `"HANDOFF.md"` | handoff | handoff file path |
-| `handoff.readyTimeoutMin` | number | `10` | handoff | skill-level; READY wait, polled every 60 s (not in template) |
+| `handoff.readyTimeoutMin` | number | `10` | handoff | READY wait in minutes, polled every 60 s |
 | `criticalPaths` | string[] | `[]` | lead, agents | areas whose edits go to `ghorc:reviewer-critical` |
 
 "Lead", "agents" and "handoff" mean the key is read by the model through skills and role prompts, not by a script.
@@ -438,12 +441,15 @@ not config keys. Example:
 ```
 
 **`heavyCommands` semantics.** Each string is a JavaScript regex compiled with flag `i` (case-insensitive). A
-command is cut into segments at `&&`, `||`, `;`, `|` and newlines, quoted text is blanked first, and the regex must
-match at the START of a segment, after optional env assignments (`FOO=1 `). A leading `npm run ` or `npx ` is also
-tried off, so `^vitest` matches `npx vitest`. Hence `git commit -m "run npm test"` and `echo npm test` are
-ordinary, while `cd app && npm test` is heavy. Write patterns for the segment start (`^npm\s+test\b`); backslashes
-are doubled in JSON. An empty string matches everything; a pattern that does not compile makes the config invalid.
-Test patterns first:
+command is cut into segments at `&&`, `||`, `;`, `|`, `&`, newlines, `( ) { }`, `$(` and backticks; quoted text is
+blanked first, except the quoted argument of a shell wrapper (`bash -c "..."`, `cmd /c "..."`,
+`powershell -Command "..."`) and `$(...)` or backticks inside double quotes. The regex must match at the START of a
+segment, after optional env assignments (`FOO=1 `) and wrappers (`cmd /c`, `bash -c`, `powershell -Command`,
+`call`, `time`). npm global options (`--prefix app`, `-C app`, `-w x`, `--silent`) are dropped, `run-script` reads
+as `run`, and a leading `npm run ` or `npx ` is also tried off, so `^vitest` matches `npx vitest`. Hence
+`git commit -m "run npm test"` and `echo npm test` are ordinary, while `cd app && npm test` is heavy. Write
+patterns for the segment start (`^npm\s+test\b`); backslashes are doubled in JSON. An empty string matches
+everything; a pattern that does not compile makes the config invalid. Test patterns first:
 
 ```
 node "<plugin>/scripts/check-config.cjs" --sample "npm test | tail -5" --sample "npm run lint"
@@ -451,8 +457,8 @@ node "<plugin>/scripts/check-config.cjs" --sample "npm test | tail -5" --sample 
 
 It prints `config: <path>`, any `ERROR:` lines (invalid JSON, unknown key, wrong type, bad regex) and, per sample,
 `HEAVY (<pattern>)` or `ordinary`. On a config error session-start prints one `config invalid:` line and the
-heavy guard denies as described under Hooks. Validation results are cached by file mtime and size in
-`<tmp>/ghorc-<user>/config-valid.json`.
+heavy guard denies as described under Hooks; an unknown key alone prints `config warning:` and denies nothing.
+Validation results are cached by file mtime and size in `<tmp>/ghorc-<user>/config-valid.json`.
 
 ## With and without herdr
 

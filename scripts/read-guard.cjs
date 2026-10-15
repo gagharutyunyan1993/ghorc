@@ -12,7 +12,8 @@ if (process.argv.includes('--help')) {
       'PreToolUse(Read) may return deny: more than readGuard.maxRepeat reads of one path (offset, limit and pages do not matter), ' +
       'a PDF without pages, a PDF/image read by a non-media subagent (readGuard.mediaRoles) or by the lead, ' +
       'PDF pages above pdfPageBudget, image bytes above mediaByteBudget. MCP screenshot/snapshot/read_page tools count toward ' +
-      'readGuard.maxScreenshots. PostToolUse(Edit|Write|NotebookEdit) resets the counter of the edited path only. ' +
+      'readGuard.maxScreenshots. PostToolUse(Edit|Write|NotebookEdit) resets the counter of the edited path only; a file whose mtime or size ' +
+      'changed since the last counted read (another agent, a script, a log) also starts a new count. ' +
       'Settings: readGuard.* in <project>/.claude/ghorc.json.',
   );
   process.exit(0);
@@ -20,7 +21,7 @@ if (process.argv.includes('--help')) {
 
 const IMAGE_EXT = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp']);
 const EDIT_TOOLS = ['Edit', 'Write', 'NotebookEdit'];
-const MCP_READ = /^mcp__.*(screenshot|snapshot|read_page)/i;
+const MCP_READ = /^mcp__.*(screenshot|(?<!heap)snapshot|read_page)/i; // heap snapshots are not page captures
 
 // Same file, same key: resolved, and lower-cased on Windows.
 function keyOf(cwd, file) {
@@ -111,12 +112,15 @@ run((input) => {
     );
   }
   let bytes = 0;
+  let stamp = null; // mtime:size; a file changed since the last counted read (by anyone) starts a new read count
+  try {
+    const fst = fs.statSync(path.resolve(input.cwd || process.cwd(), file));
+    stamp = `${fst.mtimeMs}:${fst.size}`;
+    if (isImage) bytes = fst.size;
+  } catch {
+    /* unreadable: it still counts as a read below, it is never exempt */
+  }
   if (isImage) {
-    try {
-      bytes = fs.statSync(path.resolve(input.cwd || process.cwd(), file)).size;
-    } catch {
-      /* unreadable: it still counts as a read below, it is never exempt */
-    }
     if (bytes > maxImage) {
       return deny(
         `image of ${bytes} bytes exceeds the limit ${maxImage}: shrink it (pdftoppm -r, resize)` +
@@ -129,6 +133,7 @@ run((input) => {
   const st = readState(sid, stateName);
   const byPath = st.byPath && typeof st.byPath === 'object' && !Array.isArray(st.byPath) ? st.byPath : {};
   const e = byPath[abs] || { reads: 0, bytes: 0, pages: 0 };
+  if (stamp && e.stamp && e.stamp !== stamp) e.reads = 0;
   const pages = isPdf ? countPages(ti.pages) : 0;
 
   if (e.reads + 1 > maxRepeat) {
@@ -140,6 +145,6 @@ run((input) => {
   if (isImage && sum(byPath, 'bytes') + bytes > mediaBudget) {
     return deny(`image byte budget of ${mediaBudget} is used up: stop reading images, report what you have.`);
   }
-  byPath[abs] = { reads: e.reads + 1, bytes: (e.bytes || 0) + bytes, pages: (e.pages || 0) + pages };
+  byPath[abs] = { reads: e.reads + 1, bytes: (e.bytes || 0) + bytes, pages: (e.pages || 0) + pages, stamp };
   writeState(sid, stateName, { ...st, byPath });
 });

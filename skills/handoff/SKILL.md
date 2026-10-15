@@ -5,7 +5,7 @@ user-invocable: true
 ---
 # Lead self-handoff (version 1: a skill, no scripts and no locks)
 
-Paths and parameters come from `.claude/ghorc.json`: `lead.model`, `lead.effort`, `thresholds.*`, `handoff.statePath`, `handoff.handoffPath`, `handoff.allowSendKeysExit`, `handoff.candidatePermissionArgs`, `handoff.readyTimeoutMin` (skill-level setting, read here only; default 10 when absent; the config validator reports it as an unknown key, harmless).
+Paths and parameters come from `.claude/ghorc.json`: `lead.model`, `lead.effort`, `thresholds.*`, `handoff.statePath`, `handoff.handoffPath`, `handoff.allowSendKeysExit`, `handoff.candidatePermissionArgs`, `handoff.readyTimeoutMin` (default 10).
 
 ## Standing owner permission
 Filled in once in the project config, only read here:
