@@ -1,0 +1,39 @@
+{
+  "_comment": "Копия кладётся в <проект>/.claude/orc-kit.json. Любой ключ можно опустить: недостающее берётся из этих значений по умолчанию. Поля _comment* игнорируются.",
+  "checks": {
+    "_comment": "Команды проверок проекта. Агенты запускают только fast; full запускает лид.",
+    "fast": "",
+    "full": ""
+  },
+  "_comment_heavyCommands": "Регэкспы (строки) тяжёлых команд, запрещённых субагентам. Пример: \"\\\\bnpm\\\\s+run\\\\s+test:e2e\\\\b\". Пустой список - хук ничего не запрещает.",
+  "heavyCommands": [],
+  "readGuard": {
+    "_comment": "Хук на Read: maxRepeat - сколько подряд чтений одного пути разрешено; maxImageBytes - предел размера картинки; leadNoMedia - лиду запрещено читать PDF и картинки.",
+    "maxRepeat": 3,
+    "maxImageBytes": 2097152,
+    "leadNoMedia": true
+  },
+  "heavyGuard": {
+    "_comment": "requireLeadEnv: true - тяжёлые команды разрешены только процессу с переменной окружения ORC_ROLE=lead.",
+    "requireLeadEnv": false
+  },
+  "thresholds": {
+    "_comment": "Пороги контекста лида в токенах: ctxPrepare - обновить STATE; ctxHandoff - не брать новое, передать смену.",
+    "ctxPrepare": 120000,
+    "ctxHandoff": 150000
+  },
+  "lead": {
+    "_comment": "Модель и усилие лида; используются при запуске кандидата в /handoff.",
+    "model": "opus",
+    "effort": "medium"
+  },
+  "handoff": {
+    "_comment": "Постоянные разрешения владельца. allowSendKeysExit: новый лид может послать /exit в старую вкладку через herdr agent send-keys. candidatePermissionArgs: аргументы режима прав кандидата (как у старого лида), например [\"--permission-mode\", \"acceptEdits\"].",
+    "allowSendKeysExit": false,
+    "candidatePermissionArgs": [],
+    "statePath": "STATE.md",
+    "handoffPath": "HANDOFF.md"
+  },
+  "_comment_criticalPaths": "Критичные области проекта (деньги, контракты, политика, хуки): правки здесь идут на reviewer-critical. Пример: [\"src/billing/**\", \"POLICY.md\"].",
+  "criticalPaths": []
+}
