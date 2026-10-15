@@ -8,9 +8,9 @@ const { tmpDir } = require('./lib/tmp.cjs');
 
 if (process.argv.includes('--help')) {
   console.log(
-    'statusline.cjs: statusLine command. Reads JSON from stdin, prints "model ·effort │ ctx NN% (used/size) │ 5h │ 7d │ role │ branch │ session" ' +
+    'statusline.cjs: statusLine command. Reads JSON from stdin, prints "model ·effort │ ctx NN% (used/size) │ 5h │ 7d (~Nd from 48 h) │ role │ #<session_id first 8> │ branch │ session name" ' +
       'and writes <project root>/.claude/ctx-<session_id>.json. GHORC_STATUSLINE_DUMP=<file> appends the raw stdin. ' +
-      'The first raw stdin is also saved once to <tmpdir>/ghorc/statusline-sample.json. ' +
+      'The first raw stdin is also saved once to <tmpdir>/ghorc-<user>/statusline-sample.json. ' +
       'NO_COLOR / GHORC_STATUSLINE_PLAIN=1 disable color. GHORC_GIT_TIMEOUT_MS overrides the 300 ms git timeout. See README.',
   );
   process.exit(0);
@@ -80,7 +80,7 @@ function limitSegment(label, o, now) {
   if (p === null) return null;
   let s = `${label} ${Math.round(p)}%`;
   const h = limitResetHours(o, now);
-  if (h !== null) s += h < 1 ? ` (~${Math.max(1, Math.round(h * 60))}m)` : ` (~${Math.round(h)}h)`;
+  if (h !== null) s += h < 1 ? ` (~${Math.max(1, Math.round(h * 60))}m)` : h >= 48 ? ` (~${Math.round(h / 24)}d)` : ` (~${Math.round(h)}h)`;
   return paint(band(p), s);
 }
 
@@ -175,6 +175,7 @@ try {
   if (process.env.GHORC_ROLE) role.push(process.env.GHORC_ROLE);
   if (input.agent && input.agent.name) role.push(String(input.agent.name));
   if (role.length) segs.push(role.join(' '));
+  if (input.session_id) segs.push(paint(DIM, `#${String(input.session_id).slice(0, 8)}`));
 
   const br = gitBranch(cwd0, input.workspace && input.workspace.git_worktree);
   if (br) segs.push(br);

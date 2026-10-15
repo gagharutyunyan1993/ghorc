@@ -1,13 +1,17 @@
 'use strict';
-// PreToolUse(Bash|PowerShell): heavy commands from heavyCommands are denied to subagents.
+// PreToolUse(Bash|PowerShell): heavy commands from heavyCommands are denied to subagents and workers.
 const { deny, run } = require('./lib/hook-io.cjs');
 const { load } = require('./lib/config.cjs');
+const { BUILTIN_SUBAGENT_DENY, DEFAULT_HEAVY, matches, compile } = require('./lib/cmd.cjs');
 
 if (process.argv.includes('--help')) {
   console.log(
     'heavy-check-guard.cjs: PreToolUse(Bash|PowerShell) hook. Denies commands matching a regex from heavyCommands ' +
-      'when a subagent calls them (agent_id in the input). heavyGuard.requireLeadEnv=true: also denies without GHORC_ROLE=lead. ' +
-      'No project config: everything is allowed.',
+      'when a subagent (agent_id) or a worker (GHORC_ROLE=worker) calls them. Matching is per command segment ' +
+      '(split on && ; | newline, quoted text ignored), anchored at the segment start after env assignments and npm run/npx. ' +
+      'Built in for subagents and workers: claude -p, herdr agent start, herdr agent prompt. ' +
+      'heavyGuard.requireLeadEnv=true: also denies without GHORC_ROLE=lead. ' +
+      'An invalid project config makes it deny the built-in default heavy commands, with the reason. No project config: nothing is denied.',
   );
   process.exit(0);
 }
@@ -18,17 +22,22 @@ run((input) => {
   if (typeof command !== 'string') return;
 
   const cfg = load(input.cwd);
-  const patterns = Array.isArray(cfg.heavyCommands) ? cfg.heavyCommands : [];
-  const heavy = patterns.some((p) => {
-    try {
-      return new RegExp(p, 'i').test(command);
-    } catch {
-      return false;
-    }
-  });
-  if (!heavy) return;
+  const configured = compile(Array.isArray(cfg.heavyCommands) ? cfg.heavyCommands : []);
 
-  if (input.agent_id) return deny('only the lead runs heavy checks.');
+  if (cfg.invalid) {
+    if (matches(command, [...configured, ...BUILTIN_SUBAGENT_DENY, ...DEFAULT_HEAVY])) {
+      return deny(`config invalid: ${cfg.invalid}. Heavy-command rules cannot be trusted: fix .claude/ghorc.json (node scripts/check-config.cjs).`);
+    }
+    return;
+  }
+
+  const sub = Boolean(input.agent_id) || process.env.GHORC_ROLE === 'worker';
+  if (sub && matches(command, BUILTIN_SUBAGENT_DENY)) {
+    return deny('subagents and workers may not start other agents (claude -p, herdr agent start/prompt): ask the lead.');
+  }
+  if (!matches(command, configured)) return;
+
+  if (sub) return deny('only the lead runs heavy checks.');
   if (cfg.heavyGuard && cfg.heavyGuard.requireLeadEnv && process.env.GHORC_ROLE !== 'lead') {
     return deny('only the lead runs heavy checks (GHORC_ROLE=lead is not set).');
   }

@@ -23,20 +23,24 @@ const post = (s, cwd, tool, tool_input = {}, agent_id = 'ag1') => ({
   tool_input,
 });
 
-test('P1-1: reading a file in parts (different offsets) is not a repeat', () => {
+test('A1: reading one file in parts still counts per path (offset and limit do not make a new key)', () => {
   const s = sid();
   const cwd = tmpProject();
-  for (const offset of [1, 2001, 4001, 6001, 8001]) {
+  const offsets = [1, 2001, 4001, 6001];
+  offsets.slice(0, 3).forEach((offset) => {
     assert.equal(isDeny(runScript('read-guard.cjs', read(s, cwd, 'big.log', { offset, limit: 2000 }))), false, `offset ${offset}`);
-  }
+  });
+  assert.equal(isDeny(runScript('read-guard.cjs', read(s, cwd, 'big.log', { offset: offsets[3], limit: 2000 }))), true);
 });
 
-test('P1-1: PDF with different pages is allowed, an identical call repeats up to the limit', () => {
+test('A1: PDF pages of one file count per path; an identical call repeats up to the limit', () => {
   const s = sid();
   const cwd = tmpProject({ readGuard: { leadNoMedia: false } });
-  for (const pages of ['1-5', '6-10', '11-15', '16-20']) {
-    assert.equal(isDeny(runScript('read-guard.cjs', read(s, cwd, 'x.pdf', { pages }))), false, pages);
+  const m = { ...read(s, cwd, 'x.pdf', { pages: '1-5' }), agent_type: 'ghorc:media' };
+  for (const pages of ['1-5', '6-10', '11-15']) {
+    assert.equal(isDeny(runScript('read-guard.cjs', { ...m, tool_input: { file_path: 'x.pdf', pages } })), false, pages);
   }
+  assert.equal(isDeny(runScript('read-guard.cjs', { ...m, tool_input: { file_path: 'x.pdf', pages: '16-20' } })), true);
   const s2 = sid();
   for (let i = 0; i < 3; i++) runScript('read-guard.cjs', read(s2, cwd, 'a.txt', { offset: 5 }));
   assert.equal(isDeny(runScript('read-guard.cjs', read(s2, cwd, 'a.txt', { offset: 5 }))), true);
@@ -52,25 +56,20 @@ test('P2-1: paths are normalized (relative and absolute are one file)', () => {
   assert.equal(isDeny(runScript('read-guard.cjs', read(s, cwd, abs))), true);
 });
 
-test('P2-2: PowerShell and NotebookEdit reset the counter', () => {
-  for (const tool of ['NotebookEdit', 'PowerShell']) {
-    const s = sid();
-    const cwd = tmpProject();
-    for (let i = 0; i < 3; i++) runScript('read-guard.cjs', read(s, cwd, 'a.txt'));
-    const ti = tool === 'PowerShell' ? { command: 'Set-Content a.txt hi' } : { notebook_path: 'a.ipynb' };
-    runScript('read-guard.cjs', post(s, cwd, tool, ti));
-    assert.equal(isDeny(runScript('read-guard.cjs', read(s, cwd, 'a.txt'))), false, tool);
-  }
-});
-
-test('P2-3: an unrelated Bash command does not reset the counter', () => {
+test('A2: NotebookEdit of the same path resets; Bash and PowerShell never reset (no basename heuristic)', () => {
   const s = sid();
   const cwd = tmpProject();
-  for (let i = 0; i < 3; i++) runScript('read-guard.cjs', read(s, cwd, 'a.txt'));
-  runScript('read-guard.cjs', post(s, cwd, 'Bash', { command: 'ls' }));
-  const r = runScript('read-guard.cjs', read(s, cwd, 'a.txt'));
-  assert.equal(isDeny(r), true);
-  assert.doesNotMatch(JSON.parse(r.out).hookSpecificOutput.permissionDecisionReason, /Bash/);
+  for (let i = 0; i < 3; i++) runScript('read-guard.cjs', read(s, cwd, 'a.ipynb'));
+  runScript('read-guard.cjs', post(s, cwd, 'NotebookEdit', { notebook_path: 'a.ipynb' }));
+  assert.equal(isDeny(runScript('read-guard.cjs', read(s, cwd, 'a.ipynb'))), false, 'notebook');
+  for (const tool of ['Bash', 'PowerShell']) {
+    const s2 = sid();
+    for (let i = 0; i < 3; i++) runScript('read-guard.cjs', read(s2, cwd, 'a.txt'));
+    runScript('read-guard.cjs', post(s2, cwd, tool, { command: 'echo hi > a.txt' }));
+    const r = runScript('read-guard.cjs', read(s2, cwd, 'a.txt'));
+    assert.equal(isDeny(r), true, tool);
+    assert.doesNotMatch(JSON.parse(r.out).hookSpecificOutput.permissionDecisionReason, /Bash/);
+  }
 });
 
 test('P2-10: the media role is not told to hand it to the media role', () => {
@@ -78,6 +77,7 @@ test('P2-10: the media role is not told to hand it to the media role', () => {
   const cwd = tmpProject();
   const input = { ...read(s, cwd, 'x.pdf'), agent_type: 'ghorc:media' };
   const r = runScript('read-guard.cjs', input);
+  assert.match(JSON.parse(r.out).hookSpecificOutput.permissionDecisionReason, /pages/);
   assert.equal(isDeny(r), true);
   assert.doesNotMatch(JSON.parse(r.out).hookSpecificOutput.permissionDecisionReason, /to the media role/);
 });
@@ -101,7 +101,7 @@ test('P1-3: the config is found from a project subdirectory (walk up to the git 
 test('P1-3: CLAUDE_PROJECT_DIR takes priority over cwd', () => {
   const proj = tmpProject({ heavyCommands: ['zzheavy'] });
   const other = tmpProject();
-  const input = { hook_event_name: 'PreToolUse', session_id: sid(), cwd: other, agent_id: 'ag1', tool_name: 'Bash', tool_input: { command: 'run zzheavy' } };
+  const input = { hook_event_name: 'PreToolUse', session_id: sid(), cwd: other, agent_id: 'ag1', tool_name: 'Bash', tool_input: { command: 'zzheavy --go' } };
   assert.equal(isDeny(runScript('heavy-check-guard.cjs', input, { env: { CLAUDE_PROJECT_DIR: proj } })), true);
   assert.equal(isDeny(runScript('heavy-check-guard.cjs', input)), false);
 });
@@ -157,19 +157,22 @@ test('P2-4: invalid config JSON does not break the hooks (fail open)', () => {
   assert.match(r.out, /invalid JSON/);
 });
 
-test('P2-6: --notify receives the alert text as one argument', () => {
+test('F8: --notify spawns an argv array without a shell; the alert text is the last argument', () => {
   const root = tmpProject();
   fs.mkdirSync(path.join(root, 'dir with space'));
   fs.writeFileSync(path.join(root, 'dir with space', 'big file.jsonl'), Buffer.alloc(2 * 1024 * 1024));
   const out = path.join(root, 'notify.json');
   const script = path.join(root, 'notify.cjs');
   fs.writeFileSync(script, `require('fs').writeFileSync(${JSON.stringify(out)}, JSON.stringify({argv: process.argv.slice(2), env: process.env.GHORC_ALERT}));`);
-  const r = runScript('watchdog.cjs', '', { args: ['--once', '--root', root, '--warnMiB', '1', '--notify', `node "${script}"`] });
+  const r = runScript('watchdog.cjs', '', { args: ['--once', '--root', root, '--warnMiB', '1', '--notify', `"${process.execPath}" "${script}" fixed`] });
   assert.equal(r.code, 0);
   const got = JSON.parse(fs.readFileSync(out, 'utf8'));
-  assert.equal(got.argv.length, 1);
-  assert.match(got.argv[0], /big file\.jsonl/);
-  assert.equal(got.env, got.argv[0]);
+  assert.equal(got.argv.length, 2);
+  assert.equal(got.argv[0], 'fixed');
+  assert.match(got.argv[1], /big file\.jsonl/);
+  assert.equal(got.env, got.argv[1]);
+  // shell metacharacters in the alert text are inert: no shell is involved
+  assert.ok(!fs.existsSync(path.join(root, 'pwned')));
 });
 
 test('P2-7: the watchdog alerts about a subagent file above the threshold', () => {
@@ -201,7 +204,7 @@ test('P2-8: statusline writes to the project root (git), atomically, ctx --sessi
   assert.ok(fs.existsSync(path.join(pd, '.claude', `ctx-${s3}.json`)));
 });
 
-test('round 2: --notify through the shell, one argument (including .cmd on Windows)', { skip: process.platform !== 'win32' && 'Windows only' }, () => {
+test('F8: --notify with a .cmd script works through "cmd /c" on Windows', { skip: process.platform !== 'win32' && 'Windows only' }, () => {
   const root = tmpProject();
   fs.writeFileSync(path.join(root, 'big file.jsonl'), Buffer.alloc(2 * 1024 * 1024));
   const out = path.join(root, 'n.json');
@@ -209,7 +212,7 @@ test('round 2: --notify through the shell, one argument (including .cmd on Windo
   fs.writeFileSync(js, `require('fs').writeFileSync(${JSON.stringify(out)}, JSON.stringify(process.argv.slice(2)));`);
   const cmd = path.join(root, 'notify.cmd');
   fs.writeFileSync(cmd, `@echo off\r\nnode "${js}" %*\r\n`);
-  const r = runScript('watchdog.cjs', '', { args: ['--once', '--root', root, '--warnMiB', '1', '--notify', `"${cmd}"`] });
+  const r = runScript('watchdog.cjs', '', { args: ['--once', '--root', root, '--warnMiB', '1', '--notify', `cmd /c "${cmd}"`] });
   assert.equal(r.code, 0);
   const argv = JSON.parse(fs.readFileSync(out, 'utf8'));
   assert.equal(argv.length, 1);

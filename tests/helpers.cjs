@@ -39,13 +39,32 @@ function tmpProject(config) {
   return dir;
 }
 
+// Every watchdog-<hash>.pid in a tmp dir: JSON { pid } or a bare number.
+function stopWatchdogs(dir) {
+  let names = [];
+  try {
+    names = fs.readdirSync(dir).filter((f) => /^watchdog-.*\.pid$/.test(f));
+  } catch {
+    return;
+  }
+  for (const f of names) {
+    try {
+      const raw = fs.readFileSync(path.join(dir, f), 'utf8');
+      let pid = Number(raw);
+      if (!pid) pid = Number(JSON.parse(raw).pid);
+      if (pid) process.kill(pid);
+    } catch {
+      /* gone */
+    }
+  }
+}
+
 let n = 0;
 const made = [];
 process.on('exit', () => {
   // A session-start test may have autostarted the watchdog: stop it before removing its files.
   try {
-    const pid = Number(fs.readFileSync(path.join(TEST_TMP, 'watchdog.pid'), 'utf8'));
-    if (pid) process.kill(pid);
+    stopWatchdogs(TEST_TMP);
   } catch {
     /* none running */
   }
@@ -63,4 +82,4 @@ function sid() {
   return id;
 }
 
-module.exports = { runScript, isDeny, tmpProject, sid, TEST_TMP, TEST_ROOT };
+module.exports = { stopWatchdogs, runScript, isDeny, tmpProject, sid, TEST_TMP, TEST_ROOT };

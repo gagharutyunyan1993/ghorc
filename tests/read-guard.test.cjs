@@ -11,16 +11,17 @@ const pre = (s, file, extra = {}, tool_input = {}) => ({
   session_id: s,
   cwd: extra.cwd,
   agent_id: extra.agent_id,
+  agent_type: extra.agent_type,
   tool_name: 'Read',
   tool_input: { file_path: file, ...tool_input },
 });
-const post = (s, tool, extra = {}) => ({
+const post = (s, tool, extra = {}, tool_input = {}) => ({
   hook_event_name: 'PostToolUse',
   session_id: s,
   cwd: extra.cwd,
   agent_id: extra.agent_id,
   tool_name: tool,
-  tool_input: {},
+  tool_input,
 });
 
 test('the 4th identical read in a row is denied, the first 3 are allowed', () => {
@@ -36,7 +37,7 @@ test('Read after Edit is allowed (counter reset)', () => {
   const s = sid();
   const cwd = tmpProject();
   for (let i = 0; i < 3; i++) runScript('read-guard.cjs', pre(s, 'a.txt', { agent_id: 'ag1', cwd }));
-  runScript('read-guard.cjs', post(s, 'Edit', { agent_id: 'ag1', cwd }));
+  runScript('read-guard.cjs', post(s, 'Edit', { agent_id: 'ag1', cwd }, { file_path: 'a.txt' }));
   assert.equal(isDeny(runScript('read-guard.cjs', pre(s, 'a.txt', { agent_id: 'ag1', cwd }))), false);
 });
 
@@ -57,8 +58,9 @@ test('maxRepeat comes from the config', () => {
 test('PDF without pages is denied to an agent, with pages allowed', () => {
   const s = sid();
   const cwd = tmpProject();
-  assert.equal(isDeny(runScript('read-guard.cjs', pre(s, 'x.pdf', { agent_id: 'ag1', cwd }))), true);
-  assert.equal(isDeny(runScript('read-guard.cjs', pre(s, 'x.pdf', { agent_id: 'ag1', cwd }, { pages: '1-2' }))), false);
+  const m = { agent_id: 'ag1', agent_type: 'ghorc:media', cwd };
+  assert.equal(isDeny(runScript('read-guard.cjs', pre(s, 'x.pdf', m))), true);
+  assert.equal(isDeny(runScript('read-guard.cjs', pre(s, 'x.pdf', m, { pages: '1-2' }))), false);
 });
 
 test('an image above the limit is denied to an agent, below it allowed', () => {
@@ -69,8 +71,9 @@ test('an image above the limit is denied to an agent, below it allowed', () => {
   fs.writeFileSync(big, Buffer.alloc(5000));
   fs.writeFileSync(small, Buffer.alloc(10));
   try {
-    assert.equal(isDeny(runScript('read-guard.cjs', pre(s, big, { agent_id: 'ag1', cwd }))), true);
-    assert.equal(isDeny(runScript('read-guard.cjs', pre(s, small, { agent_id: 'ag1', cwd }))), false);
+    const m = { agent_id: 'ag1', agent_type: 'ghorc:media', cwd };
+    assert.equal(isDeny(runScript('read-guard.cjs', pre(s, big, m))), true);
+    assert.equal(isDeny(runScript('read-guard.cjs', pre(s, small, m))), false);
   } finally {
     fs.rmSync(big, { force: true });
     fs.rmSync(small, { force: true });

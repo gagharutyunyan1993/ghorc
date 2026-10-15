@@ -11,18 +11,27 @@ function typeOf(v) {
   return Array.isArray(v) ? 'array' : v === null ? 'null' : typeof v;
 }
 
-// Returns { path, problems: string[] }. path=null means there is no file (not an error).
+// Returns { path, problems: string[], fatal: string[] }. path=null means there is no file (not an error).
+// fatal = the problems that make the config unusable (everything except unknown keys).
+const isFatal = (p) => !p.startsWith('unknown key');
+function result(path, problems) {
+  return { path, problems, fatal: problems.filter(isFatal) };
+}
+
 function check(cwd) {
-  const file = findConfig(cwd);
-  if (!file) return { path: null, problems: [] };
+  return checkFile(findConfig(cwd));
+}
+
+function checkFile(file) {
+  if (!file) return result(null, []);
   const problems = [];
   let data;
   try {
     data = JSON.parse(fs.readFileSync(file, 'utf8'));
   } catch (e) {
-    return { path: file, problems: [`invalid JSON: ${e.message}`] };
+    return result(file, [`invalid JSON: ${e.message}`]);
   }
-  if (!isObj(data)) return { path: file, problems: ['the root must be an object'] };
+  if (!isObj(data)) return result(file, ['the root must be an object']);
   const tpl = readJson(TEMPLATE) || {};
 
   for (const key of Object.keys(data)) {
@@ -57,7 +66,7 @@ function check(cwd) {
       }
     });
   }
-  return { path: file, problems };
+  return result(file, problems);
 }
 
-module.exports = { check };
+module.exports = { check, checkFile };

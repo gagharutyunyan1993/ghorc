@@ -3,7 +3,9 @@
 // CLAUDE_PROJECT_DIR if set, else the main git root (git common dir, also from a worktree), else cwd (with git unavailable: the nearest ancestor holding .git).
 const fs = require('node:fs');
 const path = require('node:path');
-const { spawnSync } = require('node:child_process');
+const cp = require('node:child_process'); // called as cp.spawnSync so tests can stub it
+
+const GIT_TIMEOUT_MS = 1500;
 
 function envProjectDir() {
   const v = process.env.CLAUDE_PROJECT_DIR;
@@ -15,7 +17,7 @@ function envProjectDir() {
 function gitCommonRoot(cwd) {
   try {
     const base = path.resolve(cwd || process.cwd());
-    const r = spawnSync('git', ['rev-parse', '--git-common-dir'], { cwd: base, encoding: 'utf8', timeout: 5000, windowsHide: true });
+    const r = cp.spawnSync('git', ['rev-parse', '--git-common-dir'], { cwd: base, encoding: 'utf8', timeout: GIT_TIMEOUT_MS, windowsHide: true });
     if (r.status !== 0) return null;
     const out = String(r.stdout).trim();
     if (!out) return null;
@@ -51,4 +53,4 @@ function projectRoot(cwd) {
   return fs.existsSync(path.join(last, '.git')) ? last : path.resolve(cwd || process.cwd());
 }
 
-module.exports = { projectRoot, gitCommonRoot, ancestors, envProjectDir };
+module.exports = { GIT_TIMEOUT_MS, projectRoot, gitCommonRoot, ancestors, envProjectDir };

@@ -1,6 +1,6 @@
 # ghorc
 
-ghorc is a Claude Code plugin (version 0.3.1) that packages an orchestration discipline: one lead session plans,
+ghorc is a Claude Code plugin (version 0.4.0) that packages an orchestration discipline: one lead session plans,
 writes briefs, accepts reports and merges, while the work runs in subagents (or herdr worker sessions). It ships 8
 agent roles, 4 skills, 3 guard hooks, a status line, a transcript watchdog, a setup script and templates. Everything
 project-specific lives in one file, `<project>/.claude/ghorc.json`. The scripts are plain Node.js (CommonJS, no
@@ -55,7 +55,7 @@ $env:GHORC_ROLE='lead'; claude --model opus --effort medium
 The SessionStart hook then prints a few lines, for example:
 
 ```
-ghorc 0.3.1
+ghorc 0.4.0 session=<session id> role=lead
 config: ok
 lead: load skill ghorc:orc
 CLAUDE.md has no ghorc section: paste templates/CLAUDE-section.md
@@ -104,36 +104,56 @@ Plugin skills and agents are namespaced by Claude Code, so they cannot collide w
 
 ### Hooks (`hooks/hooks.json`)
 
-- **`read-guard.cjs`, PreToolUse `Read`.** Denies, in this order: a PDF or image for the lead (`leadNoMedia`); a PDF
-  without `pages`; an image above `maxImageBytes`; a Read call identical in path, offset, limit and pages to the
-  previous `maxRepeat` calls. Why: stops read loops and keeps media out of the lead window. Reading a file in parts is
-  not a repeat. Images: `.png .jpg .jpeg .gif .webp .bmp`; extensions match case-insensitively on every OS
-  (`.PDF`, `.PNG`). "Lead" means no `agent_id` and `GHORC_ROLE` not `worker`, so a herdr worker started with
-  `GHORC_ROLE=worker` may read media.
-- **`read-guard.cjs`, PostToolUse `Edit|Write|NotebookEdit|Bash|PowerShell`.** Denies nothing; resets the repeat
-  counter (Bash/PowerShell only when the command contains the file name of the last read).
-- **`heavy-check-guard.cjs`, PreToolUse `Bash|PowerShell`.** Denies a command matching `heavyCommands` when a subagent
-  runs it; with `heavyGuard.requireLeadEnv`, also in a main session without `GHORC_ROLE=lead`. Why: one heavy check
-  per machine, run by the lead.
-- **`session-start.cjs`, SessionStart.** Denies nothing; prints version, config status, the `ghorc:orc` reminder,
-  pending alerts, a missing CLAUDE.md section and a setup hint (under 300 characters); autostarts the watchdog.
+- **`read-guard.cjs`, PreToolUse `Read` and MCP `*screenshot*|*snapshot*|*read_page*` tools.** Counts reads per
+  agent and per resolved path (lower-cased on Windows; offset, limit and pages do not make a new key) and denies:
+  more than `maxRepeat` reads of one path between edits of it; a PDF without `pages`; PDF pages above
+  `pdfPageBudget`; image bytes above `mediaByteBudget`; an image above `maxImageBytes`; any PDF or image for a
+  subagent whose `agent_type` is not in `mediaRoles` ("media is read by the media role"); any media for the lead
+  (`leadNoMedia`); more than `maxScreenshots` MCP screenshot/snapshot/read_page calls. A file that cannot be
+  stat-ed still counts as a read. Images: `.png .jpg .jpeg .gif .webp .bmp`; extensions match case-insensitively.
+  "Lead" means no `agent_id` and `GHORC_ROLE` not `worker`, so a herdr worker started with `GHORC_ROLE=worker`
+  may read media (still within the budgets).
+- **`read-guard.cjs`, PostToolUse `Edit|Write|NotebookEdit`.** Denies nothing; resets the counter of the edited
+  path only. Bash and PowerShell never reset a counter.
+- **`heavy-check-guard.cjs`, PreToolUse `Bash|PowerShell`.** Denies a command matching `heavyCommands` when a
+  subagent (`agent_id`) or a worker (`GHORC_ROLE=worker`) runs it; with `heavyGuard.requireLeadEnv`, also in a
+  main session without `GHORC_ROLE=lead`. Always denied for subagents and workers: `claude -p`,
+  `herdr agent start`, `herdr agent prompt`. Matching is per command segment (see "heavyCommands semantics").
+  If `.claude/ghorc.json` is invalid (JSON error, wrong type, bad regex), it denies every heavy command, for the
+  lead too, using the valid configured patterns plus a built-in default list, and says why: fix the file.
+- **`session-start.cjs`, SessionStart.** Denies nothing; prints, in this order: pending watchdog alerts (count and
+  the last 2 lines), `ghorc <version> session=<id> role=<role>` (`role=unknown (set GHORC_ROLE)` when unset), the
+  config status, reminders, a missing CLAUDE.md section and a setup hint. Output is cut at 299 characters and ends
+  with `+more: run ctx` when cut. It autostarts or restarts the project's watchdog and removes `ctx-*.json` files
+  and tmp state older than 7 days.
 
-A subagent is recognized by `agent_id` in the hook input; a call without it counts as the lead. The repeat counter is
-per session and per agent, in `<tmp>/ghorc/<session_id>/`; without `session_id` none is kept. Any hook failure
-(broken input, unreadable config, no write access to tmp) means allow.
+A subagent is recognized by `agent_id` in the hook input; a call without it counts as the lead. Read counters are per
+session and per agent, in `<tmp>/ghorc-<user>/<session_id>/read-<agent>.json` (written atomically); without
+`session_id` none is kept. A hook that fails internally allows the call; the only deliberate deny on an error is the
+"config invalid" one above.
 
 ### Scripts (`scripts/`, run with `node`, all accept `--help`)
 
 - `statusline.cjs` (stdin): the status line; writes `<project root>/.claude/ctx-<session_id>.json`.
-- `ctx.cjs [--session <id>] [--max-age <minutes>] [--cwd <dir>]`: ctx files newest first (newest marked `*`), then
-  up to 5 unread watchdog alerts, which it marks read.
+- `ctx.cjs --session <id> [--max-age <minutes>] [--cwd <dir>]` or `ctx.cjs --all`: this session's ctx file, then
+  up to 10 unread watchdog alerts of this session, oldest first; only the shown ones are marked read. `--session`
+  takes the full id or the 8-character prefix from the status line (`#xxxxxxxx`); env `GHORC_SESSION` is the
+  default. Without both it prints a usage line and exits 2. `--all` lists every session and marks nothing.
 - `watchdog.cjs [--interval 30] [--rateMiBPerMin 10] [--streakSec 120] [--warnMiB 100] [--stopMiB 250]
-  [--subagentsMiB 500] [--root <dir>] [--once] [--notify "<command>"] [--notify-file <path>] [--pid-file <path>]`:
-  watches `~/.claude/projects/**/*.jsonl`; notifies only. `--notify` runs the command through the shell with the alert
-  text as one quoted argument and in `GHORC_ALERT`; `--notify-file` appends `<ISO time> <text>` lines. Size alerts are
-  remembered in `<tmp>/ghorc/watchdog-state.json` (path to last alerted size and level): a restart does not repeat
-  them; one repeats only after the file grew by `warnMiB`/2 since its last alert or the level rose.
-- `setup.cjs --check | --apply <all|id,id,...> [--cwd <dir>]`: checks and applies the recommended setup.
+  [--subagentsMiB 500] [--transcript-dir <dir>] [--project-root <dir>] [--version <v>] [--once]
+  [--notify "<program and args>"] [--notify-file <path>] [--pid-file <path>] [--heartbeat-file <path>]`:
+  one watchdog per project root; watches only that project's transcript directory
+  (`~/.claude/projects/<encoded project root>`, `subagents/` included); notifies only. `--root` is the older name of
+  `--transcript-dir`. `--notify` splits the string into an argv array (double quotes group words) and spawns it
+  without a shell; the alert text is the last argument and is also in `GHORC_ALERT`; for a script use
+  `--notify "cmd /c script.cmd"`. `--notify-file` appends `<ISO time> <text>` lines. Size alerts are remembered in
+  `<tmp>/ghorc-<user>/watchdog-<root hash>.state.json`: a restart does not repeat them; one repeats only after the
+  file grew by `warnMiB`/2 since its last alert or the level rose. A file already above `stopMiB` when first seen
+  raises the stop alarm at once. The growth streak drops by one on a slow poll instead of resetting. The pid file
+  (JSON: pid, version, root, start time) and a heartbeat file are touched every poll; SessionStart restarts a
+  watchdog whose pid is dead, whose version differs or whose heartbeat is older than two intervals.
+- `setup.cjs --check | --apply <all|id,id,...> [--project] [--cwd <dir>]`: checks and applies the recommended setup;
+  `--project` moves the `pct` item from global settings to this project (see "Manual steps").
 - `check-config.cjs [--cwd <dir>] [--sample "<command>"]...`: validates `ghorc.json`, shows which `heavyCommands`
   match each sample; exit code 1 on errors.
 
@@ -277,8 +297,9 @@ A segment is omitted when its data is absent.
 | `⚡` | fast mode is on |
 | `ctx NN% (used/size)` | context fill; used = input + cache creation + cache read tokens; `ctx --` with no data |
 | `→ac N%` (dim) | `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`, only when set |
-| `5h`, `7d` | rate limit use and time to reset (`~Nh`, `~Nm` under an hour); only with `rate_limits` in the input |
+| `5h`, `7d` | rate limit use and time to reset (`~Nh`, `~Nm` under an hour, `~Nd` from 48 h for `7d`) |
 | `role` | `GHORC_ROLE` and the agent name, if any |
+| `#xxxxxxxx` | first 8 characters of `session_id`: the value for `ctx.cjs --session` |
 | `branch` (cyan) | git branch, short SHA when detached; `⎇ ` prefix inside a git worktree |
 | `session` | session name, first 24 characters |
 
@@ -293,13 +314,14 @@ Verified against a live sample (Claude Code 2.1.300): `rate_limits.five_hour` an
 ### Reading ctx and watchdog alerts
 
 ```
-node "<plugin>/scripts/ctx.cjs"
-node "<plugin>/scripts/ctx.cjs" --session <id>
+node "<plugin>/scripts/ctx.cjs" --session <id from the #xxxxxxxx status segment or from SessionStart>
+node "<plugin>/scripts/ctx.cjs" --all
 ```
 
-Each session file gives a line like `* ctx-<id>.json  Opus  ctx 62%  used=124000/200000  age=0m`; the newest, marked
-`*`, is normally the lead's own session. Then `watchdog alerts (N unread):` and up to 5 lines, marked read once shown.
-The session-start line `N watchdog alerts pending, run ctx.cjs` means unread alerts exist.
+Take the id from the `#xxxxxxxx` status line segment or the `session=` field of the SessionStart line; the lead
+never guesses "the newest file". The output is a line like `ctx-<id>.json  Opus  ctx 62%  used=124000/200000  age=0m`.
+Then `watchdog alerts (N unread):` and up to 10 lines, oldest first, marked read once shown (alerts of other sessions
+keep their own offsets). The session-start line `N watchdog alerts pending, run ctx` means unread alerts exist.
 
 - `growth above 10 MiB/min for longer than 120 s`: a transcript grows fast; look for a read or tool loop in it.
 - `over 100 MiB, check what the content is`: large transcript; check for big Read results or media.
@@ -368,16 +390,20 @@ cwd. Writers and readers therefore agree, in a worktree too.
 | `checks.fast` | string | `""` | agents | the fast check; the only check agents run |
 | `checks.full` | string | `""` | lead | the full check; lead only, once, in the background |
 | `heavyCommands` | string[] | `[]` | heavy guard | regexes of commands subagents may not run |
-| `readGuard.maxRepeat` | number | `3` | read guard | identical Reads allowed in a row; the next is denied |
+| `readGuard.maxRepeat` | number | `3` | read guard | reads of one path between edits; the next is denied |
 | `readGuard.maxImageBytes` | number | `2097152` | read guard | image size limit, bytes (2 MiB) |
 | `readGuard.leadNoMedia` | boolean | `true` | read guard | calls without `agent_id` may not read PDFs, images |
+| `readGuard.mediaRoles` | string[] | `["ghorc:media","media"]` | read guard | agent types that may read media |
+| `readGuard.pdfPageBudget` | number | `60` | read guard | PDF pages per agent |
+| `readGuard.mediaByteBudget` | number | `8388608` | read guard | image bytes per agent (8 MiB) |
+| `readGuard.maxScreenshots` | number | `60` | read guard | MCP screenshot/snapshot/read_page calls per agent |
 | `heavyGuard.requireLeadEnv` | boolean | `false` | heavy guard | heavy commands also need `GHORC_ROLE=lead` |
 | `thresholds.ctxPrepare` | number | `120000` | lead | tokens: refresh STATE |
 | `thresholds.ctxHandoff` | number | `150000` | lead | tokens: no new package, hand over |
 | `lead.model` | string | `"opus"` | handoff, setup | candidate model; setup's recommended `model` |
 | `lead.effort` | string | `"medium"` | handoff, setup | candidate effort; setup's recommended `effortLevel` |
 | `lead.remind` | boolean | `true` | session-start | `false`: no reminder when `GHORC_ROLE` is unset |
-| `watchdog.autostart` | boolean | `true` | session-start | a lead session starts the watchdog detached |
+| `watchdog.autostart` | boolean | `true` | session-start | a lead session starts the project watchdog detached |
 | `watchdog.intervalSec` | number | `30` | session-start | poll period, seconds |
 | `watchdog.rateMiBPerMin` | number | `10` | session-start | growth alarm rate |
 | `watchdog.warnMiB` | number | `100` | session-start | size for "check the content" |
@@ -396,24 +422,29 @@ not config keys. Example:
 ```json
 {
   "checks": { "fast": "npm run check:fast", "full": "npm run check:full" },
-  "heavyCommands": ["\\bnpm\\s+run\\s+test:e2e\\b", "\\bnpm\\s+(run\\s+)?test\\b(?!:)"],
+  "heavyCommands": ["^npm\\s+run\\s+test:e2e\\b", "^npm\\s+(run\\s+)?test\\b(?!:)"],
   "heavyGuard": { "requireLeadEnv": true },
   "handoff": { "candidatePermissionArgs": ["--permission-mode", "acceptEdits"] },
   "criticalPaths": ["src/billing/**", "POLICY.md"]
 }
 ```
 
-**`heavyCommands` semantics.** Each string is a JavaScript regex compiled with flag `i` (case-insensitive) and tested
-against the whole command: a match anywhere counts, so `echo "npm test"` matches too. Backslashes are doubled in JSON
-(`"\\b"`). Do not anchor with a trailing `$`: `\bnpm\s+test\b$` misses `npm test | tail -5`. An empty string matches
-everything; a pattern that does not compile is skipped by the hook. Test patterns first:
+**`heavyCommands` semantics.** Each string is a JavaScript regex compiled with flag `i` (case-insensitive). A
+command is cut into segments at `&&`, `||`, `;`, `|` and newlines, quoted text is blanked first, and the regex must
+match at the START of a segment, after optional env assignments (`FOO=1 `). A leading `npm run ` or `npx ` is also
+tried off, so `^vitest` matches `npx vitest`. Hence `git commit -m "run npm test"` and `echo npm test` are
+ordinary, while `cd app && npm test` is heavy. Write patterns for the segment start (`^npm\s+test\b`); backslashes
+are doubled in JSON. An empty string matches everything; a pattern that does not compile makes the config invalid.
+Test patterns first:
 
 ```
 node "<plugin>/scripts/check-config.cjs" --sample "npm test | tail -5" --sample "npm run lint"
 ```
 
 It prints `config: <path>`, any `ERROR:` lines (invalid JSON, unknown key, wrong type, bad regex) and, per sample,
-`HEAVY (<pattern>)` or `ordinary`. On a config error session-start prints one `config invalid:` line.
+`HEAVY (<pattern>)` or `ordinary`. On a config error session-start prints one `config invalid:` line and the
+heavy guard denies as described under Hooks. Validation results are cached by file mtime and size in
+`<tmp>/ghorc-<user>/config-valid.json`.
 
 ## With and without herdr
 
@@ -440,15 +471,18 @@ Whether herdr passes the variable to the child session is not verified: check th
 |---|---|---|
 | `statusLine` | `~/.claude/settings.json` | `node "<plugin>/scripts/statusline.cjs"`, `refreshInterval` 30 |
 | `statusLineStale` | `~/.claude/settings.json` | check only: older plugin-cache path; same fix as `statusLine` |
-| `pct` | `~/.claude/settings.json` | `env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` = `"18"` |
+| `pct` | global `settings.json`; `--project`: `settings.local.json` | `env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` = `"18"` |
 | `idle` | `~/.claude/settings.json` | `idleCompaction` = `false` (no compaction while the lead waits) |
 | `model` (owner decision) | `~/.claude/settings.json` | `model` = `lead.model` |
 | `effort` (owner decision) | `~/.claude/settings.json` | `effortLevel` = `lead.effort` |
 | `config` | `<project>/.claude/ghorc.json` | copied from the template if missing |
 | `claudemd` | `<project>/CLAUDE.md` | `templates/CLAUDE-section.md` appended if the marker is missing |
-| `exclude` | `<project>/.git/info/exclude` | line `.claude/ctx-*.json` |
+| `exclude` | git `info/exclude` (via `git rev-parse --git-path`) | lines `.claude/ctx-*.json`, `.claude/ghorc-out/` |
+| `heavy` (warning only) | `<project>/.claude/ghorc.json` | warns: `heavyCommands` empty or no match for `checks.full` |
 
-`--apply` first copies `settings.json` to `settings.json.ghorc-<timestamp>.bak`, changes only the listed keys and
+`pct` is GLOBAL (every project) unless `--project` is given. Warnings are never applied by `--apply all` and do
+not make `--check` unclean. `--apply` first copies
+`settings.json` to `settings.json.ghorc-<timestamp>.bak`, changes only the listed keys and
 prints a diff. Changes take effect in a new session. `GHORC_HOME` overrides the home directory (used by tests).
 
 The plugin cannot do, so you do:
@@ -464,13 +498,18 @@ The plugin cannot do, so you do:
 
 - **The lead's Read is denied: "the lead does not read media".** `readGuard.leadNoMedia` applies to every call without
   `agent_id`, herdr worker sessions included. Give the path to `ghorc:media`, or set `leadNoMedia: false`.
-- **"the same Read call was repeated 3 times in a row".** The repeat limit. Use what was read, read another range, or
-  edit the file first.
+- **"<file> was already read 3 times".** The per-path limit; ranges do not help. Use what was read, or edit the file
+  first (an Edit of that path resets it).
+- **"media is read by the media role".** A subagent that is not in `readGuard.mediaRoles` tried a PDF or image; hand
+  the file to `ghorc:media`.
+- **"config invalid: ..." on a Bash call.** `.claude/ghorc.json` has an error; every heavy command is denied until it
+  is fixed. Run `check-config.cjs`; the fix is seen at once.
 - **The lead's Bash is denied: "GHORC_ROLE=lead is not set".** `heavyGuard.requireLeadEnv` is `true` and the session
   started without the marker. Restart the lead with `GHORC_ROLE=lead`.
 - **Status line empty.** `statusLine` is missing from settings, or `node` is not on `PATH`. Run `/ghorc:setup` and
   restart. Test the script: `echo '{}' | node "<plugin>/scripts/statusline.cjs"` prints a line starting
   `model? │ ctx --`.
+- **`ctx.cjs` prints a usage line and exits 2.** It needs `--session <id>` (or `GHORC_SESSION`, or `--all`).
 - **`ctx.cjs` says "no ctx-*.json files".** The status line is not configured, or wrote under another root: it uses
   the root rule (`CLAUDE_PROJECT_DIR`, else the git common root of `workspace.project_dir` or the cwd). Run
   `ctx.cjs --cwd <that root>`.
@@ -480,18 +519,22 @@ The plugin cannot do, so you do:
 - **Status line stops updating after `plugin update`.** Setup writes the path of the running copy, which under a
   plugin cache is a versioned directory. After an update the old path may be gone: `setup.cjs --check` reports
   `statusLineStale`; re-run `/ghorc:setup` (or `--apply statusLineStale`).
-- **Duplicate watchdog alerts.** Size alerts persist in `<tmp>/ghorc/watchdog-state.json`, so a restart repeats none
-  for unchanged files; delete that file to reset. A stale `<tmp>/ghorc/watchdog.pid` whose pid now belongs to another
-  process blocks the autostart; delete it when no watchdog runs.
+- **Duplicate watchdog alerts.** Size alerts persist in `<tmp>/ghorc-<user>/watchdog-<root hash>.state.json`, so a
+  restart repeats none for unchanged files; delete that file to reset.
+- **The watchdog does not run.** SessionStart restarts one that is dead, of another version or silent for two
+  intervals. Check `<tmp>/ghorc-<user>/watchdog-<root hash>.pid` (JSON) and `.log`; `watchdog.autostart: false`
+  and worker sessions never start it.
 - **Handoff candidate never answers READY.** It waits on a permission prompt (`candidatePermissionArgs` empty), did
   not receive `GHORC_ROLE`, or the 10 minutes passed. Close it and its tab, void the `handoff_id`, fix, retry; after 2
   failures ask the owner.
 - **No `5h`/`7d` segments.** `rate_limits` is absent from the status line input (not every session provides it; its
-  shape is undocumented). Inspect `<tmp>/ghorc/statusline-sample.json` (the first input, saved once) or set
+  shape is undocumented). Inspect `<tmp>/ghorc-<user>/statusline-sample.json` (the first input, saved once) or set
   `GHORC_STATUSLINE_DUMP=<file>` to append every input.
 
-`<tmp>` is the OS temp directory (`%TEMP%` on Windows, usually `/tmp` on Linux); `GHORC_TMP` replaces `<tmp>/ghorc`.
-The watchdog keeps `watchdog.log`, `alerts.log`, `alerts.offset` and `watchdog.pid` there.
+`<tmp>` is the OS temp directory (`%TEMP%` on Windows, usually `/tmp` on Linux); the plugin works in
+`<tmp>/ghorc-<user>` (one directory per OS user) and `GHORC_TMP` replaces that whole path. Per project root (an
+8-character hash) it keeps `watchdog-<hash>.log`, `.pid`, `.beat`, `.state.json` and `alerts-<hash>.log`;
+per session an alert offset file.
 
 ## Development
 
@@ -502,7 +545,9 @@ claude plugin validate <path-to-ghorc>
 
 `node --test` (or `npm test`) finds `tests/*.test.cjs` on Node 20 and 24; `node --test tests/` fails on Node 24.
 Tests set `GHORC_TMP` and `GHORC_WATCHDOG_ROOT` to temp directories and never touch the real `~/.claude/projects`; one
-test fails on any Cyrillic character in the repository. At 0.3.1: 66 tests pass on Node 24.18, validate passes.
+test fails on any Cyrillic character in the repository. At 0.4.0: 100 tests pass on Node 24.18, validate passes.
+`GHORC_HOOK_DUMP=<file>` makes every hook append its raw stdin JSON, one line per call, to that file (off by
+default); use it to see which fields (`agent_type`, `agent_id`) Claude Code really sends.
 
 **Versioning.** Bump `version` in `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json` and `package.json`
 together and add a `CHANGELOG.md` entry; an installed copy sees no update without a version change.

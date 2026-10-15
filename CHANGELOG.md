@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.4.0
+Entries are grouped by the id of the attack digest finding.
+- A1, A2, A3: read-guard counts reads per agent and per resolved path (lower-cased on Windows); offset, limit and pages no
+  longer make a new key, so round-robin reading is caught. PostToolUse resets only the edited path (Edit, Write,
+  NotebookEdit); the Bash/PowerShell reset is gone.
+- A8, A24: PDF and image reads are for media roles only (`readGuard.mediaRoles`, default `ghorc:media`, `media`); a
+  stat error on an image still counts as a read.
+- A5, A9, A13: budgets per agent: `pdfPageBudget` (60), `mediaByteBudget` (8 MiB), `maxScreenshots` (60, MCP
+  screenshot/snapshot/read_page tools; the Read matcher in hooks.json now includes them).
+- I4: invalid project config (JSON, type, regex) makes the heavy guard deny heavy commands for everyone, lead included,
+  with the reason; validity is cached by mtime and size; read-guard keeps working with defaults.
+- A10, A16: per-user tmp dir `<tmp>/ghorc-<user>`; atomic writes for state, pid, ctx and offset files.
+- G1: `GHORC_ROLE=worker` counts as a subagent for the heavy guard; built-in subagent denies: `claude -p`,
+  `herdr agent start`, `herdr agent prompt`.
+- I5: heavy command matching per segment (`&&`, `||`, `;`, `|`, newline), anchored at the segment start, quotes
+  ignored, `npm run`/`npx` prefix tolerated. **Patterns written for the old "match anywhere" rule may need a leading
+  `^`.**
+- A11: config lookup tries `CLAUDE_PROJECT_DIR` and cwd ancestors first and spawns git only on a miss.
+- A18, A19, A21: `GHORC_HOOK_DUMP=<file>` records raw hook input; hook-io and root helpers hardened.
+- A23: `setup --check` has a warning-only `heavy` item (empty `heavyCommands`, or no match for `checks.full`).
+- E1: setup `pct` is labelled GLOBAL; `--project` writes `<project>/.claude/settings.local.json` instead.
+- E2: setup exclude path comes from `git rev-parse --git-path info/exclude` (worktrees); adds `.claude/ghorc-out/`.
+- E3, E4: `ctx.cjs` needs `--session <id>` (full or 8-char prefix, or `GHORC_SESSION`) or `--all`; alerts are per
+  session, up to 10, oldest first, only shown ones marked read.
+- E6: status line shows `#<8 chars of session id>`; the 7d reset is shown as `~Nd` from 48 h.
+- E8, F1, F2: SessionStart prints `session=<id>` and `role=unknown (set GHORC_ROLE)`, alerts first, cut at 299
+  characters with `+more: run ctx`; removes ctx files and tmp state older than 7 days.
+- F3, F4, F6, F7, F8, F9: watchdog is one per project root and scans only that project's transcript directory
+  (`--transcript-dir`, `--project-root`); JSON pid file with version, heartbeat file, SessionStart restarts a dead,
+  stale or old-version watchdog; stop alarm on first sight; growth streak decays instead of resetting; `--notify` is
+  an argv array without a shell (`cmd /c script.cmd` for scripts); per-session, per-project alert offsets.
+- E1, G2, I3: docs (README: hooks, scripts, config, troubleshooting, development) follow the code above.
+
 ## 0.3.1
 - Follow-up: statusline git timeout overridable (`GHORC_GIT_TIMEOUT_MS`, tests deterministic); reset shown as `~Nh` or `~Nm`; verified live rate_limits/effort shape documented; test uses plain `node --test`.
 - Root: one rule in `scripts/lib/root.cjs` (`CLAUDE_PROJECT_DIR`, else git common root, else cwd) used by config, setup, statusline and ctx; setup now finds and writes the config at the main root from a worktree.

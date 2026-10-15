@@ -27,7 +27,7 @@ test('statusline: prints the line and writes the ctx file', () => {
     },
   }, { env: PLAIN });
   assert.equal(r.code, 0);
-  assert.equal(r.out.trim(), 'Opus 5.5 ·medium ⚡ │ ctx 12% (24K/200K) │ 5h 42% │ 7d 75% │ my-session');
+  assert.equal(r.out.trim(), 'Opus 5.5 ·medium ⚡ │ ctx 12% (24K/200K) │ 5h 42% │ 7d 75% │ #' + s.slice(0, 8) + ' │ my-session');
   assert.ok(!r.out.includes('$'));
   const file = path.join(cwd, '.claude', `ctx-${s}.json`);
   const d = JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -89,7 +89,7 @@ test('statusline: garbage on stdin - exit 0', () => {
   assert.equal(runScript('statusline.cjs', 'oops').code, 0);
 });
 
-test('ctx.cjs: newest first, the newest marked *, --max-age filters', () => {
+test('ctx.cjs --all: newest first, --max-age filters', () => {
   const cwd = tmpProject();
   const dir = path.join(cwd, '.claude');
   fs.mkdirSync(dir, { recursive: true });
@@ -101,19 +101,19 @@ test('ctx.cjs: newest first, the newest marked *, --max-age filters', () => {
   };
   mk('ctx-old.json', 10, 120);
   mk('ctx-new.json', 55, 1);
-  const r = runScript('ctx.cjs', '', { args: ['--cwd', cwd] });
+  const r = runScript('ctx.cjs', '', { args: ['--cwd', cwd, '--all'] });
   const lines = r.out.trim().split('\n');
   assert.equal(r.code, 0);
   assert.equal(lines.length, 2);
-  assert.match(lines[0], /^\* ctx-new\.json.*55%/);
-  assert.match(lines[1], /^ {2}ctx-old\.json/);
-  const f = runScript('ctx.cjs', '', { args: ['--cwd', cwd, '--max-age', '30'] });
+  assert.match(lines[0], /ctx-new\.json.*55%/);
+  assert.match(lines[1], /ctx-old\.json/);
+  const f = runScript('ctx.cjs', '', { args: ['--cwd', cwd, '--all', '--max-age', '30'] });
   assert.equal(f.out.trim().split('\n').length, 1);
   assert.match(f.out, /ctx-new/);
 });
 
 test('ctx.cjs: no directory - exit 0', () => {
-  const r = runScript('ctx.cjs', '', { args: ['--cwd', path.join(tmpProject(), 'none')] });
+  const r = runScript('ctx.cjs', '', { args: ['--cwd', path.join(tmpProject(), 'none'), '--all'] });
   assert.equal(r.code, 0);
 });
 
@@ -143,7 +143,7 @@ test('session-start: a short reminder, under 300 characters', () => {
   const r = runScript('session-start.cjs', { hook_event_name: 'SessionStart', session_id: sid(), cwd });
   assert.equal(r.code, 0);
   assert.ok(r.out.length < 300, `length ${r.out.length}`);
-  assert.match(r.out, /ghorc 0.3.1/);
+  assert.match(r.out, /ghorc [0-9.]+ session=/);
   assert.match(r.out, /config not found/);
   assert.match(r.out, /skill ghorc:orc/);
 });

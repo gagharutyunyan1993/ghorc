@@ -1,6 +1,7 @@
 'use strict';
-// SessionStart: a short reminder into the context (stdout); starts the transcript watchdog for a lead session.
+// SessionStart: a short reminder into the context (stdout); starts the per-project transcript watchdog for a lead session.
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
 const { found, load, projectRoot } = require('./lib/config.cjs');
@@ -10,36 +11,71 @@ const tmp = require('./lib/tmp.cjs');
 
 if (process.argv.includes('--help')) {
   console.log(
-    'session-start.cjs: SessionStart hook; prints the version, the config status, a reminder about skill ghorc:orc (lead only), ' +
-      'pending watchdog alerts, a missing CLAUDE.md ghorc section and a /ghorc:setup hint. ' +
-      'Lead: GHORC_ROLE=lead, or GHORC_ROLE unset and lead.remind not false. Workers start with GHORC_ROLE=worker and get no reminder. ' +
-      'A lead session also starts scripts/watchdog.cjs detached when watchdog.autostart is true and no live watchdog holds <tmp>/ghorc/watchdog.pid.',
+    'session-start.cjs: SessionStart hook; prints, in this order, pending watchdog alerts (count + last 2 lines), ' +
+      '"ghorc <version> session=<id> role=<role>", the config status, then reminders (skill ghorc:orc for the lead, ' +
+      'a missing CLAUDE.md ghorc section, a /ghorc:setup hint). Output is cut at 299 characters and then ends with "+more: run ctx". ' +
+      'Role: GHORC_ROLE=lead|worker; an empty GHORC_ROLE prints role=unknown (set GHORC_ROLE) and is treated as the lead. ' +
+      'It deletes ctx files, session state and alert offsets older than 7 days. ' +
+      'A lead session also starts scripts/watchdog.cjs detached when watchdog.autostart is true: one watchdog per project root, ' +
+      'restarted when its pid is dead, its heartbeat is stale (2 intervals) or its version differs from the plugin version.',
   );
   process.exit(0);
 }
 
-// Start the watchdog detached unless the pid lock names a live process. Never throws.
-function startWatchdog(cfg) {
+const LIMIT = 299;
+const MORE = '\n+more: run ctx';
+
+function pluginVersion() {
+  try {
+    return require(path.join(__dirname, '..', '.claude-plugin', 'plugin.json')).version;
+  } catch {
+    return '?';
+  }
+}
+
+// Transcript dir of this session's project: dirname(transcript_path), else the encoded project dir under ~/.claude/projects.
+function transcriptDir(input, root) {
+  if (process.env.GHORC_WATCHDOG_ROOT) return process.env.GHORC_WATCHDOG_ROOT;
+  if (typeof input.transcript_path === 'string' && input.transcript_path) return path.dirname(input.transcript_path);
+  return path.join(os.homedir(), '.claude', 'projects', path.resolve(root).replace(/[^A-Za-z0-9]/g, '-'));
+}
+
+// Start the watchdog detached unless a live, fresh, same-version one holds the pid file for this root. Never throws.
+function startWatchdog(cfg, root, version, input) {
   try {
     const w = cfg.watchdog || {};
     if (w.autostart === false) return false;
-    const pidFile = tmp.pidFile();
-    if (!tmp.shouldStartWatchdog(pidFile)) return false;
+    const interval = Number(w.intervalSec ?? 30);
+    const status = tmp.watchdogStatus(root, version, interval);
+    if (status.alive) return false;
+    if (status.pid && status.reason !== 'dead pid' && status.pid !== process.pid) {
+      try {
+        process.kill(status.pid); // stale or old-version watchdog: best effort
+      } catch {
+        /* already gone or not ours to kill */
+      }
+    }
     fs.mkdirSync(tmp.tmpDir(), { recursive: true });
-    const log = fs.openSync(tmp.logFile(), 'a');
+    const log = fs.openSync(tmp.logFile(root), 'a');
     const args = [
       path.join(__dirname, 'watchdog.cjs'),
-      '--interval', String(w.intervalSec ?? 30),
+      '--interval', String(interval),
       '--rateMiBPerMin', String(w.rateMiBPerMin ?? 10),
       '--warnMiB', String(w.warnMiB ?? 100),
       '--stopMiB', String(w.stopMiB ?? 250),
-      '--notify-file', tmp.alertsFile(),
-      '--pid-file', pidFile,
+      '--transcript-dir', transcriptDir(input, root),
+      '--project-root', root,
+      '--version', version,
+      '--notify-file', tmp.alertsFile(root),
+      '--pid-file', tmp.pidFile(root),
+      '--heartbeat-file', tmp.heartbeatFile(root),
     ];
-    if (process.env.GHORC_WATCHDOG_ROOT) args.push('--root', process.env.GHORC_WATCHDOG_ROOT);
     const child = spawn(process.execPath, args, { detached: true, stdio: ['ignore', log, log], windowsHide: true });
     child.on('error', () => {});
-    if (child.pid) fs.writeFileSync(pidFile, String(child.pid)); // close the race before the child writes it itself
+    if (child.pid) {
+      // close the race before the child writes it itself
+      tmp.atomicWrite(tmp.pidFile(root), JSON.stringify({ pid: child.pid, version, root, startedAt: Date.now() }));
+    }
     child.unref();
     fs.closeSync(log);
     return true;
@@ -48,48 +84,64 @@ function startWatchdog(cfg) {
   }
 }
 
-run((input) => {
-  let version = '?';
-  try {
-    version = require(path.join(__dirname, '..', '.claude-plugin', 'plugin.json')).version;
-  } catch {
-    /* the version is optional */
-  }
-  const cwd = input.cwd || process.cwd();
-  const lines = [`ghorc ${version}`];
-  lines.push(found(cwd) ? 'config: ok' : 'config not found: copy templates/ghorc.json to .claude/ghorc.json');
-  try {
-    const { problems } = check(cwd);
-    if (problems.length) lines.push(`config invalid: ${problems[0]}`.slice(0, 150) + ' (node scripts/check-config.cjs)');
-  } catch {
-    /* the check is optional */
-  }
+function cut(lines) {
+  const text = lines.join('\n');
+  if (text.length <= LIMIT) return text;
+  return text.slice(0, LIMIT - MORE.length) + MORE;
+}
 
+run((input) => {
+  const version = pluginVersion();
+  const cwd = input.cwd || process.cwd();
+  const sid = input.session_id;
+  const root = projectRoot(cwd);
   const role = (process.env.GHORC_ROLE || '').trim();
   const cfg = load(cwd);
-  const remind = cfg.lead;
   const isMain = !input.agent_id;
-  const isLead = isMain && (role === 'lead' || (role === '' && !(remind && remind.remind === false)));
-  if (isLead) lines.push('lead: load skill ghorc:orc');
-  if (isMain && (role === 'lead' || role === '')) startWatchdog(cfg);
 
   try {
-    const { lines: unread } = tmp.unreadAlerts();
-    if (unread.length) lines.push(`${unread.length} watchdog alerts pending, run ctx.cjs`);
+    tmp.cleanup(root);
+  } catch {
+    /* housekeeping is optional */
+  }
+
+  const alerts = [];
+  try {
+    const { lines } = tmp.unreadAlerts(root, sid);
+    if (lines.length) {
+      alerts.push(`${lines.length} watchdog alerts pending, run ctx`);
+      for (const l of lines.slice(-2)) alerts.push(`  ${l.slice(0, 80)}`);
+    }
   } catch {
     /* alerts are optional */
   }
 
+  const ident = [`ghorc ${version}`, `session=${sid || '?'}`, role ? `role=${role}` : 'role=unknown (set GHORC_ROLE)'];
+
+  const status = [];
+  status.push(found(cwd) ? 'config: ok' : 'config not found: copy templates/ghorc.json to .claude/ghorc.json');
   try {
-    const mdFile = path.join(projectRoot(cwd), 'CLAUDE.md');
+    const { problems } = check(cwd);
+    if (problems.length) status.push(`config invalid: ${problems[0]}`.slice(0, 150) + ' (node scripts/check-config.cjs)');
+  } catch {
+    /* the check is optional */
+  }
+
+  const remind = cfg.lead;
+  const isLead = isMain && (role === 'lead' || (role === '' && !(remind && remind.remind === false)));
+  const reminders = [];
+  if (isLead) reminders.push('lead: load skill ghorc:orc');
+  if (isMain && (role === 'lead' || role === '')) startWatchdog(cfg, root, version, input);
+
+  try {
     let md = null;
     try {
-      md = fs.readFileSync(mdFile, 'utf8');
+      md = fs.readFileSync(path.join(root, 'CLAUDE.md'), 'utf8');
     } catch {
       /* missing */
     }
-    if (md === null) lines.push('CLAUDE.md is missing, so it has no ghorc section: paste templates/CLAUDE-section.md');
-    else if (!md.includes('<!-- ghorc -->')) lines.push('CLAUDE.md has no ghorc section: paste templates/CLAUDE-section.md');
+    if (md === null) reminders.push('CLAUDE.md is missing, so it has no ghorc section: paste templates/CLAUDE-section.md');
+    else if (!md.includes('<!-- ghorc -->')) reminders.push('CLAUDE.md has no ghorc section: paste templates/CLAUDE-section.md');
   } catch {
     /* optional */
   }
@@ -97,10 +149,11 @@ run((input) => {
   try {
     if (isLead) {
       const r = require('./setup.cjs').check(cwd);
-      if (r.items.some((i) => !i.ok && !i.owner) || r.settingsError) lines.push('run /ghorc:setup');
+      if (r.items.some((i) => !i.ok && !i.owner && !i.warn) || r.settingsError) reminders.push('run /ghorc:setup');
     }
   } catch {
     /* optional */
   }
-  process.stdout.write(lines.join('\n').slice(0, 299) + '\n');
+
+  process.stdout.write(cut([...alerts, ident.join(' '), ...status, ...reminders]) + '\n');
 });

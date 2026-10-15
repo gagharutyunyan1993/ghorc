@@ -45,7 +45,7 @@ test('root rule: statusline writes the ctx file under CLAUDE_PROJECT_DIR like ct
     runScript('statusline.cjs', { session_id: 'abc', cwd: other, model: { display_name: 'M' } }, { env });
     assert.ok(fs.existsSync(path.join(proj, '.claude', 'ctx-abc.json')));
     assert.ok(!fs.existsSync(path.join(other, '.claude', 'ctx-abc.json')));
-    const r = runScript('ctx.cjs', '', { env, cwd: other });
+    const r = runScript('ctx.cjs', '', { env, cwd: other, args: ['--session', 'abc'] });
     assert.match(r.out, /ctx-abc\.json/);
   } finally {
     fs.rmSync(other, { recursive: true, force: true });
@@ -118,13 +118,13 @@ test('watchdog: alert state survives a restart; re-alerts only after growth of w
   const f = path.join(root, 'big.jsonl');
   const run = (extra = []) =>
     runScript('watchdog.cjs', '', {
-      args: ['--once', '--root', root, '--warnMiB', '2', '--stopMiB', '1000', ...extra],
+      args: ['--once', '--root', root, '--project-root', root, '--warnMiB', '2', '--stopMiB', '1000', ...extra],
       env: { GHORC_TMP: tmpd },
     }).out;
   try {
     fs.writeFileSync(f, Buffer.alloc(3 * 1024 * 1024));
     assert.match(run(), /over 2 MiB/);
-    assert.ok(fs.existsSync(path.join(tmpd, 'watchdog-state.json')));
+    assert.ok(fs.readdirSync(tmpd).some((n) => /^watchdog-.*.state.json$/.test(n)));
     assert.doesNotMatch(run(), /over 2 MiB/, 'unchanged file: no repeat after restart');
     fs.writeFileSync(f, Buffer.alloc(3.5 * 1024 * 1024));
     assert.doesNotMatch(run(), /over 2 MiB/, 'growth below warnMiB/2: no repeat');
@@ -162,7 +162,7 @@ test('statusline: parses the verified live sample (rate_limits epoch seconds, ef
       },
     }).out.trim();
   // 2h20m before the 5h reset; the 7d reset is 148.5 h away.
-  assert.equal(run(1792079400 - 8400), 'Fable 5.1 ·medium │ ctx -- │ 5h 16% (~2h) │ 7d 34% (~149h)');
+  assert.equal(run(1792079400 - 8400), 'Fable 5.1 ·medium │ ctx -- │ 5h 16% (~2h) │ 7d 34% (~6d)');
   // 20 minutes before the 5h reset: minutes under an hour.
   assert.match(run(1792079400 - 1200), /5h 16% \(~20m\)/);
 });
