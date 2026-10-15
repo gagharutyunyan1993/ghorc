@@ -2,7 +2,7 @@
 // statusLine: одна строка + файл <cwd>/.claude/ctx-<session_id>.json для лида.
 const fs = require('node:fs');
 const path = require('node:path');
-const { projectRoot } = require('./lib/config.cjs');
+const { projectRoot, gitCommonRoot } = require('./lib/config.cjs');
 
 if (process.argv.includes('--help')) {
   console.log(
@@ -42,7 +42,8 @@ process.stdout.write(parts.join(' | ') + '\n');
 try {
   const sid = input.session_id;
   const cwd = input.cwd || (input.workspace && input.workspace.current_dir);
-  const root = (input.workspace && input.workspace.project_dir) || (cwd ? projectRoot(cwd) : null);
+  const pd = input.workspace && input.workspace.project_dir;
+  const root = gitCommonRoot(pd || cwd) || pd || (cwd ? projectRoot(cwd) : null);
   if (sid && root) {
     const dir = path.join(root, '.claude');
     fs.mkdirSync(dir, { recursive: true });

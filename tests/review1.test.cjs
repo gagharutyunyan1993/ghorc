@@ -200,3 +200,49 @@ test('P2-8: statusline пишет в корень проекта (git), атом
   runScript('statusline.cjs', { session_id: s3, cwd: sub, workspace: { project_dir: pd }, context_window: {} });
   assert.ok(fs.existsSync(path.join(pd, '.claude', `ctx-${s3}.json`)));
 });
+
+test('круг 2: --notify через шелл, один аргумент (в т.ч. .cmd на Windows)', { skip: process.platform !== 'win32' && 'только Windows' }, () => {
+  const root = tmpProject();
+  fs.writeFileSync(path.join(root, 'big file.jsonl'), Buffer.alloc(2 * 1024 * 1024));
+  const out = path.join(root, 'n.json');
+  const js = path.join(root, 'n.cjs');
+  fs.writeFileSync(js, `require('fs').writeFileSync(${JSON.stringify(out)}, JSON.stringify(process.argv.slice(2)));`);
+  const cmd = path.join(root, 'notify.cmd');
+  fs.writeFileSync(cmd, `@echo off\r\nnode "${js}" %*\r\n`);
+  const r = runScript('watchdog.cjs', '', { args: ['--once', '--root', root, '--warnMiB', '1', '--notify', `"${cmd}"`] });
+  assert.equal(r.code, 0);
+  const argv = JSON.parse(fs.readFileSync(out, 'utf8'));
+  assert.equal(argv.length, 1);
+  assert.match(argv[0], /big file\.jsonl/);
+});
+
+test('круг 2: корень проекта из worktree - основной репозиторий (git worktree add)', () => {
+  const { spawnSync } = require('node:child_process');
+  const config = require('../scripts/lib/config.cjs');
+  const repo = fs.realpathSync(tmpProject());
+  const git = (cwd, ...a) => spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...a], { cwd, encoding: 'utf8' });
+  assert.equal(git(repo, 'init', '-q').status, 0);
+  fs.writeFileSync(path.join(repo, 'f.txt'), 'x');
+  git(repo, 'add', '-A');
+  assert.equal(git(repo, 'commit', '-q', '-m', 'i').status, 0);
+  const wt = path.join(path.dirname(repo), path.basename(repo) + '-wt');
+  assert.equal(git(repo, 'worktree', 'add', '-q', wt, '-b', 'wt1').status, 0);
+  try {
+    const real = (p) => fs.realpathSync(p).toLowerCase();
+    assert.equal(real(config.projectRoot(wt)), real(repo));
+    // statusline из worktree пишет ctx в основной репозиторий
+    const s = sid();
+    runScript('statusline.cjs', { session_id: s, cwd: wt, context_window: { used_percentage: 3 } });
+    assert.ok(fs.existsSync(path.join(repo, '.claude', `ctx-${s}.json`)));
+    assert.ok(!fs.existsSync(path.join(wt, '.claude')));
+    // ctx.cjs из worktree видит тот же файл
+    assert.match(runScript('ctx.cjs', '', { args: ['--cwd', wt, '--session', s] }).out, new RegExp(`ctx-${s}`));
+    // конфиг основного репозитория находится из worktree
+    fs.mkdirSync(path.join(repo, '.claude'), { recursive: true });
+    fs.writeFileSync(path.join(repo, '.claude', 'orc-kit.json'), JSON.stringify({ readGuard: { maxRepeat: 8 } }));
+    assert.equal(config.load(wt).readGuard.maxRepeat, 8);
+  } finally {
+    git(repo, 'worktree', 'remove', '--force', wt);
+    fs.rmSync(wt, { recursive: true, force: true });
+  }
+});

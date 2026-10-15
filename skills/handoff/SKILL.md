@@ -29,12 +29,13 @@ user-invocable: true
 ## Команды herdr (без `--wait`)
 ```
 herdr tab create
-herdr agent start lead-next --kind claude -- --model <lead.model> --effort <lead.effort> <handoff.candidatePermissionArgs>
+ORC_ROLE=lead herdr agent start lead-next --kind claude -- --model <lead.model> --effort <lead.effort> <handoff.candidatePermissionArgs>
 herdr agent prompt lead-next "Прочитай <путь HANDOFF>. Сверь с git и статусом проекта. Ответь строго: READY handoff=<id>; Следующее действие: <одно>; Несоответствия: <нет/список>. Ничего не меняй, пока старый лид не завершится. Свою ротацию не начинай."
 herdr agent wait lead-next --until idle,blocked   # тайм-аут 10 минут
 herdr agent read lead-next
 ```
 `herdr agent prompt --wait` не использовать (риск повторной отправки хуком).
+Кандидат-лид стартует с `ORC_ROLE=lead` (PowerShell: `$env:ORC_ROLE='lead'; herdr agent start ...`); любой другой herdr-воркер - с `ORC_ROLE=worker` (`$env:ORC_ROLE='worker'`), чтобы не получить напоминание лида. Наследование переменной herdr-ом не проверено живьём: проверь в первой сессии строку SessionStart.
 
 ## Протокол READY / STOP
 Ответ кандидата:

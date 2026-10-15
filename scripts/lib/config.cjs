@@ -3,6 +3,7 @@
 // Корень ищется так: CLAUDE_PROJECT_DIR, затем подъём от cwd до корня git (включительно).
 const fs = require('node:fs');
 const path = require('node:path');
+const { spawnSync } = require('node:child_process');
 
 const TEMPLATE = path.join(__dirname, '..', '..', 'templates', 'orc-kit.json');
 
@@ -45,10 +46,28 @@ function envProjectDir() {
   return v && v.trim() ? v : null;
 }
 
-// Корень проекта: CLAUDE_PROJECT_DIR, иначе корень git от cwd, иначе сам cwd.
+// Основной корень репозитория при работе в worktree: родитель `git rev-parse --git-common-dir`.
+// null - не git, git недоступен или bare-репозиторий.
+function gitCommonRoot(cwd) {
+  try {
+    const base = path.resolve(cwd || process.cwd());
+    const r = spawnSync('git', ['rev-parse', '--git-common-dir'], { cwd: base, encoding: 'utf8', timeout: 5000 });
+    if (r.status !== 0) return null;
+    const out = String(r.stdout).trim();
+    if (!out) return null;
+    const common = path.resolve(base, out);
+    return path.basename(common) === '.git' ? path.dirname(common) : null;
+  } catch {
+    return null;
+  }
+}
+
+// Корень проекта: CLAUDE_PROJECT_DIR, иначе основной корень git (в т.ч. из worktree), иначе подъём до .git, иначе cwd.
 function projectRoot(cwd) {
   const env = envProjectDir();
   if (env) return path.resolve(env);
+  const common = gitCommonRoot(cwd);
+  if (common) return common;
   const list = ancestors(cwd);
   const last = list[list.length - 1];
   return fs.existsSync(path.join(last, '.git')) ? last : path.resolve(cwd || process.cwd());
@@ -60,6 +79,8 @@ function findConfig(cwd) {
   const env = envProjectDir();
   if (env) dirs.push(path.resolve(env));
   for (const d of ancestors(cwd)) if (!dirs.includes(d)) dirs.push(d);
+  const common = gitCommonRoot(cwd);
+  if (common && !dirs.includes(common)) dirs.push(common);
   for (const d of dirs) {
     const p = path.join(d, '.claude', 'orc-kit.json');
     if (fs.existsSync(p)) return p;
@@ -85,4 +106,4 @@ function found(cwd) {
   return file !== null && readJson(file) !== null;
 }
 
-module.exports = { load, found, merge, configPath, findConfig, projectRoot, ancestors, readJson, TEMPLATE };
+module.exports = { load, found, merge, configPath, findConfig, projectRoot, gitCommonRoot, ancestors, readJson, TEMPLATE };

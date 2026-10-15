@@ -94,5 +94,5 @@ node --test
 Команда `node --test` без аргументов находит `tests/*.test.cjs` на Node 20 и 24 (форма `node --test tests/` на Node 24 не работает: каталог воспринимается как модуль). Зависимостей нет.
 
 ## Проверено
-- `node --test` (Node 24.18): tests 44, pass 44, fail 0 (версия 0.1.1; включая круг 1 ревью).
+- `node --test` (Node 24.18): tests 46, pass 46, fail 0 (версия 0.1.2; включая круги 1-2 ревью).
 - `claude plugin validate D:/Projects/orc-kit`: Validation passed (marketplace); `.../.claude-plugin/plugin.json`: Validation passed.

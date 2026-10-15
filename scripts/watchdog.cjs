@@ -4,7 +4,7 @@
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { spawnSync } = require('node:child_process');
+const { spawn } = require('node:child_process');
 
 const args = process.argv.slice(2);
 if (args.includes('--help')) {
@@ -14,7 +14,7 @@ if (args.includes('--help')) {
       '             [--subagentsMiB 500] [--root <каталог, по умолчанию ~/.claude/projects>] [--once] [--notify "<команда>"]',
       'Тревоги: рост выше rateMiBPerMin непрерывно streakSec секунд; размер выше warnMiB (проверить содержимое);',
       'выше stopMiB и всё ещё растёт; файл в subagents/ выше subagentsMiB.',
-      '--notify: команда запускается без шелла, текст тревоги - ОДИН последний аргумент (и переменная ORC_ALERT).',
+      '--notify: команда запускается через шелл (.cmd/.bat работают) в фоне, таймер 10 с; текст тревоги - ОДИН аргумент в кавычках (и переменная ORC_ALERT).',
       'Сторож никого не останавливает.',
     ].join('\n'),
   );
@@ -35,13 +35,10 @@ const once = args.includes('--once');
 const notify = opt('--notify', null);
 const MiB = 1024 * 1024;
 
-// Разбор командной строки на аргументы с учётом кавычек (без шелла).
-function splitArgs(s) {
-  const out = [];
-  const re = /"([^"]*)"|'([^']*)'|(\S+)/g;
-  let m;
-  while ((m = re.exec(s))) out.push(m[1] ?? m[2] ?? m[3]);
-  return out;
+// Один аргумент для шелла: Windows - двойные кавычки, иначе одинарные.
+function quoteArg(s) {
+  if (process.platform === 'win32') return '"' + String(s).replace(/"/g, '\\"') + '"';
+  return "'" + String(s).replace(/'/g, "'\\''") + "'";
 }
 
 function walk(dir, out) {
@@ -62,9 +59,24 @@ function walk(dir, out) {
 function alert(text) {
   console.log(`[orc-kit watchdog] ${text}`);
   if (!notify) return;
+  // Через шелл (работают .cmd/.bat); не ждём завершения, убиваем через 10 с.
   try {
-    const [cmd, ...rest] = splitArgs(notify);
-    if (cmd) spawnSync(cmd, [...rest, text], { stdio: 'ignore', timeout: 10000, env: { ...process.env, ORC_ALERT: text } });
+    const child = spawn(`${notify} ${quoteArg(text)}`, {
+      shell: true,
+      stdio: 'ignore',
+      windowsHide: true,
+      env: { ...process.env, ORC_ALERT: text },
+    });
+    child.on('error', (e) => console.log(`[orc-kit watchdog] notify не запустился: ${e.message}`));
+    const timer = setTimeout(() => {
+      try {
+        child.kill();
+      } catch {
+        /* уже завершился */
+      }
+    }, 10000);
+    timer.unref();
+    child.on('exit', () => clearTimeout(timer));
   } catch {
     /* уведомление необязательно */
   }
