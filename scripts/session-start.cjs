@@ -8,6 +8,7 @@ const { found, load, projectRoot } = require('./lib/config.cjs');
 const { check } = require('./lib/validate.cjs');
 const { run } = require('./lib/hook-io.cjs');
 const tmp = require('./lib/tmp.cjs');
+const { refuseReason, deriveTranscriptDir } = require('./lib/scandir.cjs');
 
 if (process.argv.includes('--help')) {
   console.log(
@@ -34,19 +35,15 @@ function pluginVersion() {
   }
 }
 
-// Transcript dir of this session's project: dirname(transcript_path), else the encoded project dir under ~/.claude/projects.
-function transcriptDir(input, root) {
-  if (process.env.GHORC_WATCHDOG_ROOT) return process.env.GHORC_WATCHDOG_ROOT;
-  if (typeof input.transcript_path === 'string' && input.transcript_path) return path.dirname(input.transcript_path);
-  return path.join(os.homedir(), '.claude', 'projects', path.resolve(root).replace(/[^A-Za-z0-9]/g, '-'));
-}
-
 // Start the watchdog detached unless a live, fresh, same-version one holds the pid file for this root. Never throws.
-function startWatchdog(cfg, root, version, input) {
+function startWatchdog(cfg, root, version, input, cwd) {
   try {
     const w = cfg.watchdog || {};
     if (w.autostart === false || process.env.GHORC_NO_AUTOSTART === '1') return false;
     const interval = Number(w.intervalSec ?? 30);
+    const dir = deriveTranscriptDir(input, cwd);
+    const refused = refuseReason(dir);
+    if (refused) return `watchdog: not started (${refused})`;
     const status = tmp.watchdogStatus(root, version, interval);
     if (status.alive) return false;
     // No kill: a stale pid may belong to a foreign process (pid reuse after a reboot or a hard kill). The new pid file
@@ -59,13 +56,18 @@ function startWatchdog(cfg, root, version, input) {
       '--rateMiBPerMin', String(w.rateMiBPerMin ?? 10),
       '--warnMiB', String(w.warnMiB ?? 100),
       '--stopMiB', String(w.stopMiB ?? 250),
-      '--transcript-dir', transcriptDir(input, root),
+      '--transcript-dir', dir,
       '--project-root', root,
       '--version', version,
       '--notify-file', tmp.alertsFile(root),
       '--pid-file', tmp.pidFile(root),
       '--heartbeat-file', tmp.heartbeatFile(root),
     ];
+    if (process.env.GHORC_WATCHDOG_DRY === '1') {
+      fs.closeSync(log);
+      process.stderr.write('watchdog-args: ' + JSON.stringify(args.slice(1)) + '\n');
+      return false;
+    }
     const child = spawn(process.execPath, args, { detached: true, stdio: ['ignore', log, log], windowsHide: true });
     child.on('error', () => {});
     if (child.pid) {
@@ -74,7 +76,7 @@ function startWatchdog(cfg, root, version, input) {
     }
     child.unref();
     fs.closeSync(log);
-    return true;
+    return false;
   } catch {
     return false;
   }
@@ -130,7 +132,10 @@ run((input) => {
   const isLead = isMain && (role === 'lead' || (role === '' && !(remind && remind.remind === false)));
   const reminders = [];
   if (isLead) reminders.push('lead: load skill ghorc:orc');
-  if (isMain && (role === 'lead' || role === '')) startWatchdog(cfg, root, version, input);
+  if (isMain && (role === 'lead' || role === '')) {
+    const w = startWatchdog(cfg, root, version, input, cwd);
+    if (typeof w === 'string') status.push(w);
+  }
 
   try {
     let md = null;

@@ -42,6 +42,13 @@ const projectRoot = path.resolve(opt('--project-root', process.cwd()));
 const version = opt('--version', null);
 // --root is the older name of --transcript-dir
 const scanDir = opt('--transcript-dir', opt('--root', path.join(os.homedir(), '.claude', 'projects', projectRoot.replace(/[^A-Za-z0-9]/g, '-'))));
+{
+  const reason = require('./lib/scandir.cjs').rootReason(scanDir);
+  if (reason) {
+    console.error(`[ghorc watchdog] refusing to scan: ${reason}`);
+    process.exit(2);
+  }
+}
 const once = args.includes('--once');
 const notify = opt('--notify', null);
 const notifyFile = opt('--notify-file', null);
