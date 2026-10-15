@@ -18,7 +18,13 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
       - name: Unit tests
-        run: npm test
+        shell: bash
+        run: |
+          npm test > test.log 2>&1 && { cat test.log | tail -12; exit 0; }
+          cat test.log
+          msg=$(grep -A14 '^not ok' test.log | head -c 5000 | awk '{printf "%s%%0A", $0}')
+          echo "::error title=failing tests::$msg"
+          exit 1
       - name: No Cyrillic in tracked files
         if: matrix.os == 'ubuntu-latest'
         shell: bash
