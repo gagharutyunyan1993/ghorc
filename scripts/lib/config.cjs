@@ -1,9 +1,9 @@
 'use strict';
 // Project config loading: <root>/.claude/ghorc.json over templates/ghorc.json.
-// The root is found as: CLAUDE_PROJECT_DIR, then walking up from cwd to the git root (inclusive).
+// Root rule (lib/root.cjs): CLAUDE_PROJECT_DIR, else the main git root, else cwd. The config is also searched in cwd ancestors.
 const fs = require('node:fs');
 const path = require('node:path');
-const { spawnSync } = require('node:child_process');
+const { projectRoot, gitCommonRoot, ancestors, envProjectDir } = require('./root.cjs');
 
 const TEMPLATE = path.join(__dirname, '..', '..', 'templates', 'ghorc.json');
 
@@ -25,52 +25,6 @@ function merge(base, over) {
   const out = { ...base };
   for (const k of Object.keys(over)) out[k] = k in base ? merge(base[k], over[k]) : over[k];
   return out;
-}
-
-// Directories from cwd up to the git root inclusive (if .git is not found, up to the drive root).
-function ancestors(cwd) {
-  const out = [];
-  let dir = path.resolve(cwd || process.cwd());
-  for (let i = 0; i < 64; i++) {
-    out.push(dir);
-    if (fs.existsSync(path.join(dir, '.git'))) break;
-    const up = path.dirname(dir);
-    if (up === dir) break;
-    dir = up;
-  }
-  return out;
-}
-
-function envProjectDir() {
-  const v = process.env.CLAUDE_PROJECT_DIR;
-  return v && v.trim() ? v : null;
-}
-
-// Main repository root when working in a worktree: the parent of `git rev-parse --git-common-dir`.
-// null: not git, git unavailable, or a bare repository.
-function gitCommonRoot(cwd) {
-  try {
-    const base = path.resolve(cwd || process.cwd());
-    const r = spawnSync('git', ['rev-parse', '--git-common-dir'], { cwd: base, encoding: 'utf8', timeout: 5000 });
-    if (r.status !== 0) return null;
-    const out = String(r.stdout).trim();
-    if (!out) return null;
-    const common = path.resolve(base, out);
-    return path.basename(common) === '.git' ? path.dirname(common) : null;
-  } catch {
-    return null;
-  }
-}
-
-// Project root: CLAUDE_PROJECT_DIR, else the main git root (including from a worktree), else walk up to .git, else cwd.
-function projectRoot(cwd) {
-  const env = envProjectDir();
-  if (env) return path.resolve(env);
-  const common = gitCommonRoot(cwd);
-  if (common) return common;
-  const list = ancestors(cwd);
-  const last = list[list.length - 1];
-  return fs.existsSync(path.join(last, '.git')) ? last : path.resolve(cwd || process.cwd());
 }
 
 // Path to the found ghorc.json, or null.

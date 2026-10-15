@@ -135,7 +135,7 @@ test('setup.cjs: --check finds everything missing, --apply all makes it clean, o
     const parse = (o) => JSON.parse(o.trim().split('\n').pop());
     const before = parse(runScript('setup.cjs', '', { args: ['--check', '--cwd', proj], env }).out);
     assert.equal(before.clean, false);
-    assert.ok(before.items.every((i) => !i.ok), 'all items missing');
+    assert.ok(before.items.filter((i) => i.id !== 'statusLineStale').every((i) => !i.ok), 'all items missing');
     const ap = runScript('setup.cjs', '', { args: ['--apply', 'all', '--cwd', proj], env });
     assert.equal(ap.code, 0, ap.out + ap.err);
     const after = parse(runScript('setup.cjs', '', { args: ['--check', '--cwd', proj], env }).out);

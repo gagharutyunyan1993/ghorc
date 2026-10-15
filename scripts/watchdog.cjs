@@ -18,6 +18,7 @@ if (args.includes('--help')) {
       'above stopMiB and still growing; a file under subagents/ above subagentsMiB.',
       '--notify: the command runs through the shell (.cmd/.bat work) in the background with a 10 s timer; the alert text is ONE quoted argument (and the GHORC_ALERT variable).',
       '--notify-file: every alert is also appended as a line "<ISO time> <text>" to this file (scripts/ctx.cjs shows unread lines).',
+      'Size alerts are remembered in <tmp>/ghorc/watchdog-state.json: a restart does not repeat them; one repeats only after the file grew by warnMiB/2 or its level rose.',
       'Unless --once is given, the pid is written to the pid file at start and removed on exit.',
       'The watchdog stops nobody.',
     ].join('\n'),
@@ -96,13 +97,59 @@ function alert(text) {
   }
 }
 
-const prev = new Map(); // path -> { size, t, fastSince, streakAlerted, warned, stopped, subAlerted }
+const prev = new Map(); // path -> { size, t, fastSince, streakAlerted }
+
+// Size alerts persist across restarts: path -> { size, level, sizes: { <level>: size at its last alert } }.
+// Levels: 1 = over warnMiB, 2 = over stopMiB and growing, 3 = subagent file over subagentsMiB.
+// A level alerts again only after the file grew by warnMiB/2 since that level's last alert.
+const stateFile = path.join(tmp.tmpDir(), 'watchdog-state.json');
+let alerted = {};
+try {
+  const j = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+  if (j && typeof j === 'object' && !Array.isArray(j)) alerted = j;
+} catch {
+  /* no state yet */
+}
+let stateDirty = false;
+
+function sizeAlertDue(p, level, size) {
+  const e = alerted[p];
+  const last = e && e.sizes ? e.sizes[level] : undefined;
+  if (!Number.isFinite(last)) return true;
+  return size - last >= (warnMiB / 2) * MiB;
+}
+
+function markSizeAlert(p, level, size) {
+  const e = alerted[p] && alerted[p].sizes ? alerted[p] : { sizes: {} };
+  e.sizes[level] = size;
+  e.size = size;
+  e.level = Math.max(Number(e.level) || 0, level);
+  alerted[p] = e;
+  stateDirty = true;
+}
+
+function saveState() {
+  if (!stateDirty) return;
+  try {
+    fs.mkdirSync(path.dirname(stateFile), { recursive: true });
+    fs.writeFileSync(stateFile, JSON.stringify(alerted));
+    stateDirty = false;
+  } catch {
+    /* the state file is optional */
+  }
+}
 
 function pass() {
   const now = Date.now();
   const files = walk(root, []);
   const live = new Set(files);
   for (const k of [...prev.keys()]) if (!live.has(k)) prev.delete(k);
+  for (const k of Object.keys(alerted)) {
+    if (!live.has(k)) {
+      delete alerted[k];
+      stateDirty = true;
+    }
+  }
 
   for (const p of files) {
     let size;
@@ -112,7 +159,7 @@ function pass() {
       continue;
     }
     const first = !prev.has(p);
-    const st = prev.get(p) || { size, t: now, fastSince: null, streakAlerted: false, warned: false, stopped: false, subAlerted: false };
+    const st = prev.get(p) || { size, t: now, fastSince: null, streakAlerted: false };
     const dtMin = (now - st.t) / 60000;
     const delta = size - st.size;
     const rate = dtMin > 0 ? delta / MiB / dtMin : 0;
@@ -129,23 +176,24 @@ function pass() {
         st.fastSince = null;
         st.streakAlerted = false;
       }
-      if (size > stopMiB * MiB && delta > 0 && !st.stopped) {
+      if (size > stopMiB * MiB && delta > 0 && sizeAlertDue(p, 2, size)) {
         alert(`ALARM, over ${stopMiB} MiB and growing: ${info}`);
-        st.stopped = true;
+        markSizeAlert(p, 2, size);
       }
     }
-    if (size > warnMiB * MiB && !st.warned) {
+    if (size > warnMiB * MiB && sizeAlertDue(p, 1, size)) {
       alert(`over ${warnMiB} MiB, check what the content is: ${info}`);
-      st.warned = true;
+      markSizeAlert(p, 1, size);
     }
-    if (size > subMiB * MiB && /[\\/]subagents[\\/]/.test(p) && !st.subAlerted) {
+    if (size > subMiB * MiB && /[\\/]subagents[\\/]/.test(p) && sizeAlertDue(p, 3, size)) {
       alert(`ALARM, subagent file over ${subMiB} MiB: ${info}`);
-      st.subAlerted = true;
+      markSizeAlert(p, 3, size);
     }
     st.size = size;
     st.t = now;
     prev.set(p, st);
   }
+  saveState();
 }
 
 if (!once) {

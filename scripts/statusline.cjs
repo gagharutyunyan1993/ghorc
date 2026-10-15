@@ -3,12 +3,12 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { projectRoot, gitCommonRoot } = require('./lib/config.cjs');
+const { projectRoot } = require('./lib/root.cjs');
 const { tmpDir } = require('./lib/tmp.cjs');
 
 if (process.argv.includes('--help')) {
   console.log(
-    'statusline.cjs: statusLine command. Reads JSON from stdin, prints "model ·effort | ctx NN% (used/size) | 5h | 7d | role | branch | session" ' +
+    'statusline.cjs: statusLine command. Reads JSON from stdin, prints "model ·effort │ ctx NN% (used/size) │ 5h │ 7d │ role │ branch │ session" ' +
       'and writes <project root>/.claude/ctx-<session_id>.json. GHORC_STATUSLINE_DUMP=<file> appends the raw stdin. ' +
       'The first raw stdin is also saved once to <tmpdir>/ghorc/statusline-sample.json. ' +
       'NO_COLOR / GHORC_STATUSLINE_PLAIN=1 disable color. See README.',
@@ -189,7 +189,8 @@ try {
   const sid = input.session_id;
   const cwd = input.cwd || (input.workspace && input.workspace.current_dir);
   const pd = input.workspace && input.workspace.project_dir;
-  const root = gitCommonRoot(pd || cwd) || pd || (cwd ? projectRoot(cwd) : null);
+  const base = pd || cwd;
+  const root = base || process.env.CLAUDE_PROJECT_DIR ? projectRoot(base) : null;
   if (sid && root) {
     const dir = path.join(root, '.claude');
     fs.mkdirSync(dir, { recursive: true });

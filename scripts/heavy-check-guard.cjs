@@ -1,11 +1,11 @@
 'use strict';
-// PreToolUse(Bash): heavy commands from heavyCommands are denied to subagents.
+// PreToolUse(Bash|PowerShell): heavy commands from heavyCommands are denied to subagents.
 const { deny, run } = require('./lib/hook-io.cjs');
 const { load } = require('./lib/config.cjs');
 
 if (process.argv.includes('--help')) {
   console.log(
-    'heavy-check-guard.cjs: PreToolUse(Bash) hook. Denies commands matching a regex from heavyCommands ' +
+    'heavy-check-guard.cjs: PreToolUse(Bash|PowerShell) hook. Denies commands matching a regex from heavyCommands ' +
       'when a subagent calls them (agent_id in the input). heavyGuard.requireLeadEnv=true: also denies without GHORC_ROLE=lead. ' +
       'No project config: everything is allowed.',
   );

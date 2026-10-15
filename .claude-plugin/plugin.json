@@ -1,6 +1,6 @@
 {
   "name": "ghorc",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Orchestration kit for Claude Code: delegation roles, lead skills, read/heavy-check guard hooks, context statusline and transcript watchdog.",
   "author": { "name": "Gagik Harutyunyan" },
   "keywords": ["orchestration", "subagents", "delegation", "hooks", "handoff", "herdr"]

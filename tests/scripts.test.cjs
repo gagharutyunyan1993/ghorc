@@ -143,7 +143,7 @@ test('session-start: a short reminder, under 300 characters', () => {
   const r = runScript('session-start.cjs', { hook_event_name: 'SessionStart', session_id: sid(), cwd });
   assert.equal(r.code, 0);
   assert.ok(r.out.length < 300, `length ${r.out.length}`);
-  assert.match(r.out, /ghorc 0.3.0/);
+  assert.match(r.out, /ghorc 0.3.1/);
   assert.match(r.out, /config not found/);
   assert.match(r.out, /skill ghorc:orc/);
 });

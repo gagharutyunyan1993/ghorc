@@ -1,6 +1,6 @@
 # ghorc
 
-ghorc is a Claude Code plugin (version 0.3.0) that packages an orchestration discipline: one lead session plans,
+ghorc is a Claude Code plugin (version 0.3.1) that packages an orchestration discipline: one lead session plans,
 writes briefs, accepts reports and merges, while the work runs in subagents (or herdr worker sessions). It ships 8
 agent roles, 4 skills, 3 guard hooks, a status line, a transcript watchdog, a setup script and templates. Everything
 project-specific lives in one file, `<project>/.claude/ghorc.json`. The scripts are plain Node.js (CommonJS, no
@@ -55,7 +55,7 @@ $env:GHORC_ROLE='lead'; claude --model opus --effort medium
 The SessionStart hook then prints a few lines, for example:
 
 ```
-ghorc 0.3.0
+ghorc 0.3.1
 config: ok
 lead: load skill ghorc:orc
 CLAUDE.md has no ghorc section: paste templates/CLAUDE-section.md
@@ -107,7 +107,9 @@ Plugin skills and agents are namespaced by Claude Code, so they cannot collide w
 - **`read-guard.cjs`, PreToolUse `Read`.** Denies, in this order: a PDF or image for the lead (`leadNoMedia`); a PDF
   without `pages`; an image above `maxImageBytes`; a Read call identical in path, offset, limit and pages to the
   previous `maxRepeat` calls. Why: stops read loops and keeps media out of the lead window. Reading a file in parts is
-  not a repeat. Images: `.png .jpg .jpeg .gif .webp .bmp`.
+  not a repeat. Images: `.png .jpg .jpeg .gif .webp .bmp`; extensions match case-insensitively on every OS
+  (`.PDF`, `.PNG`). "Lead" means no `agent_id` and `GHORC_ROLE` not `worker`, so a herdr worker started with
+  `GHORC_ROLE=worker` may read media.
 - **`read-guard.cjs`, PostToolUse `Edit|Write|NotebookEdit|Bash|PowerShell`.** Denies nothing; resets the repeat
   counter (Bash/PowerShell only when the command contains the file name of the last read).
 - **`heavy-check-guard.cjs`, PreToolUse `Bash|PowerShell`.** Denies a command matching `heavyCommands` when a subagent
@@ -128,7 +130,9 @@ per session and per agent, in `<tmp>/ghorc/<session_id>/`; without `session_id` 
 - `watchdog.cjs [--interval 30] [--rateMiBPerMin 10] [--streakSec 120] [--warnMiB 100] [--stopMiB 250]
   [--subagentsMiB 500] [--root <dir>] [--once] [--notify "<command>"] [--notify-file <path>] [--pid-file <path>]`:
   watches `~/.claude/projects/**/*.jsonl`; notifies only. `--notify` runs the command through the shell with the alert
-  text as one quoted argument and in `GHORC_ALERT`; `--notify-file` appends `<ISO time> <text>` lines.
+  text as one quoted argument and in `GHORC_ALERT`; `--notify-file` appends `<ISO time> <text>` lines. Size alerts are
+  remembered in `<tmp>/ghorc/watchdog-state.json` (path to last alerted size and level): a restart does not repeat
+  them; one repeats only after the file grew by `warnMiB`/2 since its last alert or the level rose.
 - `setup.cjs --check | --apply <all|id,id,...> [--cwd <dir>]`: checks and applies the recommended setup.
 - `check-config.cjs [--cwd <dir>] [--sample "<command>"]...`: validates `ghorc.json`, shows which `heavyCommands`
   match each sample; exit code 1 on errors.
@@ -349,6 +353,11 @@ Lookup: `CLAUDE_PROJECT_DIR`, then each directory from the cwd up to the nearest
 (parent of `git rev-parse --git-common-dir`, so a worktree finds the main repository's config). With no file the
 defaults apply: the read guard works, `heavyCommands` is empty, nothing is denied as heavy.
 
+**Project root (one rule).** Everything that writes or reads under `<root>/.claude` (setup `--apply config`, the
+status line's `ctx-*.json`, `ctx.cjs`, the CLAUDE.md check) uses `scripts/lib/root.cjs`: `CLAUDE_PROJECT_DIR` if set,
+else the main git root of the cwd (parent of the git common dir, so a worktree maps to the main repository), else the
+cwd. Writers and readers therefore agree, in a worktree too.
+
 | Key | Type | Default | Read by | Meaning |
 |---|---|---|---|---|
 | `checks.fast` | string | `""` | agents | the fast check; the only check agents run |
@@ -425,6 +434,7 @@ Whether herdr passes the variable to the child session is not verified: check th
 | Item | Target | Recommended |
 |---|---|---|
 | `statusLine` | `~/.claude/settings.json` | `node "<plugin>/scripts/statusline.cjs"`, `refreshInterval` 30 |
+| `statusLineStale` | `~/.claude/settings.json` | check only: older plugin-cache path; same fix as `statusLine` |
 | `pct` | `~/.claude/settings.json` | `env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` = `"18"` |
 | `idle` | `~/.claude/settings.json` | `idleCompaction` = `false` (no compaction while the lead waits) |
 | `model` (owner decision) | `~/.claude/settings.json` | `model` = `lead.model` |
@@ -457,13 +467,17 @@ The plugin cannot do, so you do:
   restart. Test the script: `echo '{}' | node "<plugin>/scripts/statusline.cjs"` prints a line starting
   `model? │ ctx --`.
 - **`ctx.cjs` says "no ctx-*.json files".** The status line is not configured, or wrote under another root: it uses
-  the git common root of `workspace.project_dir` (else of the cwd). Run `ctx.cjs --cwd <that root>`.
+  the root rule (`CLAUDE_PROJECT_DIR`, else the git common root of `workspace.project_dir` or the cwd). Run
+  `ctx.cjs --cwd <that root>`.
 - **"config not found" in a worktree.** No file in the worktree, its ancestors or the main repository root, or git is
   not on `PATH`. `check-config.cjs --cwd <worktree>` shows the expected path; put the file in the main repository's
   `.claude/`.
-- **Duplicate watchdog alerts.** Watchdog state is in memory: each new watchdog re-alerts every transcript already
-  above `warnMiB`. A stale `<tmp>/ghorc/watchdog.pid` whose pid now belongs to another process blocks the autostart;
-  delete it when no watchdog runs.
+- **Status line stops updating after `plugin update`.** Setup writes the path of the running copy, which under a
+  plugin cache is a versioned directory. After an update the old path may be gone: `setup.cjs --check` reports
+  `statusLineStale`; re-run `/ghorc:setup` (or `--apply statusLineStale`).
+- **Duplicate watchdog alerts.** Size alerts persist in `<tmp>/ghorc/watchdog-state.json`, so a restart repeats none
+  for unchanged files; delete that file to reset. A stale `<tmp>/ghorc/watchdog.pid` whose pid now belongs to another
+  process blocks the autostart; delete it when no watchdog runs.
 - **Handoff candidate never answers READY.** It waits on a permission prompt (`candidatePermissionArgs` empty), did
   not receive `GHORC_ROLE`, or the 10 minutes passed. Close it and its tab, void the `handoff_id`, fix, retry; after 2
   failures ask the owner.
@@ -483,7 +497,7 @@ claude plugin validate <path-to-ghorc>
 
 `node --test` (or `npm test`) finds `tests/*.test.cjs` on Node 20 and 24; `node --test tests/` fails on Node 24.
 Tests set `GHORC_TMP` and `GHORC_WATCHDOG_ROOT` to temp directories and never touch the real `~/.claude/projects`; one
-test fails on any Cyrillic character in the repository. At 0.3.0: 59 tests pass on Node 24.18, validate passes.
+test fails on any Cyrillic character in the repository. At 0.3.1: 65 tests pass on Node 24.18, validate passes.
 
 **Versioning.** Bump `version` in `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json` and `package.json`
 together and add a `CHANGELOG.md` entry; an installed copy sees no update without a version change.

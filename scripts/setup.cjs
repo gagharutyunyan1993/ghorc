@@ -1,9 +1,10 @@
 'use strict';
 // ghorc setup: --check reports what differs from the recommended setup; --apply <all|id,id,...> fixes chosen items.
-// No git calls and no npm dependencies; GHORC_HOME overrides HOME/USERPROFILE (used by tests).
+// No npm dependencies (git is used only by lib/root.cjs to find the main root); GHORC_HOME overrides HOME/USERPROFILE (used by tests).
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { projectRoot } = require('./lib/root.cjs');
 
 const PLUGIN_ROOT = path.join(__dirname, '..');
 const MARKER = '<!-- ghorc -->';
@@ -22,18 +23,9 @@ function home() {
   return process.env.GHORC_HOME && process.env.GHORC_HOME.trim() ? process.env.GHORC_HOME : os.homedir();
 }
 
-// Project root without git: CLAUDE_PROJECT_DIR, else the nearest ancestor holding .git (dir or file), else cwd.
+// Project root: the single rule of lib/root.cjs (CLAUDE_PROJECT_DIR, else the main git root, else cwd).
 function findRoot(cwd) {
-  const env = process.env.CLAUDE_PROJECT_DIR;
-  if (env && env.trim()) return path.resolve(env);
-  let dir = path.resolve(cwd || process.cwd());
-  for (let i = 0; i < 64; i++) {
-    if (fs.existsSync(path.join(dir, '.git'))) return dir;
-    const up = path.dirname(dir);
-    if (up === dir) break;
-    dir = up;
-  }
-  return path.resolve(cwd || process.cwd());
+  return projectRoot(cwd);
 }
 
 function leadDefaults(root) {
@@ -44,6 +36,16 @@ function leadDefaults(root) {
 
 function statusLineCommand() {
   return `node "${path.join(PLUGIN_ROOT, 'scripts', 'statusline.cjs').replace(/\\/g, '/')}"`;
+}
+
+// True when settings point at a plugin-cache copy of statusline.cjs that is not the running copy (older version).
+function statusLineStale(slCmd) {
+  const norm = (x) => String(x).split('\\').join('/').toLowerCase();
+  const cmd = norm(slCmd);
+  const mine = norm(path.join(PLUGIN_ROOT, 'scripts', 'statusline.cjs'));
+  if (!norm(PLUGIN_ROOT).includes('/.claude/plugins/')) return false;
+  if (!/\/\.claude\/plugins\/.*statusline\.cjs/.test(cmd)) return false;
+  return !cmd.includes(mine);
 }
 
 function readText(file) {
@@ -82,6 +84,15 @@ function check(cwd) {
     recommended: statusLineCommand(),
     why: 'shows model, effort, context, rate limits and writes the ctx file the lead reads',
     ok: /ghorc/i.test(slCmd) && /statusline\.cjs/.test(slCmd),
+  });
+  add({
+    id: 'statusLineStale',
+    scope: 'user',
+    what: `${settingsFile}: statusLine plugin version`,
+    current: slCmd || null,
+    recommended: statusLineCommand(),
+    why: 'statusLine points to an older plugin version than the running one; re-run setup after plugin update',
+    ok: !statusLineStale(slCmd),
   });
   add({
     id: 'pct',
@@ -195,7 +206,7 @@ function apply(cwd, ids) {
     const set = (label, oldV, newV) =>
       diff.push(`- ${label}: ${JSON.stringify(oldV ?? null)}\n+ ${label}: ${JSON.stringify(newV)}`);
     for (const it of userItems) {
-      if (it.id === 'statusLine') {
+      if (it.id === 'statusLine' || it.id === 'statusLineStale') {
         const next = { type: 'command', command: statusLineCommand(), refreshInterval: 30 };
         set('statusLine', settings.statusLine, next);
         settings.statusLine = next;
@@ -247,7 +258,7 @@ if (require.main === module) {
   if (args.includes('--help') || (!args.includes('--check') && !args.includes('--apply'))) {
     console.log(
       'setup.cjs --check [--cwd <dir>]: report each setup item (current -> recommended, why) as human lines plus a final JSON line.\n' +
-        'setup.cjs --apply <all|statusLine,pct,idle,model,effort,config,claudemd,exclude> [--cwd <dir>]: apply the chosen items; ' +
+        'setup.cjs --apply <all|statusLine,statusLineStale,pct,idle,model,effort,config,claudemd,exclude> [--cwd <dir>]: apply the chosen items; ' +
         'backs up ~/.claude/settings.json first, touches only the listed keys and prints a diff. ' +
         'model and effort are owner-level decisions: name them only after the owner says yes. GHORC_HOME overrides the home directory.',
     );

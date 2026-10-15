@@ -14,4 +14,4 @@ user-invocable: true
 5. `--apply` backs up `~/.claude/settings.json` to `settings.json.ghorc-<timestamp>.bak`, changes only the listed keys and prints a diff. Show the diff to the user. Settings changes take effect in a new session.
 6. Run `--check` again and report the result; the status line, autocompact and model changes need a restart of the session.
 
-Items: `statusLine` (ghorc status line), `pct` (`env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` = 18), `idle` (`idleCompaction` = false), `model` (config `lead.model`), `effort` (config `lead.effort`), `config` (`.claude/ghorc.json` from the template), `claudemd` (the `<!-- ghorc -->` section in `CLAUDE.md`), `exclude` (`.claude/ctx-*.json` in `.git/info/exclude`).
+Items: `statusLine` (ghorc status line), `statusLineStale` (statusLine points to an older plugin version; same fix), `pct` (`env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` = 18), `idle` (`idleCompaction` = false), `model` (config `lead.model`), `effort` (config `lead.effort`), `config` (`.claude/ghorc.json` from the template), `claudemd` (the `<!-- ghorc -->` section in `CLAUDE.md`), `exclude` (`.claude/ctx-*.json` in `.git/info/exclude`).

@@ -54,13 +54,14 @@ run((input) => {
   const leadNoMedia = cfg.leadNoMedia !== false;
 
   const abs = normPath(input.cwd, file);
-  const ext = path.extname(abs);
+  const ext = path.extname(abs).toLowerCase();
   const isPdf = ext === '.pdf';
   const isImage = IMAGE_EXT.has(ext);
   const isMediaRole = /(^|:)media$/.test(String(input.agent_type || ''));
 
-  if (leadNoMedia && !input.agent_id && (isPdf || isImage)) {
-    return deny('the lead does not read media; hand it to the media role.');
+  const isLead = !input.agent_id && process.env.GHORC_ROLE !== 'worker';
+  if (leadNoMedia && isLead && (isPdf || isImage)) {
+    return deny('the lead does not read media (a main session without GHORC_ROLE=worker counts as the lead); hand it to the media role.');
   }
   if (isPdf && !ti.pages) {
     return deny(
