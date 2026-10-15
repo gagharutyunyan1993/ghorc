@@ -26,6 +26,7 @@ claude plugin install ghorc@ghorc-local --scope project
   ```json
   "statusLine": { "type": "command", "command": "node \"D:/Projects/ghorc/scripts/statusline.cjs\"", "refreshInterval": 30 }
   ```
+  Формат строки (сегменты опускаются, если данных нет): `модель ·усилие [⚡] │ ctx NN% (used/size) [→ac N%] │ 5h NN% (~Nh) │ 7d NN% (~Nh) │ роль │ [⎇ ]ветка │ имя сессии`. Цвета: зелёный < 50%, жёлтый 50-69, красный 70-79, жирный красный ≥ 80 (то же для 5h/7d); `NO_COLOR` или `GHORC_STATUSLINE_PLAIN=1` выключают цвет. Роль берётся из `GHORC_ROLE` и `agent.name`. Маркер `→ac N%` печатается, только если задана `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` (значение = процент порога). Стоимость не показывается. Форма `rate_limits.*` не документирована, поля читаются осторожно; чтобы снять реальный образец, запусти сессию с `GHORC_STATUSLINE_DUMP=<файл>`: сырой stdin дописывается строкой в файл (по умолчанию дампа нет).
   (ссылка на `${CLAUDE_PLUGIN_ROOT}` в `statusLine.command` документацией не подтверждена, поэтому путь абсолютный.) Статус-строка пишет `<корень проекта>/.claude/ctx-<session_id>.json` (`workspace.project_dir`, иначе `CLAUDE_PROJECT_DIR`, иначе корень git; запись атомарная). `ctx.cjs --session <id>` показывает одну сессию; добавь `.claude/ctx-*.json` в `.gitignore`.
 - **Глобальные модель и усилие.** Лид запускается явно: `claude --model opus --effort medium`. Глобальные `model` и `effortLevel` в `~/.claude/settings.json` меняет владелец. Переменная `CLAUDE_CODE_EFFORT_LEVEL` не должна быть задана (перебивает frontmatter ролей и `effort` вызова).
 - **TTL кэша.** `subagentPromptCacheTtl: "1h"` (и `promptCacheTtl` при оплате по API) ставит владелец после выбора типа оплаты.
@@ -94,5 +95,5 @@ node --test
 Команда `node --test` без аргументов находит `tests/*.test.cjs` на Node 20 и 24 (форма `node --test tests/` на Node 24 не работает: каталог воспринимается как модуль). Зависимостей нет.
 
 ## Проверено
-- `node --test` (Node 24.18): tests 46, pass 46, fail 0 (версия 0.1.2; включая круги 1-2 ревью).
+- `node --test` (Node 24.18): tests 50, pass 50, fail 0 (версия 0.2.0).
 - `claude plugin validate D:/Projects/ghorc`: Validation passed (marketplace); `.../.claude-plugin/plugin.json`: Validation passed.
