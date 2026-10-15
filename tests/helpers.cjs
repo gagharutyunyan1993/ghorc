@@ -14,7 +14,7 @@ function runScript(name, input, opts = {}) {
   const r = spawnSync(process.execPath, [path.join(SCRIPTS, name), ...(opts.args || [])], {
     input: typeof input === 'string' ? input : JSON.stringify(input),
     encoding: 'utf8',
-    env: { ...process.env, CLAUDE_PROJECT_DIR: '', GHORC_ROLE: '', GHORC_TMP: TEST_TMP, GHORC_WATCHDOG_ROOT: TEST_ROOT, ...(opts.env || {}) },
+    env: { ...process.env, CLAUDE_PROJECT_DIR: '', GHORC_ROLE: '', GHORC_TMP: TEST_TMP, GHORC_WATCHDOG_ROOT: TEST_ROOT, GHORC_NO_AUTOSTART: '1', ...(opts.env || {}) },
     cwd: opts.cwd,
   });
   return { code: r.status, out: r.stdout, err: r.stderr };
@@ -39,6 +39,15 @@ function tmpProject(config) {
   return dir;
 }
 
+function killTree(pid) {
+  try {
+    if (process.platform === 'win32') spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore' });
+    else process.kill(pid);
+  } catch {
+    /* gone */
+  }
+}
+
 // Every watchdog-<hash>.pid in a tmp dir: JSON { pid } or a bare number.
 function stopWatchdogs(dir) {
   let names = [];
@@ -52,7 +61,7 @@ function stopWatchdogs(dir) {
       const raw = fs.readFileSync(path.join(dir, f), 'utf8');
       let pid = Number(raw);
       if (!pid) pid = Number(JSON.parse(raw).pid);
-      if (pid) process.kill(pid);
+      if (pid) killTree(pid);
     } catch {
       /* gone */
     }
@@ -82,4 +91,4 @@ function sid() {
   return id;
 }
 
-module.exports = { stopWatchdogs, runScript, isDeny, tmpProject, sid, TEST_TMP, TEST_ROOT };
+module.exports = { killTree, stopWatchdogs, runScript, isDeny, tmpProject, sid, TEST_TMP, TEST_ROOT };

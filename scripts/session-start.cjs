@@ -45,7 +45,7 @@ function transcriptDir(input, root) {
 function startWatchdog(cfg, root, version, input) {
   try {
     const w = cfg.watchdog || {};
-    if (w.autostart === false) return false;
+    if (w.autostart === false || process.env.GHORC_NO_AUTOSTART === '1') return false;
     const interval = Number(w.intervalSec ?? 30);
     const status = tmp.watchdogStatus(root, version, interval);
     if (status.alive) return false;

@@ -22,7 +22,7 @@ if (args.includes('--help')) {
       '--notify: the string is split into an argv array (double quotes group words) and spawned WITHOUT a shell, with a 10 s timer; the alert text is the last argument (and the GHORC_ALERT variable). For a .cmd/.bat script use: --notify "cmd /c script.cmd".',
       '--notify-file: every alert is also appended as a line "<ISO time> <text>" to this file (scripts/ctx.cjs shows unread lines).',
       'Size alerts are remembered in <tmp>/ghorc-<user>/watchdog-<root hash>.state.json: a restart does not repeat them; one repeats only after the file grew by warnMiB/2 or its level rose.',
-      'Unless --once is given, the pid file is written at start and removed on exit; a poll that finds another pid in it exits.',
+      'Unless --once is given, the pid file is written at start and removed on exit; a poll that finds another pid in it, or finds the project root gone, exits.',
       'The watchdog stops nobody.',
     ].join('\n'),
   );
@@ -154,6 +154,19 @@ function touchBeat() {
 function pass() {
   const now = Date.now();
   if (!once) {
+    // The project root is gone (deleted temp project, removed worktree): nothing left to watch, so step down.
+    if (!fs.existsSync(projectRoot)) {
+      console.log(`[ghorc watchdog] project root ${projectRoot} is gone: exiting`);
+      for (const f of [pidFile, beatFile]) {
+        try {
+          if (f === pidFile && tmp.readPid(pidFile) !== process.pid) continue;
+          fs.unlinkSync(f);
+        } catch {
+          /* already gone */
+        }
+      }
+      process.exit(0);
+    }
     // One watchdog per root: the pid file names the owner. A newer start replaced it, so this one steps down.
     const owner = tmp.readPid(pidFile);
     if (Number.isInteger(owner) && owner !== process.pid) {

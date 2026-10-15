@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const cp = require('node:child_process');
-const { runScript, isDeny, tmpProject, sid, TEST_TMP } = require('./helpers.cjs');
+const { runScript, isDeny, tmpProject, sid, TEST_TMP, killTree, stopWatchdogs } = require('./helpers.cjs');
 
 process.env.CLAUDE_PROJECT_DIR = ''; // keep the developer's own project config out of validate.check
 const cmd = require('../scripts/lib/cmd.cjs');
@@ -49,13 +49,14 @@ test('R1: session-start never kills a live process named by a stale pid file (pi
     // same plugin version, no heartbeat, started long ago: "stale heartbeat"
     const version = require('../.claude-plugin/plugin.json').version;
     fs.writeFileSync(pidf, JSON.stringify({ pid: foreign.pid, version, root: cwd, startedAt: Date.now() - 600000 }));
-    const r = runScript('session-start.cjs', { hook_event_name: 'SessionStart', session_id: sid(), cwd }, { cwd });
+    const r = runScript('session-start.cjs', { hook_event_name: 'SessionStart', session_id: sid(), cwd }, { cwd, env: { GHORC_NO_AUTOSTART: '' } });
     assert.equal(r.code, 0);
     assert.ok(alive(foreign.pid), 'the foreign process is still alive');
     const now = JSON.parse(fs.readFileSync(pidf, 'utf8')).pid;
     assert.notEqual(now, foreign.pid, 'a new watchdog took the pid file over');
   } finally {
     foreign.kill();
+    stopWatchdogs(TEST_TMP);
   }
 });
 
@@ -77,7 +78,33 @@ test('R1: a running watchdog exits when the pid file names another pid', async (
     const ok = await Promise.race([exited, new Promise((r) => setTimeout(() => r(false), 8000))]);
     assert.equal(ok, true, 'the older watchdog stepped down');
   } finally {
-    child.kill();
+    killTree(child.pid);
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test('R1: a running watchdog exits and removes its files when the project root is gone', async () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'ghorc-rootgone-'));
+  const root = path.join(base, 'proj');
+  fs.mkdirSync(root);
+  const pidf = path.join(base, 'w.pid');
+  const beat = path.join(base, 'w.beat');
+  const child = cp.spawn(
+    process.execPath,
+    [path.join(__dirname, '..', 'scripts', 'watchdog.cjs'), '--transcript-dir', path.join(base, 't'), '--project-root', root, '--interval', '1',
+      '--pid-file', pidf, '--heartbeat-file', beat, '--state-file', path.join(base, 'w.state.json')],
+    { stdio: 'ignore' },
+  );
+  const exited = new Promise((resolve) => child.on('exit', (code) => resolve(code)));
+  try {
+    assert.ok(waitFor(() => fs.existsSync(pidf) && fs.existsSync(beat), 8000), 'pid file and heartbeat written');
+    fs.rmSync(root, { recursive: true, force: true });
+    const code = await Promise.race([exited, new Promise((r) => setTimeout(() => r('timeout'), 3500))]);
+    assert.equal(code, 0, 'exited within 3 intervals');
+    assert.equal(fs.existsSync(pidf), false, 'pid file removed');
+    assert.equal(fs.existsSync(beat), false, 'heartbeat removed');
+  } finally {
+    killTree(child.pid);
     fs.rmSync(base, { recursive: true, force: true });
   }
 });

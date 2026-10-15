@@ -476,7 +476,7 @@ test('F7: the watchdog writes a JSON pid file and a heartbeat per project, and r
       assert.equal(info.root, base);
       assert.ok(fs.existsSync(beat));
     } finally {
-      child.kill();
+      require('./helpers.cjs').killTree(child.pid);
     }
   } finally {
     fs.rmSync(base, { recursive: true, force: true });

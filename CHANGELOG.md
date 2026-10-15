@@ -2,6 +2,8 @@
 
 ## 0.4.0
 Entries are grouped by the id of the attack digest finding.
+- Watchdog exits (and removes its pid and heartbeat files) when its project root no longer exists. Tests stop every watchdog
+  they spawn (`taskkill /T /F` on Windows) and run session-start with `GHORC_NO_AUTOSTART=1` (also honored by session-start).
 - A1, A2, A3: read-guard counts reads per agent and per resolved path (lower-cased on Windows); offset, limit and pages no
   longer make a new key, so round-robin reading is caught. PostToolUse resets only the edited path (Edit, Write,
   NotebookEdit); the Bash/PowerShell reset is gone.

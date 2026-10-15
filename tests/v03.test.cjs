@@ -46,7 +46,7 @@ test('session-start: autostart writes a JSON pid file per root; a live fresh wat
   const root = path.join(dir, 'tr');
   fs.mkdirSync(root);
   const proj = tmpProject();
-  const env = { GHORC_TMP: dir, GHORC_WATCHDOG_ROOT: root, GHORC_ROLE: 'lead' };
+  const env = { GHORC_TMP: dir, GHORC_WATCHDOG_ROOT: root, GHORC_ROLE: 'lead', GHORC_NO_AUTOSTART: '' };
   const tmp = require('../scripts/lib/tmp.cjs');
   const old = process.env.GHORC_TMP;
   process.env.GHORC_TMP = dir;
