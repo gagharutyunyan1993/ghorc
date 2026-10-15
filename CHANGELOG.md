@@ -1,6 +1,7 @@
 # Changelog
 
 ## 0.3.1
+- Follow-up: statusline git timeout overridable (`GHORC_GIT_TIMEOUT_MS`, tests deterministic); reset shown as `~Nh` or `~Nm`; verified live rate_limits/effort shape documented; test uses plain `node --test`.
 - Root: one rule in `scripts/lib/root.cjs` (`CLAUDE_PROJECT_DIR`, else git common root, else cwd) used by config, setup, statusline and ctx; setup now finds and writes the config at the main root from a worktree.
 - setup: new check item `statusLineStale` (statusLine points to an older plugin cache version than the running one).
 - read-guard: `leadNoMedia` no longer treats `GHORC_ROLE=worker` sessions as the lead.

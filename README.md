@@ -277,13 +277,18 @@ A segment is omitted when its data is absent.
 | `⚡` | fast mode is on |
 | `ctx NN% (used/size)` | context fill; used = input + cache creation + cache read tokens; `ctx --` with no data |
 | `→ac N%` (dim) | `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`, only when set |
-| `5h`, `7d` | rate limit use and hours to reset (`~<1h`); only when `rate_limits` is in the input |
+| `5h`, `7d` | rate limit use and time to reset (`~Nh`, `~Nm` under an hour); only with `rate_limits` in the input |
 | `role` | `GHORC_ROLE` and the agent name, if any |
 | `branch` (cyan) | git branch, short SHA when detached; `⎇ ` prefix inside a git worktree |
 | `session` | session name, first 24 characters |
 
 Colors for `ctx`, `5h`, `7d`: green below 50%, yellow 50-69%, red 70-79%, bold red from 80%. `NO_COLOR` or
 `GHORC_STATUSLINE_PLAIN=1` turn color off. On an internal error it prints `model │ ctx ?%`. Cost is not shown.
+`GHORC_GIT_TIMEOUT_MS` raises the 300 ms git call timeout (tests use it).
+
+Verified against a live sample (Claude Code 2.1.300): `rate_limits.five_hour` and `.seven_day` are
+`{used_percentage, resets_at}` with `resets_at` in epoch seconds; `effort` is `{level}`; `model` is
+`{id, display_name}`. Other key spellings in the script are defensive fallbacks only.
 
 ### Reading ctx and watchdog alerts
 
@@ -497,7 +502,7 @@ claude plugin validate <path-to-ghorc>
 
 `node --test` (or `npm test`) finds `tests/*.test.cjs` on Node 20 and 24; `node --test tests/` fails on Node 24.
 Tests set `GHORC_TMP` and `GHORC_WATCHDOG_ROOT` to temp directories and never touch the real `~/.claude/projects`; one
-test fails on any Cyrillic character in the repository. At 0.3.1: 65 tests pass on Node 24.18, validate passes.
+test fails on any Cyrillic character in the repository. At 0.3.1: 66 tests pass on Node 24.18, validate passes.
 
 **Versioning.** Bump `version` in `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json` and `package.json`
 together and add a `CHANGELOG.md` entry; an installed copy sees no update without a version change.

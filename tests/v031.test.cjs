@@ -140,3 +140,29 @@ test('watchdog: alert state survives a restart; re-alerts only after growth of w
     fs.rmSync(tmpd, { recursive: true, force: true });
   }
 });
+
+test('statusline: parses the verified live sample (rate_limits epoch seconds, effort.level) with reset hours/minutes', () => {
+  const sample = {
+    model: { id: 'claude-fable-5-1', display_name: 'Fable 5.1' },
+    effort: { level: 'medium' },
+    rate_limits: {
+      five_hour: { used_percentage: 16, resets_at: 1792079400 },
+      seven_day: { used_percentage: 34, resets_at: 1792605600 },
+    },
+  };
+  const preload = path.join(__dirname, 'mock-now.cjs');
+  const run = (nowSec) =>
+    runScript('statusline.cjs', sample, {
+      env: {
+        GHORC_STATUSLINE_PLAIN: '1',
+        GHORC_GIT_TIMEOUT_MS: '15000',
+        CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: '',
+        NODE_OPTIONS: `--require "${preload.split('\\').join('/')}"`,
+        GHORC_MOCK_NOW_MS: String(nowSec * 1000),
+      },
+    }).out.trim();
+  // 2h20m before the 5h reset; the 7d reset is 148.5 h away.
+  assert.equal(run(1792079400 - 8400), 'Fable 5.1 ·medium │ ctx -- │ 5h 16% (~2h) │ 7d 34% (~149h)');
+  // 20 minutes before the 5h reset: minutes under an hour.
+  assert.match(run(1792079400 - 1200), /5h 16% \(~20m\)/);
+});

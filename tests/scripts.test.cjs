@@ -6,7 +6,7 @@ const path = require('node:path');
 const { runScript, tmpProject, sid } = require('./helpers.cjs');
 const config = require('../scripts/lib/config.cjs');
 
-const PLAIN = { GHORC_STATUSLINE_PLAIN: '1', CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: '' };
+const PLAIN = { GHORC_STATUSLINE_PLAIN: '1', CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: '', GHORC_GIT_TIMEOUT_MS: '15000' };
 
 test('statusline: prints the line and writes the ctx file', () => {
   const cwd = tmpProject();

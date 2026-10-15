@@ -11,7 +11,7 @@ if (process.argv.includes('--help')) {
     'statusline.cjs: statusLine command. Reads JSON from stdin, prints "model ·effort │ ctx NN% (used/size) │ 5h │ 7d │ role │ branch │ session" ' +
       'and writes <project root>/.claude/ctx-<session_id>.json. GHORC_STATUSLINE_DUMP=<file> appends the raw stdin. ' +
       'The first raw stdin is also saved once to <tmpdir>/ghorc/statusline-sample.json. ' +
-      'NO_COLOR / GHORC_STATUSLINE_PLAIN=1 disable color. See README.',
+      'NO_COLOR / GHORC_STATUSLINE_PLAIN=1 disable color. GHORC_GIT_TIMEOUT_MS overrides the 300 ms git timeout. See README.',
   );
   process.exit(0);
 }
@@ -44,7 +44,8 @@ function num(v) {
   return typeof v === 'number' && isFinite(v) ? v : null;
 }
 
-// The shape of rate_limits.* is undocumented: look for plausible keys and skip the rest.
+// Verified live shape (Claude Code 2.1.300): rate_limits.{five_hour,seven_day} = { used_percentage, resets_at (epoch SECONDS) }.
+// The other keys below are defensive fallbacks only.
 function limitPct(o) {
   if (typeof o === 'number') return o;
   if (!o || typeof o !== 'object') return null;
@@ -79,7 +80,7 @@ function limitSegment(label, o, now) {
   if (p === null) return null;
   let s = `${label} ${Math.round(p)}%`;
   const h = limitResetHours(o, now);
-  if (h !== null) s += ` (~${h < 1 ? '<1' : Math.round(h)}h)`;
+  if (h !== null) s += h < 1 ? ` (~${Math.max(1, Math.round(h * 60))}m)` : ` (~${Math.round(h)}h)`;
   return paint(band(p), s);
 }
 
@@ -87,7 +88,7 @@ function gitBranch(cwd, worktree) {
   if (!cwd) return null;
   try {
     const run = (args) => {
-      const r = spawnSync('git', ['-C', cwd, ...args], { encoding: 'utf8', timeout: 300, windowsHide: true });
+      const r = spawnSync('git', ['-C', cwd, ...args], { encoding: 'utf8', timeout: Number(process.env.GHORC_GIT_TIMEOUT_MS) || 300, windowsHide: true });
       return r.status === 0 ? String(r.stdout).trim() : null;
     };
     let b = run(['rev-parse', '--abbrev-ref', 'HEAD']) || run(['symbolic-ref', '--short', 'HEAD']);
