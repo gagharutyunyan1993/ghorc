@@ -168,14 +168,14 @@ test('statusline: parses the verified live sample (rate_limits epoch seconds, ef
 });
 
 test('setup: CLAUDE_PROJECT_DIR is ignored, the root comes from cwd (check and apply claudemd)', () => {
-  const a = fs.realpathSync(mk('ghorc-rootA-'));
-  const b = fs.realpathSync(mk('ghorc-rootB-'));
+  const a = fs.realpathSync.native(mk('ghorc-rootA-'));
+  const b = fs.realpathSync.native(mk('ghorc-rootB-'));
   const home = mk('ghorc-home-');
   try {
     git(b, 'init', '-q');
     const env = { GHORC_HOME: home, CLAUDE_PROJECT_DIR: a };
     const chk = lastJson(runScript('setup.cjs', '', { args: ['--check'], env, cwd: b }).out);
-    assert.equal(fs.realpathSync(chk.root), b, 'check reports the cwd root');
+    assert.equal(fs.realpathSync.native(chk.root), b, 'check reports the cwd root');
     const ap = runScript('setup.cjs', '', { args: ['--apply', 'claudemd'], env, cwd: b });
     assert.equal(ap.code, 0, ap.out + ap.err);
     assert.ok(fs.existsSync(path.join(b, 'CLAUDE.md')), 'written to cwd root');

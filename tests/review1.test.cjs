@@ -222,7 +222,7 @@ test('F8: --notify with a .cmd script works through "cmd /c" on Windows', { skip
 test('round 2: the project root from a worktree is the main repository (git worktree add)', () => {
   const { spawnSync } = require('node:child_process');
   const config = require('../scripts/lib/config.cjs');
-  const repo = fs.realpathSync(tmpProject());
+  const repo = fs.realpathSync.native(tmpProject());
   const git = (cwd, ...a) => spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...a], { cwd, encoding: 'utf8' });
   assert.equal(git(repo, 'init', '-q').status, 0);
   fs.writeFileSync(path.join(repo, 'f.txt'), 'x');
@@ -231,7 +231,7 @@ test('round 2: the project root from a worktree is the main repository (git work
   const wt = path.join(path.dirname(repo), path.basename(repo) + '-wt');
   assert.equal(git(repo, 'worktree', 'add', '-q', wt, '-b', 'wt1').status, 0);
   try {
-    const real = (p) => fs.realpathSync(p).toLowerCase();
+    const real = (p) => fs.realpathSync.native(p).toLowerCase();
     assert.equal(real(config.projectRoot(wt)), real(repo));
     // statusline from a worktree writes ctx to the main repository
     const s = sid();
