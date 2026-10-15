@@ -1,0 +1,8 @@
+node_modules/
+*.log
+.DS_Store
+tmp/
+.claude/ctx-*.json
+.claude/ghorc-out/
+ghorc-test-*/
+ghorc-testtmp-*/

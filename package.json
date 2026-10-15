@@ -2,5 +2,13 @@
   "name": "ghorc",
   "version": "0.4.0",
   "private": true,
+  "license": "MIT",
+  "repository": { "type": "git", "url": "git+https://github.com/gagharutyunyan1993/ghorc.git" },
+  "bugs": { "url": "https://github.com/gagharutyunyan1993/ghorc/issues" },
+  "homepage": "https://github.com/gagharutyunyan1993/ghorc#readme",
+  "keywords": [
+    "claude-code", "claude-code-plugin", "orchestration", "hooks", "context-management",
+    "token-cost", "statusline", "subagents", "handoff"
+  ],
   "scripts": { "test": "node --test" }
 }

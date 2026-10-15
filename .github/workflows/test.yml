@@ -1,0 +1,38 @@
+name: test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Unit tests
+        run: node --test
+      - name: No Cyrillic in tracked files
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          if git grep -nP '[\x{0400}-\x{04FF}]' -- . ':!.github'; then
+            echo "Cyrillic text found"
+            exit 1
+          fi
+      - name: README line length (120)
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          if awk 'length($0) > 120 { print FILENAME ":" FNR ": " length($0); bad=1 } END { exit bad }' \
+            CONTRIBUTING.md SECURITY.md .github/ISSUE_TEMPLATE/bug_report.md; then
+            echo ok
+          else
+            exit 1
+          fi
