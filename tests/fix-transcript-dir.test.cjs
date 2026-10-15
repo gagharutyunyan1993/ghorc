@@ -53,7 +53,10 @@ function dry(input, extraEnv = {}) {
 test('session-start dry run: transcript_path in a real dir gives that dir (backslash and forward slash)', () => {
   const proj = path.join(TEST_TMP, 'proj-a');
   fs.mkdirSync(proj, { recursive: true });
-  for (const tp of [`${proj}\\smoke.jsonl`.replace(/\//g, '\\'), `${proj}/smoke.jsonl`.replace(/\\/g, '/')]) {
+  // A backslash path only names a real directory on Windows; on Linux it is just a file name with backslashes.
+  const forms = [`${proj}/smoke.jsonl`.replace(/\\/g, '/')];
+  if (process.platform === 'win32') forms.unshift(`${proj}\\smoke.jsonl`.replace(/\//g, '\\'));
+  for (const tp of forms) {
     const { args } = dry({ session_id: 'smoke', cwd: proj, transcript_path: tp });
     assert.ok(args, tp);
     assert.equal(path.resolve(args[args.indexOf('--transcript-dir') + 1]), path.resolve(proj));
