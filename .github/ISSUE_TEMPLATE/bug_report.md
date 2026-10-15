@@ -4,7 +4,7 @@ about: Something in ghorc does not behave as documented
 labels: bug
 ---
 
-**ghorc version** (first line of the SessionStart output, for example `ghorc 0.4.0 session=... role=lead`):
+**ghorc version** (first line of the SessionStart output, for example `ghorc 0.5.0 session=... role=lead`):
 
 **Claude Code version** (`claude --version`):
 

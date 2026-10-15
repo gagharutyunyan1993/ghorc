@@ -21,8 +21,24 @@ function parseInput(raw) {
   }
 }
 
+// Set by run(fn, hookName): who is denying, for the denial log.
+let denyCtx = null;
+
+// Appends "<iso time> <session8> <hook> <reason>" to <tmp>/denials.log. Never throws.
+function logDenial(sessionId, hook, reason) {
+  try {
+    fs.mkdirSync(tmpDir(), { recursive: true });
+    const sid8 = safeId(sessionId).slice(0, 8);
+    const text = String(reason).replace(/\s+/g, ' ').slice(0, 300);
+    fs.appendFileSync(path.join(tmpDir(), 'denials.log'), `${new Date().toISOString()} ${sid8} ${hook} ${text}\n`);
+  } catch {
+    /* the log is optional */
+  }
+}
+
 // The only output a hook may write to stdout is the decision JSON.
 function deny(reason) {
+  if (denyCtx) logDenial(denyCtx.sid, denyCtx.hook, reason);
   process.stdout.write(
     JSON.stringify({
       hookSpecificOutput: {
@@ -71,16 +87,19 @@ function dumpPayload(raw) {
 }
 
 // Wrapper: any failure exits 0 silently (allow).
-function run(fn) {
+function run(fn, hookName) {
   try {
     const raw = readStdin();
     dumpPayload(raw);
     const input = parseInput(raw);
-    if (input) fn(input);
+    if (input) {
+      if (hookName) denyCtx = { sid: input.session_id, hook: hookName };
+      fn(input);
+    }
   } catch {
     /* fail open */
   }
   process.exit(0);
 }
 
-module.exports = { readStdin, parseInput, deny, safeId, stateDir, readState, writeState, run };
+module.exports = { readStdin, parseInput, deny, logDenial, safeId, stateDir, readState, writeState, run };

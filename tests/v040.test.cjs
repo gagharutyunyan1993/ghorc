@@ -349,12 +349,12 @@ test('E6: the status line shows #<8 chars of the session id>; 7d reset >= 48 h i
   assert.doesNotMatch(none.out, /#/);
 });
 
-test('E8: session-start prints session id and role, alerts first, role unknown when unset', () => {
+test('E8: session-start prints session id and role, alerts first, role lead when unset', () => {
   const proj = tmpProject();
   const lead = runScript('session-start.cjs', { cwd: proj, session_id: 'sess-1234abcd' }, { env: { GHORC_ROLE: 'worker' } }).out;
   assert.match(lead, /ghorc \S+ session=sess-1234abcd role=worker/);
-  const unknown = runScript('session-start.cjs', { cwd: proj, session_id: 'sess-1234abcd' }, { env: { GHORC_ROLE: '' } }).out;
-  assert.match(unknown, /role=unknown \(set GHORC_ROLE\)/);
+  const plain = runScript('session-start.cjs', { cwd: proj, session_id: 'sess-1234abcd' }, { env: { GHORC_ROLE: '' } }).out;
+  assert.match(plain, /role=lead\n/);
 });
 
 test('F1: session-start puts alerts first and cuts at 299 chars with a +more marker', () => {

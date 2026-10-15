@@ -90,11 +90,11 @@ const pre = (file, extra = {}) => ({
   ...extra,
 });
 
-test('read-guard: GHORC_ROLE=worker without agent_id is not the lead for media', () => {
+test('read-guard: GHORC_ROLE=worker without agent_id is not the lead for media; GHORC_ROLE=lead is', () => {
   const proj = tmpProject();
   const f = path.join(proj, 'a.png');
   fs.writeFileSync(f, 'x');
-  assert.equal(isDeny(runScript('read-guard.cjs', pre(f, { cwd: proj }), { cwd: proj })), true, 'lead denied');
+  assert.equal(isDeny(runScript('read-guard.cjs', pre(f, { cwd: proj }), { cwd: proj, env: { GHORC_ROLE: 'lead' } })), true, 'explicit lead denied');
   assert.equal(isDeny(runScript('read-guard.cjs', pre(f, { cwd: proj }), { cwd: proj, env: { GHORC_ROLE: 'worker' } })), false);
 });
 
@@ -109,7 +109,7 @@ test('read-guard: extension checks are case-insensitive (.PDF, .PNG)', () => {
   assert.equal(isDeny(runScript('read-guard.cjs', pre(png, sub), { cwd: proj, env })), true, 'large .PNG denied');
   const nopages = { ...pre(pdf, sub), tool_input: { file_path: pdf } };
   assert.equal(isDeny(runScript('read-guard.cjs', nopages, { cwd: proj, env })), true, '.PDF without pages denied');
-  assert.equal(isDeny(runScript('read-guard.cjs', pre(pdf, { cwd: proj }), { cwd: proj })), true, 'lead .PDF denied');
+  assert.equal(isDeny(runScript('read-guard.cjs', pre(pdf, { cwd: proj }), { cwd: proj, env: { GHORC_ROLE: 'lead' } })), true, 'lead .PDF denied');
 });
 
 test('watchdog: alert state survives a restart; re-alerts only after growth of warnMiB/2 or a level rise', () => {

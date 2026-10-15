@@ -145,7 +145,7 @@ test('session-start: a short reminder, under 300 characters', () => {
   assert.ok(r.out.length < 300, `length ${r.out.length}`);
   assert.match(r.out, /ghorc [0-9.]+ session=/);
   assert.match(r.out, /config not found/);
-  assert.match(r.out, /skill ghorc:orc/);
+  assert.match(r.out, /skill ghorc:lead/);
 });
 
 test('watchdog: --once reports a large file and kills nothing', () => {

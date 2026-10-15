@@ -148,6 +148,23 @@ function markAlertsRead(root, sid, upTo) {
   }
 }
 
+// Denial log summary: { total, last: string[] (up to n), counts: { <hook>: n } }.
+function denials(n = 5) {
+  const out = { total: 0, last: [], counts: {} };
+  try {
+    const lines = fs.readFileSync(path.join(tmpDir(), 'denials.log'), 'utf8').split(/\r?\n/).filter(Boolean);
+    out.total = lines.length;
+    out.last = lines.slice(-n);
+    for (const l of lines) {
+      const hook = l.split(' ')[2] || '?';
+      out.counts[hook] = (out.counts[hook] || 0) + 1;
+    }
+  } catch {
+    /* no log yet */
+  }
+  return out;
+}
+
 // Deletes ctx-*.json (and stray temp files) under <root>/.claude, plus session state dirs and alert offsets in the tmp dir,
 // when older than maxAgeDays. Returns the number of removed entries. Never throws.
 function cleanup(root, maxAgeDays = 7, now = Date.now()) {
@@ -175,6 +192,21 @@ function cleanup(root, maxAgeDays = 7, now = Date.now()) {
     }
   } catch {
     /* no directory */
+  }
+  try {
+    // denials.log keeps maxAgeDays: lines start with an ISO time
+    const f = path.join(tmpDir(), 'denials.log');
+    const lines = fs.readFileSync(f, 'utf8').split(/\r?\n/).filter(Boolean);
+    const keep = lines.filter((l) => {
+      const t = Date.parse(l.split(' ')[0]);
+      return !Number.isFinite(t) || now - t <= limit;
+    });
+    if (keep.length !== lines.length) {
+      atomicWrite(f, keep.length ? `${keep.join('\n')}\n` : '');
+      n += lines.length - keep.length;
+    }
+  } catch {
+    /* no log */
   }
   try {
     const dir = tmpDir();
@@ -206,5 +238,6 @@ module.exports = {
   watchdogStatus,
   unreadAlerts,
   markAlertsRead,
+  denials,
   cleanup,
 };

@@ -80,15 +80,17 @@ test('an image above the limit is denied to an agent, below it allowed', () => {
   }
 });
 
-test('the lead (no agent_id) does not read PDFs and images; leadNoMedia=false disables this', () => {
+test('an explicit lead (GHORC_ROLE=lead) does not read PDFs and images; leadNoMedia=false disables this', () => {
   const s = sid();
   const cwd = tmpProject();
-  const r = runScript('read-guard.cjs', pre(s, 'x.pdf', { cwd }, { pages: '1' }));
+  const lead = { env: { GHORC_ROLE: 'lead' } };
+  const r = runScript('read-guard.cjs', pre(s, 'x.pdf', { cwd }, { pages: '1' }), lead);
   assert.equal(isDeny(r), true);
   assert.match(JSON.parse(r.out).hookSpecificOutput.permissionDecisionReason, /media/);
-  assert.equal(isDeny(runScript('read-guard.cjs', pre(s, 'x.png', { cwd }))), true);
+  assert.equal(isDeny(runScript('read-guard.cjs', pre(s, 'x.png', { cwd }), lead)), true);
+  assert.equal(isDeny(runScript('read-guard.cjs', pre(s, 'x.png', { cwd }))), false, 'a plain session is not the lead');
   const cwd2 = tmpProject({ readGuard: { leadNoMedia: false } });
-  assert.equal(isDeny(runScript('read-guard.cjs', pre(s, 'x.png', { cwd: cwd2 }))), false);
+  assert.equal(isDeny(runScript('read-guard.cjs', pre(s, 'x.png', { cwd: cwd2 }), lead)), false);
 });
 
 test('the lead can read an ordinary text file', () => {

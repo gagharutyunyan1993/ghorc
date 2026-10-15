@@ -1,6 +1,6 @@
 ---
 name: reviewer-critical
-description: Adversarial reviewer of a critical package - money, contracts, recovery, migrations, hooks, policy. Gives the final verdict of a critical package. Use for critical review (money/contract invariants).
+description: Critical reviewer - adversarial reviewer of a critical package - money, contracts, recovery, migrations, hooks, policy. Gives the final verdict of a critical package. Use for critical review (money/contract invariants).
 model: opus
 effort: high
 maxTurns: 100

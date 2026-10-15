@@ -15,6 +15,7 @@ if (args.includes('--help')) {
       'watchdog.cjs [--interval <sec, 30>] [--rateMiBPerMin 10] [--streakSec 120] [--warnMiB 100] [--stopMiB 250]',
       '             [--subagentsMiB 500] [--transcript-dir <dir>] [--project-root <dir>] [--version <v>] [--once]',
       '             [--notify "<program and args>"] [--notify-file <path>] [--pid-file <path>] [--heartbeat-file <path>]',
+      'watchdog.cjs --stop [--project-root <dir>]: kills the watchdog of the project (pid from its pid file) and removes the pid and heartbeat files.',
       'One watchdog per project root. It scans only --transcript-dir (default: ~/.claude/projects/<encoded project root>), including subagents/.',
       'pid file: JSON { pid, version, root, startedAt }; the heartbeat file is touched every poll (SessionStart restarts a stale or old-version watchdog).',
       'Alerts: growth above rateMiBPerMin for streakSec seconds (one slow poll lowers the streak by 1, it does not reset it); size above warnMiB',
@@ -31,6 +32,30 @@ if (args.includes('--help')) {
 function opt(name, def) {
   const i = args.indexOf(name);
   return i >= 0 && args[i + 1] !== undefined ? args[i + 1] : def;
+}
+if (args.includes('--stop')) {
+  // Stops this project's watchdog: kills the pid from its pid file and removes the pid and heartbeat files.
+  const stopRoot = opt('--project-root', null) ? path.resolve(opt('--project-root', '')) : require('./lib/root.cjs').cliRoot(process.cwd());
+  const pf = tmp.pidFile(stopRoot);
+  const info = tmp.readPidInfo(pf);
+  let msg = `no watchdog running for ${stopRoot}`;
+  if (info && tmp.isAlive(info.pid) && info.pid !== process.pid) {
+    try {
+      process.kill(info.pid);
+      msg = `watchdog ${info.pid} stopped for ${stopRoot}`;
+    } catch (e) {
+      msg = `could not stop watchdog ${info.pid}: ${e.message}`;
+    }
+  }
+  for (const f of [pf, tmp.heartbeatFile(stopRoot)]) {
+    try {
+      fs.unlinkSync(f);
+    } catch {
+      /* already gone */
+    }
+  }
+  console.log(msg);
+  process.exit(0);
 }
 const interval = Number(opt('--interval', 30));
 const rateMiB = Number(opt('--rateMiBPerMin', 10));

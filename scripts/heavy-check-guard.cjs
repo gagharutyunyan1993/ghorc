@@ -13,7 +13,7 @@ if (process.argv.includes('--help')) {
       'env assignments, shell wrappers, npm global options and npm run/npx. ' +
       'Built in for subagents and workers: claude -p/--print, herdr agent start, herdr agent prompt (also with an invalid config). ' +
       'heavyGuard.requireLeadEnv=true: also denies without GHORC_ROLE=lead. ' +
-      'An invalid project config makes it deny the built-in default heavy commands, with the reason. No project config: nothing is denied.',
+      'Every deny is appended to <tmp>/ghorc-<user>/denials.log. An invalid project config makes it deny the built-in default heavy commands, with the reason. No project config: nothing is denied.',
   );
   process.exit(0);
 }
@@ -44,4 +44,4 @@ run((input) => {
   if (cfg.heavyGuard && cfg.heavyGuard.requireLeadEnv && process.env.GHORC_ROLE !== 'lead') {
     return deny('only the lead runs heavy checks (GHORC_ROLE=lead is not set).');
   }
-});
+}, 'heavy-check-guard');

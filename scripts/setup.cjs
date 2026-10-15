@@ -31,7 +31,7 @@ function findRoot(cwd) {
 }
 
 function leadDefaults(root) {
-  const tpl = readJson(path.join(PLUGIN_ROOT, 'templates', 'ghorc.json')) || {};
+  const tpl = readJson(path.join(PLUGIN_ROOT, 'scripts', 'lib', 'defaults.json')) || {};
   const proj = readJson(path.join(root, '.claude', 'ghorc.json')) || {};
   return { ...(tpl.lead || {}), ...(proj.lead || {}) };
 }
@@ -75,9 +75,40 @@ function readText(file) {
   }
 }
 
+// Names of package.json scripts that look heavy (test, e2e, build, lint) in the root and in app/.
+const HEAVY_NAME = /(^|[:_-])(tests?|e2e|build|lint)([:_-]|$)/i;
+const escRe = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+// Proposed heavyCommands regexes from package.json scripts; patterns that match checks.fast are left out
+// (agents run fast, so it must never be denied). Returns string[].
+function proposeHeavy(root, fast) {
+  const names = [];
+  for (const dir of [root, path.join(root, 'app')]) {
+    const pkg = readJson(path.join(dir, 'package.json'));
+    if (!pkg || typeof pkg.scripts !== 'object' || pkg.scripts === null) continue;
+    for (const n of Object.keys(pkg.scripts)) if (HEAVY_NAME.test(n) && !names.includes(n)) names.push(n);
+  }
+  const keep = names.filter((n) => !names.some((m) => m !== n && (n.startsWith(`${m}:`) || n.startsWith(`${m}-`))));
+  const out = keep.map((n) => (n === 'test' ? String.raw`^npm\s+(?:run\s+)?test\b` : String.raw`^npm\s+run\s+${escRe(n)}\b`));
+  const f = typeof fast === 'string' ? fast.trim() : '';
+  return out.filter((re) => !(f && cmdlib.matches(f, cmdlib.compile([re]))));
+}
+
+// Reads <root>/.claude/ghorc.json (creating it from the template when missing), applies mutate(obj), writes it back.
+function editProjectConfig(root, mutate) {
+  const dst = path.join(root, '.claude', 'ghorc.json');
+  fs.mkdirSync(path.dirname(dst), { recursive: true });
+  if (!fs.existsSync(dst)) fs.copyFileSync(path.join(PLUGIN_ROOT, 'templates', 'ghorc.json'), dst);
+  const obj = readJson(dst);
+  if (obj === null || typeof obj !== 'object' || Array.isArray(obj)) throw new Error(`${dst} is not valid JSON; fix it by hand first`);
+  mutate(obj);
+  fs.writeFileSync(dst, JSON.stringify(obj, null, 2) + '\n');
+  return dst;
+}
+
 // Builds the item list: { id, scope, what, current, recommended, why, ok, owner, warn }.
 // opts.project: the autocompact item targets <root>/.claude/settings.local.json instead of the global user settings.
-// warn items are reported but never applied and do not make the setup unclean.
+// warn items do not make the setup unclean and are not part of "all"; with applicable they can still be applied by name.
 function check(cwd, opts = {}) {
   const root = findRoot(cwd);
   const settingsFile = path.join(home(), '.claude', 'settings.json');
@@ -202,11 +233,14 @@ function check(cwd, opts = {}) {
     ok: !hasGit || hasExclude,
   });
 
-  // Warning only: does the heavy guard guard anything, and does it cover checks.full?
+  // Does the heavy guard guard anything, does it cover checks.full? Proposal from package.json scripts; applied only by name.
   let projCfg = {};
   if (fs.existsSync(cfgFile)) projCfg = readJson(cfgFile) || {};
   const heavy = cmdlib.compile(Array.isArray(projCfg.heavyCommands) ? projCfg.heavyCommands : []);
   const full = projCfg.checks && typeof projCfg.checks.full === 'string' ? projCfg.checks.full.trim() : '';
+  const proposed = proposeHeavy(root, projCfg.checks && projCfg.checks.fast).filter(
+    (p) => !(Array.isArray(projCfg.heavyCommands) && projCfg.heavyCommands.includes(p)),
+  );
   let heavyWhy = '';
   if (fs.existsSync(cfgFile)) {
     if (!heavy.length) heavyWhy = 'heavyCommands is empty: the heavy-check guard denies nothing';
@@ -216,12 +250,26 @@ function check(cwd, opts = {}) {
     id: 'heavy',
     scope: 'project',
     warn: true,
+    applicable: true,
     owner: true,
     what: `${cfgFile}: heavyCommands vs checks.full`,
     current: heavyWhy ? 'not covering' : 'ok',
-    recommended: 'a regex that matches checks.full',
+    recommended: proposed.length ? `add ${proposed.length} proposed regex(es), listed below (apply: --apply heavy)` : 'a regex that matches checks.full',
     why: heavyWhy || 'heavyCommands covers checks.full',
     ok: !heavyWhy,
+    proposed,
+  });
+  const wdOn = Boolean(projCfg.watchdog && projCfg.watchdog.autostart === true);
+  add({
+    id: 'watchdog',
+    scope: 'project',
+    warn: true,
+    applicable: true,
+    what: `${cfgFile}: watchdog.autostart`,
+    current: wdOn ? 'on' : 'off',
+    recommended: 'on only if you want SessionStart to start the transcript watchdog (opt-in)',
+    why: 'the watchdog is a detached background process that warns about transcripts that grow without bound; stop it with scripts/watchdog.cjs --stop',
+    ok: wdOn,
   });
   const real = items.filter((i) => !i.warn);
   return { items, settingsFile, settingsError, root, clean: real.every((i) => i.ok) && !settingsError };
@@ -242,7 +290,7 @@ function apply(cwd, ids, opts = {}) {
   const want = new Set(ids.includes('all') ? c.items.filter((i) => !i.warn).map((i) => i.id) : ids);
   const unknown = [...want].filter((id) => !c.items.some((i) => i.id === id));
   if (unknown.length) throw new Error(`unknown item(s): ${unknown.join(', ')}`);
-  const todo = c.items.filter((i) => want.has(i.id) && !i.ok && !i.warn);
+  const todo = c.items.filter((i) => want.has(i.id) && !i.ok && (!i.warn || i.applicable));
   const diff = [];
   const userItems = todo.filter((i) => i.scope === 'user');
   if (userItems.length) {
@@ -297,7 +345,24 @@ function apply(cwd, ids, opts = {}) {
       fs.writeFileSync(file, JSON.stringify(settings, null, 2) + '\n');
       continue;
     }
-    if (it.id === 'config') {
+    if (it.id === 'heavy') {
+      if (!it.proposed.length) {
+        diff.push('heavy: no proposal (no test/e2e/build/lint scripts found in package.json or app/package.json); set heavyCommands by hand');
+        continue;
+      }
+      diff.push(`heavy: adding ${it.proposed.length} regex(es) to heavyCommands: ${JSON.stringify(it.proposed)}`);
+      const dst = editProjectConfig(c.root, (o) => {
+        const have = Array.isArray(o.heavyCommands) ? o.heavyCommands : [];
+        o.heavyCommands = [...have, ...it.proposed.filter((p) => !have.includes(p))];
+      });
+      diff.push(`+ ${dst}: heavyCommands`);
+    } else if (it.id === 'watchdog') {
+      const dst = editProjectConfig(c.root, (o) => {
+        o.watchdog = o.watchdog && typeof o.watchdog === 'object' ? o.watchdog : {};
+        o.watchdog.autostart = true;
+      });
+      diff.push(`+ ${dst}: watchdog.autostart = true (stop a running one with scripts/watchdog.cjs --stop)`);
+    } else if (it.id === 'config') {
       const dst = path.join(c.root, '.claude', 'ghorc.json');
       fs.mkdirSync(path.dirname(dst), { recursive: true });
       fs.copyFileSync(path.join(PLUGIN_ROOT, 'templates', 'ghorc.json'), dst);
@@ -321,7 +386,31 @@ function apply(cwd, ids, opts = {}) {
   return { applied: todo.map((i) => i.id), diff };
 }
 
-module.exports = { check, apply, findRoot, MARKER };
+// Lines for /ghorc:status: role, guards, heavy patterns, watchdog, last denials.
+function statusBlock(cwd) {
+  const tmp = require('./lib/tmp.cjs');
+  const cfg = require('./lib/config.cjs').load(cwd, { cli: true });
+  const root = findRoot(cwd);
+  const role = (process.env.GHORC_ROLE || '').trim() || 'lead';
+  const rg = cfg.readGuard || {};
+  const heavy = Array.isArray(cfg.heavyCommands) ? cfg.heavyCommands : [];
+  const version = require(path.join(PLUGIN_ROOT, '.claude-plugin', 'plugin.json')).version;
+  const w = cfg.watchdog || {};
+  const ws = tmp.watchdogStatus(root, version, Number(w.intervalSec ?? 30));
+  const d = tmp.denials(5);
+  const out = [
+    `status: role=${role}${process.env.GHORC_ROLE ? '' : ' (GHORC_ROLE not set)'}`,
+    `status: read-guard on (maxRepeat=${rg.maxRepeat}, media blocked for the lead: ${rg.leadNoMedia !== false && process.env.GHORC_ROLE === 'lead' ? 'yes' : 'no'}), ` +
+      `heavy-check-guard on (${heavy.length ? `${heavy.length} patterns` : 'no patterns: it denies nothing'})`,
+    `status: watchdog autostart=${w.autostart === true ? 'on' : 'off'}, ${ws.alive ? `running pid ${ws.pid}` : `not running (${ws.reason})`}`,
+    `status: denials ${d.total} total` + (d.total ? ` (${Object.entries(d.counts).map(([k, v]) => `${k}=${v}`).join(', ')}), last ${d.last.length}:` : ''),
+    ...d.last.map((l) => `  ${l}`),
+  ];
+  if (cfg.invalid) out.push(`status: config invalid: ${cfg.invalid}`);
+  return out;
+}
+
+module.exports = { check, apply, statusBlock, findRoot, proposeHeavy, MARKER };
 
 if (require.main === module) {
   const args = process.argv.slice(2);
@@ -331,8 +420,9 @@ if (require.main === module) {
   if (args.includes('--help') || (!args.includes('--check') && !args.includes('--apply'))) {
     console.log(
       'setup.cjs --check [--project] [--cwd <dir>]: report each setup item (scope, current -> recommended, why) as human lines plus a final JSON line. ' +
-        'Items marked WARN (heavy) are only reported.\n' +
-        'setup.cjs --apply <all|statusLine,statusLineStale,pct,idle,model,effort,config,claudemd,exclude> [--project] [--cwd <dir>]: apply the chosen items; ' +
+        'Items marked WARN (heavy, watchdog) never make the setup unclean and are applied only when named (not by "all"); ' +
+        'heavy prints a proposed regex list from the package.json scripts (root and app/). --status adds the role, guards, watchdog and recent denials.\n' +
+        'setup.cjs --apply <all|statusLine,statusLineStale,pct,idle,model,effort,config,claudemd,exclude,heavy,watchdog> [--project] [--cwd <dir>]: apply the chosen items; ' +
         'backs up ~/.claude/settings.json first, touches only the listed keys and prints a diff. ' +
         'pct is written GLOBALLY (every project) unless --project, which writes <root>/.claude/settings.local.json instead. ' +
         'model and effort are owner-level decisions: name them only after the owner says yes. GHORC_HOME overrides the home directory.',
@@ -355,7 +445,13 @@ if (require.main === module) {
         `${i.ok ? 'ok     ' : i.warn ? 'WARN   ' : 'MISSING'} ${i.id} [${i.scope === 'user' ? 'global' : 'project'}]${i.owner && !i.warn ? ' (owner decision)' : ''}: ${JSON.stringify(i.current)} -> ${JSON.stringify(i.recommended)}  [${i.why}]`,
       );
     }
+    const hv = c.items.find((i) => i.id === 'heavy');
+    if (hv && hv.proposed.length) {
+      console.log('proposed heavyCommands (from package.json scripts; checks.fast is never proposed):');
+      for (const p of hv.proposed) console.log(`  ${p}`);
+    }
     if (c.settingsError) console.log(`ERROR: ${c.settingsError}`);
+    if (args.includes('--status')) console.log(statusBlock(cwd).join('\n'));
     console.log(JSON.stringify({ clean: c.clean, root: c.root, items: c.items }));
   } catch (e) {
     console.log(`ERROR: ${e.message}`);

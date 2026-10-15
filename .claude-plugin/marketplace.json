@@ -1,13 +1,13 @@
 {
-  "name": "ghorc-local",
-  "description": "Local marketplace for the ghorc orchestration plugin.",
+  "name": "ghorc",
+  "description": "Marketplace for the ghorc orchestration plugin.",
   "owner": { "name": "Gagik Harutyunyan" },
   "plugins": [
     {
       "name": "ghorc",
       "source": "./",
-      "description": "Orchestration kit: roles, lead skills, guard hooks, statusline, watchdog.",
-      "version": "0.4.0"
+      "description": "An Opus lead plans, Sonnet subagents work, hooks block repeated reads and worker test-suite runs.",
+      "version": "0.5.0"
     }
   ]
 }

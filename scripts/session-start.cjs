@@ -13,11 +13,11 @@ const { refuseReason, deriveTranscriptDir } = require('./lib/scandir.cjs');
 if (process.argv.includes('--help')) {
   console.log(
     'session-start.cjs: SessionStart hook; prints, in this order, pending watchdog alerts (count + last 2 lines), ' +
-      '"ghorc <version> session=<id> role=<role>", the config status, then reminders (skill ghorc:orc for the lead, ' +
+      '"ghorc <version> session=<id> role=<role>", the config status, then reminders (skill ghorc:lead for the lead, ' +
       'a missing CLAUDE.md ghorc section, a /ghorc:setup hint). Output is cut at 299 characters and then ends with "+more: run ctx". ' +
-      'Role: GHORC_ROLE=lead|worker; an empty GHORC_ROLE prints role=unknown (set GHORC_ROLE) and is treated as the lead. ' +
+      'Role: GHORC_ROLE is optional; an empty GHORC_ROLE on a main session prints role=lead, GHORC_ROLE=worker stays explicit. ' +
       'It deletes ctx files, session state and alert offsets older than 7 days. ' +
-      'A lead session also starts scripts/watchdog.cjs detached when watchdog.autostart is true: one watchdog per project root, ' +
+      'A lead session starts scripts/watchdog.cjs detached only when watchdog.autostart is true (default false; opt in with /ghorc:setup, stop with watchdog.cjs --stop): one watchdog per project root, ' +
       'restarted when its pid is dead, its heartbeat is stale (2 intervals) or its version differs from the plugin version. ' +
       'Nothing is killed: the new pid file makes an older watchdog exit on its next poll.',
   );
@@ -39,7 +39,7 @@ function pluginVersion() {
 function startWatchdog(cfg, root, version, input, cwd) {
   try {
     const w = cfg.watchdog || {};
-    if (w.autostart === false || process.env.GHORC_NO_AUTOSTART === '1') return false;
+    if (w.autostart !== true || process.env.GHORC_NO_AUTOSTART === '1') return false;
     const interval = Number(w.intervalSec ?? 30);
     const dir = deriveTranscriptDir(input, cwd);
     const refused = refuseReason(dir);
@@ -114,7 +114,7 @@ run((input) => {
     /* alerts are optional */
   }
 
-  const ident = [`ghorc ${version}`, `session=${sid || '?'}`, role ? `role=${role}` : 'role=unknown (set GHORC_ROLE)'];
+  const ident = [`ghorc ${version}`, `session=${sid || '?'}`, `role=${role || (isMain ? 'lead' : 'agent')}`];
 
   const status = [];
   status.push(found(cwd) ? 'config: ok' : 'config not found: copy templates/ghorc.json to .claude/ghorc.json');
@@ -131,7 +131,7 @@ run((input) => {
   const remind = cfg.lead;
   const isLead = isMain && (role === 'lead' || (role === '' && !(remind && remind.remind === false)));
   const reminders = [];
-  if (isLead) reminders.push('lead: load skill ghorc:orc');
+  if (isLead) reminders.push('lead: load skill ghorc:lead');
   if (isMain && (role === 'lead' || role === '')) {
     const w = startWatchdog(cfg, root, version, input, cwd);
     if (typeof w === 'string') status.push(w);

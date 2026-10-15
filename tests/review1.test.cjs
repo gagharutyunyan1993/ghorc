@@ -116,16 +116,16 @@ test('P1-3: config.load and found from a subdirectory', () => {
   assert.equal(config.found(sub), true);
 });
 
-test('P1-2: the skill orc reminder goes to the lead only', () => {
+test('P1-2: the skill lead reminder goes to the lead only', () => {
   const cwd = tmpProject();
   const input = { hook_event_name: 'SessionStart', session_id: sid(), cwd };
-  assert.match(runScript('session-start.cjs', input).out, /skill ghorc:orc/);
-  assert.match(runScript('session-start.cjs', input, { env: { GHORC_ROLE: 'lead' } }).out, /skill ghorc:orc/);
-  assert.doesNotMatch(runScript('session-start.cjs', input, { env: { GHORC_ROLE: 'worker' } }).out, /skill ghorc:orc/);
-  assert.doesNotMatch(runScript('session-start.cjs', { ...input, agent_id: 'a1' }).out, /skill ghorc:orc/);
+  assert.match(runScript('session-start.cjs', input).out, /skill ghorc:lead/);
+  assert.match(runScript('session-start.cjs', input, { env: { GHORC_ROLE: 'lead' } }).out, /skill ghorc:lead/);
+  assert.doesNotMatch(runScript('session-start.cjs', input, { env: { GHORC_ROLE: 'worker' } }).out, /skill ghorc:lead/);
+  assert.doesNotMatch(runScript('session-start.cjs', { ...input, agent_id: 'a1' }).out, /skill ghorc:lead/);
   const off = tmpProject({ lead: { remind: false } });
-  assert.doesNotMatch(runScript('session-start.cjs', { ...input, cwd: off }).out, /skill ghorc:orc/);
-  assert.match(runScript('session-start.cjs', { ...input, cwd: off }, { env: { GHORC_ROLE: 'lead' } }).out, /skill ghorc:orc/);
+  assert.doesNotMatch(runScript('session-start.cjs', { ...input, cwd: off }).out, /skill ghorc:lead/);
+  assert.match(runScript('session-start.cjs', { ...input, cwd: off }, { env: { GHORC_ROLE: 'lead' } }).out, /skill ghorc:lead/);
 });
 
 test('P2-4: check-config catches a broken regex, session-start prints one line', () => {

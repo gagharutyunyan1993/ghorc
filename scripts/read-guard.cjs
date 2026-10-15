@@ -10,11 +10,11 @@ if (process.argv.includes('--help')) {
   console.log(
     'read-guard.cjs: Claude Code hook. Input: the event JSON on stdin. ' +
       'PreToolUse(Read) may return deny: more than readGuard.maxRepeat reads of one path (offset, limit and pages do not matter), ' +
-      'a PDF without pages, a PDF/image read by a non-media subagent (readGuard.mediaRoles) or by the lead, ' +
+      'a PDF without pages, a PDF/image read by a non-media subagent (readGuard.mediaRoles) or by a main session started with GHORC_ROLE=lead (readGuard.leadNoMedia; a plain main session reads media freely), ' +
       'PDF pages above pdfPageBudget, image bytes above mediaByteBudget. MCP screenshot/snapshot/read_page tools count toward ' +
       'readGuard.maxScreenshots. PostToolUse(Edit|Write|NotebookEdit) resets the counter of the edited path only; a file whose mtime or size ' +
       'changed since the last counted read (another agent, a script, a log) also starts a new count. ' +
-      'Settings: readGuard.* in <project>/.claude/ghorc.json.',
+      'Every deny is appended to <tmp>/ghorc-<user>/denials.log. Settings: readGuard.* in <project>/.claude/ghorc.json.',
   );
   process.exit(0);
 }
@@ -100,8 +100,8 @@ run((input) => {
   if (isMedia) {
     if (input.agent_id) {
       if (!isMediaRole) return deny('media is read by the media role: hand this file to ghorc:media.');
-    } else if (leadNoMedia && process.env.GHORC_ROLE !== 'worker') {
-      return deny('the lead does not read media (a main session without GHORC_ROLE=worker counts as the lead): hand it to the media role.');
+    } else if (leadNoMedia && process.env.GHORC_ROLE === 'lead') {
+      return deny('the lead (GHORC_ROLE=lead) does not read media: hand it to the media role.');
     }
   }
   if (isPdf && !ti.pages) {
@@ -147,4 +147,4 @@ run((input) => {
   }
   byPath[abs] = { reads: e.reads + 1, bytes: (e.bytes || 0) + bytes, pages: (e.pages || 0) + pages, stamp };
   writeState(sid, stateName, { ...st, byPath });
-});
+}, 'read-guard');

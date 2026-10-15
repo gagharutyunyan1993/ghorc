@@ -1,0 +1,46 @@
+{
+  "checks": {
+    "fast": "",
+    "full": ""
+  },
+  "heavyCommands": [],
+  "readGuard": {
+    "maxRepeat": 3,
+    "maxImageBytes": 2097152,
+    "leadNoMedia": true,
+    "mediaRoles": [
+      "ghorc:media",
+      "media"
+    ],
+    "pdfPageBudget": 60,
+    "mediaByteBudget": 8388608,
+    "maxScreenshots": 60
+  },
+  "heavyGuard": {
+    "requireLeadEnv": false
+  },
+  "thresholds": {
+    "ctxPrepare": 120000,
+    "ctxHandoff": 150000
+  },
+  "lead": {
+    "model": "opus",
+    "effort": "medium",
+    "remind": true
+  },
+  "watchdog": {
+    "autostart": false,
+    "intervalSec": 30,
+    "rateMiBPerMin": 10,
+    "warnMiB": 100,
+    "stopMiB": 250
+  },
+  "handoff": {
+    "allowSendKeysExit": false,
+    "candidatePermissionArgs": [],
+    "readyTimeoutMin": 10,
+    "statePath": "STATE.md",
+    "handoffPath": "HANDOFF.md"
+  },
+  "criticalPaths": []
+}

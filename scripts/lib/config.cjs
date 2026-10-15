@@ -1,11 +1,11 @@
 'use strict';
-// Project config loading: <root>/.claude/ghorc.json over templates/ghorc.json.
+// Project config loading: <root>/.claude/ghorc.json over lib/defaults.json (the full defaults, also the validator schema).
 // Root rule (lib/root.cjs): CLAUDE_PROJECT_DIR, else the main git root, else cwd. The config is also searched in cwd ancestors.
 const fs = require('node:fs');
 const path = require('node:path');
 const { projectRoot, gitCommonRoot, ancestors, envProjectDir } = require('./root.cjs');
 
-const TEMPLATE = path.join(__dirname, '..', '..', 'templates', 'ghorc.json');
+const TEMPLATE = path.join(__dirname, 'defaults.json'); // full defaults; templates/ghorc.json is the short copy for projects
 
 function readJson(file) {
   try {

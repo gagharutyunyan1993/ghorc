@@ -1,6 +1,6 @@
 {
   "name": "ghorc",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
   "license": "MIT",
   "repository": { "type": "git", "url": "git+https://github.com/gagharutyunyan1993/ghorc.git" },
@@ -10,5 +10,5 @@
     "claude-code", "claude-code-plugin", "orchestration", "hooks", "context-management",
     "token-cost", "statusline", "subagents", "handoff"
   ],
-  "scripts": { "test": "node --test" }
+  "scripts": { "test": "node scripts/test.cjs" }
 }

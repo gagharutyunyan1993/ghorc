@@ -1,6 +1,6 @@
 ---
 name: reviewer
-description: Regular diff review and re-check of fixes for an ordinary (non-critical) package. Writes a review file with a verdict. Use for regular diff review.
+description: Reviewer - regular diff review and re-check of fixes for an ordinary (non-critical) package. Writes a review file with a verdict. Use for regular diff review.
 model: sonnet
 effort: medium
 maxTurns: 100

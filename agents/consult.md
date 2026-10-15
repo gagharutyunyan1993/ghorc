@@ -1,6 +1,6 @@
 ---
 name: consult
-description: Browser consultation agent - asks a ready question to external models in their web interfaces and saves the answers verbatim. The question must already exist as a file. Use for external model consultations via browser.
+description: Consult - browser consultation agent: asks a ready question to external models in their web interfaces and saves the answers verbatim. The question must already exist as a file. Use for external model consultations via browser.
 model: sonnet
 effort: low
 maxTurns: 60

@@ -1,53 +1,27 @@
 {
-  "_comment": "A copy goes to <project>/.claude/ghorc.json. Any key may be omitted: missing values come from these defaults. Keys starting with _comment are ignored.",
+  "_comment": "Copied to <project>/.claude/ghorc.json. Missing keys use the code defaults; docs/configuration.md lists every key.",
   "checks": {
-    "_comment": "Project check commands. Agents run only fast; the lead runs full.",
+    "_comment": "Project check commands: agents run fast, the lead runs full.",
     "fast": "",
     "full": ""
   },
-  "_comment_heavyCommands": "Regexes (strings) of heavy commands that subagents may not run. Each is matched at the start of a command segment (after env assignments and npm run/npx), so write \"^npm\\s+run\\s+test:e2e\\b\". An empty list means the hook forbids nothing.",
+  "_comment_heavyCommands": "Regexes of commands subagents may not run, e.g. \"^npm\\s+run\\s+test:e2e\\b\". /ghorc:setup proposes them.",
   "heavyCommands": [],
-  "readGuard": {
-    "_comment": "Read hook: maxRepeat - how many reads of one file are allowed between edits of it; pdfPageBudget - PDF pages per agent; mediaByteBudget - image bytes per agent; mediaRoles - agent types that may read media; maxScreenshots - MCP screenshot/snapshot calls per agent; maxImageBytes - image size limit; leadNoMedia - the lead may not read PDFs and images.",
-    "maxRepeat": 3,
-    "maxImageBytes": 2097152,
-    "leadNoMedia": true,
-    "mediaRoles": ["ghorc:media", "media"],
-    "pdfPageBudget": 60,
-    "mediaByteBudget": 8388608,
-    "maxScreenshots": 60
-  },
-  "heavyGuard": {
-    "_comment": "requireLeadEnv: true - heavy commands are allowed only for a process with the environment variable GHORC_ROLE=lead.",
-    "requireLeadEnv": false
-  },
   "thresholds": {
-    "_comment": "Lead context thresholds in tokens: ctxPrepare - refresh STATE; ctxHandoff - take nothing new, hand the shift over.",
+    "_comment": "Lead context in tokens: ctxPrepare - refresh STATE; ctxHandoff - hand the shift over.",
     "ctxPrepare": 120000,
     "ctxHandoff": 150000
   },
-  "lead": {
-    "_comment": "Lead model and effort; used when launching the candidate in /handoff and by /ghorc:setup. remind: remind the lead about skill orc at start (GHORC_ROLE=lead always reminds; workers start with GHORC_ROLE=worker and get no reminder).",
-    "model": "opus",
-    "effort": "medium",
-    "remind": true
-  },
   "watchdog": {
-    "_comment": "Transcript watchdog started by SessionStart for a lead session. autostart: start it detached (one per project root, pid file and heartbeat in <tmp>/ghorc-<user>); intervalSec: poll period; rateMiBPerMin: growth alarm; warnMiB: size to check; stopMiB: size alarm if still growing. Alerts go to <tmp>/ghorc-<user>/alerts-<root hash>.log; scripts/ctx.cjs --session <id> shows unread ones.",
-    "autostart": true,
-    "intervalSec": 30,
-    "rateMiBPerMin": 10,
-    "warnMiB": 100,
-    "stopMiB": 250
+    "_comment": "true: SessionStart starts the transcript watchdog (off by default; stop it with scripts/watchdog.cjs --stop).",
+    "autostart": false
   },
-  "handoff": {
-    "_comment": "Standing owner permissions. allowSendKeysExit: the new lead may send /exit to the old tab through herdr agent send-keys. candidatePermissionArgs: permission-mode arguments for the candidate (as for the old lead), for example [\"--permission-mode\", \"acceptEdits\"]. readyTimeoutMin: minutes the old lead waits for READY from the candidate (polled every 60 s).",
-    "allowSendKeysExit": false,
-    "candidatePermissionArgs": [],
-    "readyTimeoutMin": 10,
-    "statePath": "STATE.md",
-    "handoffPath": "HANDOFF.md"
+  "readGuard": {
+    "_comment": "How many reads of one file are allowed between edits of it.",
+    "maxRepeat": 3
   },
-  "_comment_criticalPaths": "Critical areas of the project (money, contracts, policy, hooks): edits here go to ghorc:reviewer-critical. Example: [\"src/billing/**\", \"POLICY.md\"].",
-  "criticalPaths": []
+  "lead": {
+    "_comment": "Lead model for /handoff and /ghorc:setup.",
+    "model": "opus"
+  }
 }

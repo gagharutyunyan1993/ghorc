@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.5.0
+Entries are grouped by change number. **Breaking: the marketplace name, the lead skill name and the watchdog default.**
+- #1 Marketplace renamed `ghorc-local` -> `ghorc`. Users of 0.4.x: run `claude plugin marketplace remove ghorc-local`,
+  then `claude plugin marketplace add gagharutyunyan1993/ghorc` and `claude plugin install ghorc@ghorc`.
+- #18 `plugin.json` has `license`, `repository`, `homepage`; the CI matrix adds Node 20; CI runs `npm test`, which
+  runs only `tests/*.test.cjs` (`scripts/test.cjs`), so `examples/` never joins the plugin test run.
+- #2 **Breaking:** the transcript watchdog is opt-in (`watchdog.autostart` defaults to false). `/ghorc:setup` lists
+  `watchdog` (`--apply watchdog` sets it true in the project config; `--check` shows on/off). New
+  `scripts/watchdog.cjs --stop` kills the project's watchdog and removes its pid and heartbeat files.
+- #3 `GHORC_ROLE` is optional: SessionStart prints `role=lead` for a plain main session instead of
+  `role=unknown (set GHORC_ROLE)`. `worker` stays explicit.
+- #4 **Breaking:** `readGuard.leadNoMedia` applies only when `GHORC_ROLE=lead` is set; a plain main session reads images
+  and PDFs (a PDF still needs `pages`).
+- #5 `setup --check` proposes `heavyCommands` from the `package.json` scripts (root and `app/`: test, e2e, build,
+  lint names; never a pattern that matches `checks.fast`); `setup --apply heavy` prints and writes them. Not part
+  of `--apply all`.
+- #6 Skill `ghorc:orc` is now `ghorc:lead`; `ghorc:orc` stays one release as a short alias that points to it.
+- #7 New skill `ghorc:status`: role, guards, heavy patterns, watchdog, context numbers and the last denials in one block
+  (`setup.cjs --check --status` plus `ctx.cjs --session <id>`).
+- #8 Denial log: every deny of the read guard and the heavy-check guard appends `<iso time> <session8> <hook> <reason>`
+  to `<tmp>/ghorc-<user>/denials.log`; cleanup keeps 7 days.
+- #9 `templates/ghorc.json` is short (checks, heavyCommands, thresholds, watchdog.autostart, readGuard.maxRepeat,
+  lead.model); every other key keeps its default from `scripts/lib/defaults.json`. All keys are in
+  `docs/configuration.md`. The validator still accepts every key. Agent descriptions are one line and start with the
+  role name. The CLAUDE.md section template is wrapped to 120 columns.
+- #11 `ghorc:handoff` description says it works without herdr.
+
 ## 0.4.0
 Entries are grouped by the id of the attack digest finding.
 - Fix: `setup.cjs` and `check-config.cjs` resolve the project root from cwd (git toplevel, `--cwd` overrides), not

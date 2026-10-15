@@ -1,6 +1,6 @@
 ---
 name: setup
-description: Check and apply the recommended ghorc setup - user settings (status line, autocompact threshold (global, or per project with `--project`), idle compaction, model, effort) and project files (ghorc.json, CLAUDE.md section, git exclude). Use for "setup ghorc", "ghorc setup", or when the SessionStart reminder says "run /ghorc:setup".
+description: Check and apply the recommended ghorc setup - user settings (status line, autocompact threshold (global, or per project with `--project`), idle compaction, model, effort) and project files (ghorc.json, CLAUDE.md section, git exclude, heavy-command proposals, opt-in watchdog). Use for "setup ghorc", "ghorc setup", or when the SessionStart reminder says "run /ghorc:setup".
 user-invocable: true
 ---
 # ghorc setup
@@ -14,4 +14,4 @@ user-invocable: true
 5. `--apply` backs up `~/.claude/settings.json` to `settings.json.ghorc-<timestamp>.bak`, changes only the listed keys and prints a diff. Show the diff to the user. Settings changes take effect in a new session.
 6. Run `--check` again and report the result; the status line, autocompact and model changes need a restart of the session.
 
-Items: `statusLine` (ghorc status line), `statusLineStale` (statusLine points to an older plugin version; same fix), `pct` (`env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` = 18), `idle` (`idleCompaction` = false), `model` (config `lead.model`), `effort` (config `lead.effort`), `config` (`.claude/ghorc.json` from the template), `claudemd` (the `<!-- ghorc -->` section in `CLAUDE.md`), `exclude` (`.claude/ctx-*.json` and `.claude/ghorc-out/` in git `info/exclude`), `heavy` (warning only: `heavyCommands` empty or no match for `checks.full`; fix it by hand in the config).
+Items: `statusLine` (ghorc status line), `statusLineStale` (statusLine points to an older plugin version; same fix), `pct` (`env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` = 18), `idle` (`idleCompaction` = false), `model` (config `lead.model`), `effort` (config `lead.effort`), `config` (`.claude/ghorc.json` from the template), `claudemd` (the `<!-- ghorc -->` section in `CLAUDE.md`), `exclude` (`.claude/ctx-*.json` and `.claude/ghorc-out/` in git `info/exclude`), `heavy` (warning item: `heavyCommands` empty or no match for `checks.full`; `--check` prints a proposed regex list from the `package.json` scripts of the root and `app/`; show it to the user and, only after a yes, run `--apply heavy`, which prints the list and writes it to the project config), `watchdog` (opt-in: `watchdog.autostart` is false by default; `--apply watchdog` sets it true in the project config; stop a running one with `node "${CLAUDE_PLUGIN_ROOT}/scripts/watchdog.cjs" --stop`). `heavy` and `watchdog` are never part of `--apply all`: name them.

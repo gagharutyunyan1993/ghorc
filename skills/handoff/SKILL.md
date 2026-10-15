@@ -1,6 +1,6 @@
 ---
 name: handoff
-description: Self-handoff of the lead shift into a new herdr tab - HANDOFF file, candidate launch, READY/STOP protocol. Use when lead context reaches the handoff threshold, or "hand over the lead shift".
+description: Hand the lead shift over when context gets large - writes STATE.md and works without herdr (then you run /clear); with herdr it also launches a candidate lead in a new tab (READY/STOP protocol). Use at the handoff threshold, or "hand over the lead shift".
 user-invocable: true
 ---
 # Lead self-handoff (version 1: a skill, no scripts and no locks)
@@ -36,7 +36,7 @@ herdr agent wait lead-next --until idle,blocked
 herdr agent read lead-next
 ```
 Do not use `herdr agent prompt --wait` (risk of the hook sending it again).
-The candidate lead starts with `GHORC_ROLE=lead` (PowerShell: `$env:GHORC_ROLE='lead'; herdr agent start ...`); any other herdr worker starts with `GHORC_ROLE=worker` (`$env:GHORC_ROLE='worker'`) so that it does not receive the lead reminder. Candidate and worker herdr starts are fine; whether herdr passes the variable on has not been verified live: if SessionStart prints `role=unknown (set GHORC_ROLE)`, the variable did not arrive.
+The candidate lead may start with `GHORC_ROLE=lead` (optional, a plain main session is the lead; PowerShell: `$env:GHORC_ROLE='lead'; herdr agent start ...`); any other herdr worker starts with `GHORC_ROLE=worker` (`$env:GHORC_ROLE='worker'`) so that it does not receive the lead reminder. Candidate and worker herdr starts are fine; whether herdr passes the variable on has not been verified live: if the candidate session prints `role=lead` although you started a worker, the variable did not arrive (check with `GHORC_ROLE` in its shell).
 
 ## READY / STOP protocol
 The candidate answers:

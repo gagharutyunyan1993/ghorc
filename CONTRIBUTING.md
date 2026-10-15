@@ -15,7 +15,7 @@ Try your changes in a real session without installing: `claude --plugin-dir <pat
 ## Checks before a pull request
 
 ```
-node --test
+npm test
 claude plugin validate .
 ```
 

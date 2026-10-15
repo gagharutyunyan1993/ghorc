@@ -37,7 +37,7 @@ const waitFor = (fn, ms) => {
 };
 
 test('R1: session-start never kills a live process named by a stale pid file (pid reuse)', () => {
-  const cwd = tmpProject({ watchdog: { intervalSec: 1 } });
+  const cwd = tmpProject({ watchdog: { intervalSec: 1, autostart: true } });
   const foreign = cp.spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
   try {
     const prev = process.env.GHORC_TMP;
@@ -182,8 +182,8 @@ test('R6: heap snapshot tools do not count toward maxScreenshots', () => {
   assert.equal(isDeny(call('mcp__chrome-devtools__take_screenshot')), true);
 });
 
-test('R7: handoff.readyTimeoutMin is in the template and checked by the validator', () => {
-  const tpl = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'templates', 'ghorc.json'), 'utf8'));
+test('R7: handoff.readyTimeoutMin is in the defaults and checked by the validator', () => {
+  const tpl = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'scripts', 'lib', 'defaults.json'), 'utf8'));
   assert.equal(tpl.handoff.readyTimeoutMin, 10);
   const ok = tmpProject({ handoff: { readyTimeoutMin: 15 } });
   assert.deepEqual(validate.check(ok).problems, []);

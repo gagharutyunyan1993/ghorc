@@ -42,6 +42,9 @@ test('refuseReason: drive root, slash, drive-relative C:, home, missing dir; acc
 });
 
 function dry(input, extraEnv = {}) {
+  // the watchdog is opt-in: every test dir sits under TEST_TMP, whose config turns autostart on
+  fs.mkdirSync(path.join(TEST_TMP, '.claude'), { recursive: true });
+  fs.writeFileSync(path.join(TEST_TMP, '.claude', 'ghorc.json'), JSON.stringify({ watchdog: { autostart: true } }));
   const r = runScript('session-start.cjs', input, { env: { ...noRootEnv, GHORC_NO_AUTOSTART: '', GHORC_WATCHDOG_DRY: '1', GHORC_ROLE: 'lead', GHORC_TMP: fs.mkdtempSync(path.join(TEST_TMP, 'd-')), ...extraEnv } });
   const m = r.err.match(/watchdog-args: (.*)/);
   return { out: r.out, args: m ? JSON.parse(m[1]) : null };

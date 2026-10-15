@@ -1,6 +1,6 @@
 ---
 name: scout
-description: Read-only scout - facts about code, documents and git history with exact file:line, result written to a file. Use before writing a brief, to learn what exists without changing it.
+description: Scout - read-only agent: facts about code, documents and git history with exact file:line, result written to a file. Use before writing a brief, to learn what exists without changing it.
 model: sonnet
 effort: low
 maxTurns: 40
