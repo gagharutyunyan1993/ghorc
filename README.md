@@ -386,7 +386,8 @@ Create it with `/ghorc:setup` (item `config`) or copy `templates/ghorc.json`. An
 come from the template. Objects merge recursively; arrays and scalars replace. Keys starting with `_comment` are
 ignored.
 
-Lookup: `CLAUDE_PROJECT_DIR`, then each directory from the cwd up to the nearest `.git`, then the main repository root
+Lookup (hooks): `CLAUDE_PROJECT_DIR`, then each directory from the cwd up to the nearest `.git`, then the main
+repository root
 (parent of `git rev-parse --git-common-dir`, so a worktree finds the main repository's config). With no file the
 defaults apply: the read guard works, `heavyCommands` is empty, nothing is denied as heavy.
 
@@ -394,6 +395,8 @@ defaults apply: the read guard works, `heavyCommands` is empty, nothing is denie
 status line's `ctx-*.json`, `ctx.cjs`, the CLAUDE.md check) uses `scripts/lib/root.cjs`: `CLAUDE_PROJECT_DIR` if set,
 else the main git root of the cwd (parent of the git common dir, so a worktree maps to the main repository), else the
 cwd. Writers and readers therefore agree, in a worktree too.
+
+Xs it) and use its git toplevel, so a worktree is its own root; `CLAUDE_PROJECT_DIR` is for hooks only.
 
 | Key | Type | Default | Read by | Meaning |
 |---|---|---|---|---|

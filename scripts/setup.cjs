@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const cp = require('node:child_process');
-const { projectRoot } = require('./lib/root.cjs');
+const { cliRoot } = require('./lib/root.cjs');
 const cmdlib = require('./lib/cmd.cjs');
 
 const PLUGIN_ROOT = path.join(__dirname, '..');
@@ -25,9 +25,9 @@ function home() {
   return process.env.GHORC_HOME && process.env.GHORC_HOME.trim() ? process.env.GHORC_HOME : os.homedir();
 }
 
-// Project root: the single rule of lib/root.cjs (CLAUDE_PROJECT_DIR, else the main git root, else cwd).
+// Project root of a CLI tool: git toplevel of cwd (--cwd overrides cwd); CLAUDE_PROJECT_DIR is ignored (lib/root.cjs).
 function findRoot(cwd) {
-  return projectRoot(cwd);
+  return cliRoot(cwd);
 }
 
 function leadDefaults(root) {
@@ -356,7 +356,7 @@ if (require.main === module) {
       );
     }
     if (c.settingsError) console.log(`ERROR: ${c.settingsError}`);
-    console.log(JSON.stringify({ clean: c.clean, items: c.items }));
+    console.log(JSON.stringify({ clean: c.clean, root: c.root, items: c.items }));
   } catch (e) {
     console.log(`ERROR: ${e.message}`);
     process.exit(1);

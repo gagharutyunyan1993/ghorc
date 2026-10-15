@@ -15,11 +15,11 @@ if (args.includes('--help')) {
 const cwd = args.includes('--cwd') ? args[args.indexOf('--cwd') + 1] : process.cwd();
 const samples = args.flatMap((a, i) => (a === '--sample' && args[i + 1] !== undefined ? [args[i + 1]] : []));
 
-const { path: file, problems } = check(cwd);
+const { path: file, problems } = check(cwd, { cli: true });
 console.log(file ? `config: ${file}` : 'config not found (defaults are used)');
 for (const p of problems) console.log(`ERROR: ${p}`);
 
-const patterns = (load(cwd).heavyCommands || []).filter((p) => typeof p === 'string');
+const patterns = (load(cwd, { cli: true }).heavyCommands || []).filter((p) => typeof p === 'string');
 for (const s of samples) {
   const hit = patterns.filter((p) => {
     try {

@@ -12,7 +12,7 @@ const mk = (p) => fs.mkdtempSync(path.join(os.tmpdir(), p));
 const git = (cwd, ...a) => spawnSync('git', a, { cwd, encoding: 'utf8' });
 const lastJson = (o) => JSON.parse(o.trim().split('\n').pop());
 
-test('root rule: in a worktree setup finds the main config and writes to the main root', () => {
+test('root rule: in a worktree setup works on the worktree root, not the main tree', () => {
   const main = mk('ghorc-v031-main-');
   const wtParent = mk('ghorc-v031-wt-');
   const home = mk('ghorc-v031-home-');
@@ -26,12 +26,12 @@ test('root rule: in a worktree setup finds the main config and writes to the mai
     fs.writeFileSync(path.join(main, '.claude', 'ghorc.json'), '{}');
     const env = { GHORC_HOME: home };
     const chk = lastJson(runScript('setup.cjs', '', { args: ['--check', '--cwd', wt], env }).out);
-    assert.equal(chk.items.find((i) => i.id === 'config').ok, true, 'config found from the worktree');
+    assert.equal(chk.items.find((i) => i.id === 'config').ok, false, 'setup looks at the worktree root, not the main tree');
     fs.rmSync(path.join(main, '.claude', 'ghorc.json'));
     const ap = runScript('setup.cjs', '', { args: ['--apply', 'config', '--cwd', wt], env });
     assert.equal(ap.code, 0, ap.out + ap.err);
-    assert.ok(fs.existsSync(path.join(main, '.claude', 'ghorc.json')), 'written to the main root');
-    assert.ok(!fs.existsSync(path.join(wt, '.claude', 'ghorc.json')), 'not written into the worktree');
+    assert.ok(fs.existsSync(path.join(wt, '.claude', 'ghorc.json')), 'written to the worktree root (git toplevel of cwd)');
+    assert.ok(!fs.existsSync(path.join(main, '.claude', 'ghorc.json')), 'not written into the main tree');
   } finally {
     for (const d of [wtParent, main, home]) fs.rmSync(d, { recursive: true, force: true });
   }
@@ -165,4 +165,22 @@ test('statusline: parses the verified live sample (rate_limits epoch seconds, ef
   assert.equal(run(1792079400 - 8400), 'Fable 5.1 ·medium │ ctx -- │ 5h 16% (~2h) │ 7d 34% (~6d)');
   // 20 minutes before the 5h reset: minutes under an hour.
   assert.match(run(1792079400 - 1200), /5h 16% \(~20m\)/);
+});
+
+test('setup: CLAUDE_PROJECT_DIR is ignored, the root comes from cwd (check and apply claudemd)', () => {
+  const a = fs.realpathSync(mk('ghorc-rootA-'));
+  const b = fs.realpathSync(mk('ghorc-rootB-'));
+  const home = mk('ghorc-home-');
+  try {
+    git(b, 'init', '-q');
+    const env = { GHORC_HOME: home, CLAUDE_PROJECT_DIR: a };
+    const chk = lastJson(runScript('setup.cjs', '', { args: ['--check'], env, cwd: b }).out);
+    assert.equal(fs.realpathSync(chk.root), b, 'check reports the cwd root');
+    const ap = runScript('setup.cjs', '', { args: ['--apply', 'claudemd'], env, cwd: b });
+    assert.equal(ap.code, 0, ap.out + ap.err);
+    assert.ok(fs.existsSync(path.join(b, 'CLAUDE.md')), 'written to cwd root');
+    assert.ok(!fs.existsSync(path.join(a, 'CLAUDE.md')), 'not written to CLAUDE_PROJECT_DIR');
+  } finally {
+    for (const d of [a, b, home]) fs.rmSync(d, { recursive: true, force: true });
+  }
 });

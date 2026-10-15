@@ -1,6 +1,6 @@
 'use strict';
 // The single project-root rule, shared by every writer and reader of <root>/.claude:
-// CLAUDE_PROJECT_DIR if set, else the main git root (git common dir, also from a worktree), else cwd (with git unavailable: the nearest ancestor holding .git).
+// Hooks and the status line: CLAUDE_PROJECT_DIR if set, else the main git root (git common dir, also from a worktree), else cwd (with git unavailable: the nearest ancestor holding .git).
 const fs = require('node:fs');
 const path = require('node:path');
 const cp = require('node:child_process'); // called as cp.spawnSync so tests can stub it
@@ -53,4 +53,19 @@ function projectRoot(cwd) {
   return fs.existsSync(path.join(last, '.git')) ? last : path.resolve(cwd || process.cwd());
 }
 
-module.exports = { GIT_TIMEOUT_MS, projectRoot, gitCommonRoot, ancestors, envProjectDir };
+// CLI tools (setup, check-config, ctx): the root of the directory they are run in. Never CLAUDE_PROJECT_DIR (hooks only).
+// git toplevel of cwd (a worktree is its own root), else the nearest ancestor holding .git, else cwd.
+function cliRoot(cwd) {
+  const base = path.resolve(cwd || process.cwd());
+  try {
+    const r = cp.spawnSync('git', ['rev-parse', '--show-toplevel'], { cwd: base, encoding: 'utf8', timeout: GIT_TIMEOUT_MS, windowsHide: true });
+    const out = r.status === 0 ? String(r.stdout).trim() : '';
+    if (out) return path.resolve(base, out);
+  } catch {
+    // git unavailable: fall through
+  }
+  const last = ancestors(base).pop();
+  return fs.existsSync(path.join(last, '.git')) ? last : base;
+}
+
+module.exports = { GIT_TIMEOUT_MS, cliRoot, projectRoot, gitCommonRoot, ancestors, envProjectDir };

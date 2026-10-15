@@ -18,8 +18,8 @@ function result(path, problems) {
   return { path, problems, fatal: problems.filter(isFatal) };
 }
 
-function check(cwd) {
-  return checkFile(findConfig(cwd));
+function check(cwd, opts = {}) {
+  return checkFile(findConfig(cwd, opts));
 }
 
 function checkFile(file) {

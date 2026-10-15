@@ -28,9 +28,9 @@ function merge(base, over) {
 }
 
 // Path to the found ghorc.json, or null.
-function findConfig(cwd) {
+function findConfig(cwd, opts = {}) {
   const dirs = [];
-  const env = envProjectDir();
+  const env = opts.cli ? null : envProjectDir(); // CLI tools ignore CLAUDE_PROJECT_DIR
   if (env) dirs.push(path.resolve(env));
   for (const d of ancestors(cwd)) if (!dirs.includes(d)) dirs.push(d);
   const probe = (list) => {
@@ -44,7 +44,7 @@ function findConfig(cwd) {
   const hit = probe(dirs);
   if (hit) return hit;
   const common = gitCommonRoot(cwd);
-  return common && !dirs.includes(common) ? probe([common]) : null;
+  return !opts.cli && common && !dirs.includes(common) ? probe([common]) : null;
 }
 
 // For messages: the found path, or the expected one in the project root.
@@ -85,9 +85,9 @@ function validity(file) {
 
 // load(cwd) -> the final config; config.invalid is a reason string when the project file fails validation
 // (parse error, wrong type, bad regex). found(cwd) -> whether a readable project file exists.
-function load(cwd) {
+function load(cwd, opts = {}) {
   const defaults = readJson(TEMPLATE) || {};
-  const file = findConfig(cwd);
+  const file = findConfig(cwd, opts);
   const project = file ? readJson(file) : null;
   const cfg = isObj(project) ? merge(defaults, project) : defaults;
   if (file) {
@@ -101,8 +101,8 @@ function load(cwd) {
   return cfg;
 }
 
-function found(cwd) {
-  const file = findConfig(cwd);
+function found(cwd, opts = {}) {
+  const file = findConfig(cwd, opts);
   return file !== null && readJson(file) !== null;
 }
 
