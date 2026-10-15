@@ -1,11 +1,11 @@
 'use strict';
-// Загрузка конфига проекта: <корень>/.claude/orc-kit.json поверх templates/orc-kit.json.
+// Загрузка конфига проекта: <корень>/.claude/ghorc.json поверх templates/ghorc.json.
 // Корень ищется так: CLAUDE_PROJECT_DIR, затем подъём от cwd до корня git (включительно).
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
-const TEMPLATE = path.join(__dirname, '..', '..', 'templates', 'orc-kit.json');
+const TEMPLATE = path.join(__dirname, '..', '..', 'templates', 'ghorc.json');
 
 function readJson(file) {
   try {
@@ -73,7 +73,7 @@ function projectRoot(cwd) {
   return fs.existsSync(path.join(last, '.git')) ? last : path.resolve(cwd || process.cwd());
 }
 
-// Путь к найденному orc-kit.json или null.
+// Путь к найденному ghorc.json или null.
 function findConfig(cwd) {
   const dirs = [];
   const env = envProjectDir();
@@ -82,7 +82,7 @@ function findConfig(cwd) {
   const common = gitCommonRoot(cwd);
   if (common && !dirs.includes(common)) dirs.push(common);
   for (const d of dirs) {
-    const p = path.join(d, '.claude', 'orc-kit.json');
+    const p = path.join(d, '.claude', 'ghorc.json');
     if (fs.existsSync(p)) return p;
   }
   return null;
@@ -90,7 +90,7 @@ function findConfig(cwd) {
 
 // Для сообщений: найденный путь или ожидаемый в корне проекта.
 function configPath(cwd) {
-  return findConfig(cwd) || path.join(projectRoot(cwd), '.claude', 'orc-kit.json');
+  return findConfig(cwd) || path.join(projectRoot(cwd), '.claude', 'ghorc.json');
 }
 
 // load(cwd) -> итоговый конфиг. found(cwd) -> есть ли читаемый файл проекта.

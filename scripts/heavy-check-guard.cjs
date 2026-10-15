@@ -6,7 +6,7 @@ const { load } = require('./lib/config.cjs');
 if (process.argv.includes('--help')) {
   console.log(
     'heavy-check-guard.cjs: хук PreToolUse(Bash). Запрещает команды, подходящие под регэксп из heavyCommands, ' +
-      'если вызывает субагент (agent_id во входе). heavyGuard.requireLeadEnv=true: ещё и без ORC_ROLE=lead. ' +
+      'если вызывает субагент (agent_id во входе). heavyGuard.requireLeadEnv=true: ещё и без GHORC_ROLE=lead. ' +
       'Нет конфига проекта - разрешено всё.',
   );
   process.exit(0);
@@ -29,7 +29,7 @@ run((input) => {
   if (!heavy) return;
 
   if (input.agent_id) return deny('тяжёлые проверки запускает только лид.');
-  if (cfg.heavyGuard && cfg.heavyGuard.requireLeadEnv && process.env.ORC_ROLE !== 'lead') {
-    return deny('тяжёлые проверки запускает только лид (нет ORC_ROLE=lead).');
+  if (cfg.heavyGuard && cfg.heavyGuard.requireLeadEnv && process.env.GHORC_ROLE !== 'lead') {
+    return deny('тяжёлые проверки запускает только лид (нет GHORC_ROLE=lead).');
   }
 });

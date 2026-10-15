@@ -1,5 +1,5 @@
 {
-  "_comment": "Копия кладётся в <проект>/.claude/orc-kit.json. Любой ключ можно опустить: недостающее берётся из этих значений по умолчанию. Поля _comment* игнорируются.",
+  "_comment": "Копия кладётся в <проект>/.claude/ghorc.json. Любой ключ можно опустить: недостающее берётся из этих значений по умолчанию. Поля _comment* игнорируются.",
   "checks": {
     "_comment": "Команды проверок проекта. Агенты запускают только fast; full запускает лид.",
     "fast": "",
@@ -14,7 +14,7 @@
     "leadNoMedia": true
   },
   "heavyGuard": {
-    "_comment": "requireLeadEnv: true - тяжёлые команды разрешены только процессу с переменной окружения ORC_ROLE=lead.",
+    "_comment": "requireLeadEnv: true - тяжёлые команды разрешены только процессу с переменной окружения GHORC_ROLE=lead.",
     "requireLeadEnv": false
   },
   "thresholds": {
@@ -23,7 +23,7 @@
     "ctxHandoff": 150000
   },
   "lead": {
-    "_comment": "Модель и усилие лида; используются при запуске кандидата в /handoff. remind: напоминать лиду про skill orc при старте (ORC_ROLE=lead напоминает всегда; воркеры стартуют с ORC_ROLE=worker и не получают напоминания).",
+    "_comment": "Модель и усилие лида; используются при запуске кандидата в /handoff. remind: напоминать лиду про skill orc при старте (GHORC_ROLE=lead напоминает всегда; воркеры стартуют с GHORC_ROLE=worker и не получают напоминания).",
     "model": "opus",
     "effort": "medium",
     "remind": true

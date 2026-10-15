@@ -39,7 +39,7 @@ function safeId(s) {
 }
 
 function stateDir(sessionId) {
-  return path.join(os.tmpdir(), 'orc-kit', safeId(sessionId));
+  return path.join(os.tmpdir(), 'ghorc', safeId(sessionId));
 }
 
 function readState(sessionId, name) {

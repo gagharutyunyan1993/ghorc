@@ -1,10 +1,10 @@
 {
-  "name": "orc-kit-local",
-  "description": "Local marketplace for the orc-kit orchestration plugin.",
+  "name": "ghorc-local",
+  "description": "Local marketplace for the ghorc orchestration plugin.",
   "owner": { "name": "Gagik Harutyunyan" },
   "plugins": [
     {
-      "name": "orc-kit",
+      "name": "ghorc",
       "source": "./",
       "description": "Orchestration kit: roles, lead skills, guard hooks, statusline, watchdog.",
       "version": "0.1.2"

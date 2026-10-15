@@ -87,7 +87,7 @@ test('config: без файла - значения по умолчанию, foun
   assert.equal(config.found(cwd), false);
   assert.equal(config.load(cwd).readGuard.maxRepeat, 3);
   fs.mkdirSync(path.join(cwd, '.claude'));
-  fs.writeFileSync(path.join(cwd, '.claude', 'orc-kit.json'), '{bad');
+  fs.writeFileSync(path.join(cwd, '.claude', 'ghorc.json'), '{bad');
   assert.equal(config.load(cwd).thresholds.ctxPrepare, 120000);
 });
 
@@ -96,7 +96,7 @@ test('session-start: короткое напоминание, <300 символ�
   const r = runScript('session-start.cjs', { hook_event_name: 'SessionStart', session_id: sid(), cwd });
   assert.equal(r.code, 0);
   assert.ok(r.out.length < 300, `длина ${r.out.length}`);
-  assert.match(r.out, /orc-kit 0.1.2/);
+  assert.match(r.out, /ghorc 0.1.2/);
   assert.match(r.out, /конфиг не найден/);
   assert.match(r.out, /skill orc/);
 });

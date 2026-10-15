@@ -1,5 +1,5 @@
 'use strict';
-// Проверка orc-kit.json: JSON, известные ключи, типы, компиляция регэкспов.
+// Проверка ghorc.json: JSON, известные ключи, типы, компиляция регэкспов.
 const fs = require('node:fs');
 const { findConfig, readJson, TEMPLATE } = require('./config.cjs');
 

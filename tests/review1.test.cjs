@@ -76,7 +76,7 @@ test('P2-3: посторонняя команда Bash счётчик не сб�
 test('P2-10: роли media не советуют «отдай роли media»', () => {
   const s = sid();
   const cwd = tmpProject();
-  const input = { ...read(s, cwd, 'x.pdf'), agent_type: 'orc-kit:media' };
+  const input = { ...read(s, cwd, 'x.pdf'), agent_type: 'ghorc:media' };
   const r = runScript('read-guard.cjs', input);
   assert.equal(isDeny(r), true);
   assert.doesNotMatch(JSON.parse(r.out).hookSpecificOutput.permissionDecisionReason, /роли media/);
@@ -120,12 +120,12 @@ test('P1-2: напоминание про skill orc только лиду', () =
   const cwd = tmpProject();
   const input = { hook_event_name: 'SessionStart', session_id: sid(), cwd };
   assert.match(runScript('session-start.cjs', input).out, /skill orc/);
-  assert.match(runScript('session-start.cjs', input, { env: { ORC_ROLE: 'lead' } }).out, /skill orc/);
-  assert.doesNotMatch(runScript('session-start.cjs', input, { env: { ORC_ROLE: 'worker' } }).out, /skill orc/);
+  assert.match(runScript('session-start.cjs', input, { env: { GHORC_ROLE: 'lead' } }).out, /skill orc/);
+  assert.doesNotMatch(runScript('session-start.cjs', input, { env: { GHORC_ROLE: 'worker' } }).out, /skill orc/);
   assert.doesNotMatch(runScript('session-start.cjs', { ...input, agent_id: 'a1' }).out, /skill orc/);
   const off = tmpProject({ lead: { remind: false } });
   assert.doesNotMatch(runScript('session-start.cjs', { ...input, cwd: off }).out, /skill orc/);
-  assert.match(runScript('session-start.cjs', { ...input, cwd: off }, { env: { ORC_ROLE: 'lead' } }).out, /skill orc/);
+  assert.match(runScript('session-start.cjs', { ...input, cwd: off }, { env: { GHORC_ROLE: 'lead' } }).out, /skill orc/);
 });
 
 test('P2-4: check-config ловит битый регэксп, session-start пишет одну строку', () => {
@@ -151,7 +151,7 @@ test('P2-4: check-config --sample и валидный конфиг', () => {
 test('P2-4: невалидный JSON конфига не ломает хуки (fail open)', () => {
   const cwd = tmpProject();
   fs.mkdirSync(path.join(cwd, '.claude'));
-  fs.writeFileSync(path.join(cwd, '.claude', 'orc-kit.json'), '{bad');
+  fs.writeFileSync(path.join(cwd, '.claude', 'ghorc.json'), '{bad');
   const r = runScript('check-config.cjs', '', { args: ['--cwd', cwd] });
   assert.equal(r.code, 1);
   assert.match(r.out, /невалидный JSON/);
@@ -163,7 +163,7 @@ test('P2-6: --notify получает текст тревоги одним ар�
   fs.writeFileSync(path.join(root, 'dir with space', 'big file.jsonl'), Buffer.alloc(2 * 1024 * 1024));
   const out = path.join(root, 'notify.json');
   const script = path.join(root, 'notify.cjs');
-  fs.writeFileSync(script, `require('fs').writeFileSync(${JSON.stringify(out)}, JSON.stringify({argv: process.argv.slice(2), env: process.env.ORC_ALERT}));`);
+  fs.writeFileSync(script, `require('fs').writeFileSync(${JSON.stringify(out)}, JSON.stringify({argv: process.argv.slice(2), env: process.env.GHORC_ALERT}));`);
   const r = runScript('watchdog.cjs', '', { args: ['--once', '--root', root, '--warnMiB', '1', '--notify', `node "${script}"`] });
   assert.equal(r.code, 0);
   const got = JSON.parse(fs.readFileSync(out, 'utf8'));
@@ -239,7 +239,7 @@ test('круг 2: корень проекта из worktree - основной �
     assert.match(runScript('ctx.cjs', '', { args: ['--cwd', wt, '--session', s] }).out, new RegExp(`ctx-${s}`));
     // конфиг основного репозитория находится из worktree
     fs.mkdirSync(path.join(repo, '.claude'), { recursive: true });
-    fs.writeFileSync(path.join(repo, '.claude', 'orc-kit.json'), JSON.stringify({ readGuard: { maxRepeat: 8 } }));
+    fs.writeFileSync(path.join(repo, '.claude', 'ghorc.json'), JSON.stringify({ readGuard: { maxRepeat: 8 } }));
     assert.equal(config.load(wt).readGuard.maxRepeat, 8);
   } finally {
     git(repo, 'worktree', 'remove', '--force', wt);

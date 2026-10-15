@@ -5,7 +5,7 @@ user-invocable: true
 ---
 # Самопередача лида (версия 1: skill, без скриптов и локов)
 
-Пути и параметры - из `.claude/orc-kit.json`: `lead.model`, `lead.effort`, `thresholds.*`, `handoff.statePath`, `handoff.handoffPath`, `handoff.allowSendKeysExit`, `handoff.candidatePermissionArgs`.
+Пути и параметры - из `.claude/ghorc.json`: `lead.model`, `lead.effort`, `thresholds.*`, `handoff.statePath`, `handoff.handoffPath`, `handoff.allowSendKeysExit`, `handoff.candidatePermissionArgs`.
 
 ## Постоянное разрешение владельца
 Заполняется один раз в конфиге проекта, здесь только читается:
@@ -29,13 +29,13 @@ user-invocable: true
 ## Команды herdr (без `--wait`)
 ```
 herdr tab create
-ORC_ROLE=lead herdr agent start lead-next --kind claude -- --model <lead.model> --effort <lead.effort> <handoff.candidatePermissionArgs>
+GHORC_ROLE=lead herdr agent start lead-next --kind claude -- --model <lead.model> --effort <lead.effort> <handoff.candidatePermissionArgs>
 herdr agent prompt lead-next "Прочитай <путь HANDOFF>. Сверь с git и статусом проекта. Ответь строго: READY handoff=<id>; Следующее действие: <одно>; Несоответствия: <нет/список>. Ничего не меняй, пока старый лид не завершится. Свою ротацию не начинай."
 herdr agent wait lead-next --until idle,blocked   # тайм-аут 10 минут
 herdr agent read lead-next
 ```
 `herdr agent prompt --wait` не использовать (риск повторной отправки хуком).
-Кандидат-лид стартует с `ORC_ROLE=lead` (PowerShell: `$env:ORC_ROLE='lead'; herdr agent start ...`); любой другой herdr-воркер - с `ORC_ROLE=worker` (`$env:ORC_ROLE='worker'`), чтобы не получить напоминание лида. Наследование переменной herdr-ом не проверено живьём: проверь в первой сессии строку SessionStart.
+Кандидат-лид стартует с `GHORC_ROLE=lead` (PowerShell: `$env:GHORC_ROLE='lead'; herdr agent start ...`); любой другой herdr-воркер - с `GHORC_ROLE=worker` (`$env:GHORC_ROLE='worker'`), чтобы не получить напоминание лида. Наследование переменной herdr-ом не проверено живьём: проверь в первой сессии строку SessionStart.
 
 ## Протокол READY / STOP
 Ответ кандидата:

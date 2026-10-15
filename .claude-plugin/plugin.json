@@ -1,5 +1,5 @@
 {
-  "name": "orc-kit",
+  "name": "ghorc",
   "version": "0.1.2",
   "description": "Orchestration kit for Claude Code: delegation roles, lead skills, read/heavy-check guard hooks, context statusline and transcript watchdog.",
   "author": { "name": "Gagik Harutyunyan" },

@@ -14,7 +14,7 @@ if (args.includes('--help')) {
       '             [--subagentsMiB 500] [--root <каталог, по умолчанию ~/.claude/projects>] [--once] [--notify "<команда>"]',
       'Тревоги: рост выше rateMiBPerMin непрерывно streakSec секунд; размер выше warnMiB (проверить содержимое);',
       'выше stopMiB и всё ещё растёт; файл в subagents/ выше subagentsMiB.',
-      '--notify: команда запускается через шелл (.cmd/.bat работают) в фоне, таймер 10 с; текст тревоги - ОДИН аргумент в кавычках (и переменная ORC_ALERT).',
+      '--notify: команда запускается через шелл (.cmd/.bat работают) в фоне, таймер 10 с; текст тревоги - ОДИН аргумент в кавычках (и переменная GHORC_ALERT).',
       'Сторож никого не останавливает.',
     ].join('\n'),
   );
@@ -57,7 +57,7 @@ function walk(dir, out) {
 }
 
 function alert(text) {
-  console.log(`[orc-kit watchdog] ${text}`);
+  console.log(`[ghorc watchdog] ${text}`);
   if (!notify) return;
   // Через шелл (работают .cmd/.bat); не ждём завершения, убиваем через 10 с.
   try {
@@ -65,9 +65,9 @@ function alert(text) {
       shell: true,
       stdio: 'ignore',
       windowsHide: true,
-      env: { ...process.env, ORC_ALERT: text },
+      env: { ...process.env, GHORC_ALERT: text },
     });
-    child.on('error', (e) => console.log(`[orc-kit watchdog] notify не запустился: ${e.message}`));
+    child.on('error', (e) => console.log(`[ghorc watchdog] notify не запустился: ${e.message}`));
     const timer = setTimeout(() => {
       try {
         child.kill();

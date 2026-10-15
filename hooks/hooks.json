@@ -1,5 +1,5 @@
 {
-  "description": "orc-kit: read guard, heavy check guard, session reminder",
+  "description": "ghorc: read guard, heavy check guard, session reminder",
   "hooks": {
     "SessionStart": [
       {

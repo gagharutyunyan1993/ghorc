@@ -1,18 +1,18 @@
-## Оркестрация (orc-kit)
+## Оркестрация (ghorc)
 
-Плагин `orc-kit` даёт роли, skills и хуки. Настройки проекта - `.claude/orc-kit.json`. Лид в начале сессии загружает skill `orc`.
+Плагин `ghorc` даёт роли, skills и хуки. Настройки проекта - `.claude/ghorc.json`. Лид в начале сессии загружает skill `orc`.
 
 ### Роли
 | Роль | Модель / усилие | Для чего |
 |---|---|---|
-| `orc-kit:implementer` | sonnet / medium (деньги, миграции - high) | код, тесты, документы по брифу |
-| `orc-kit:reviewer` | sonnet / medium | обычное ревью по диффу |
-| `orc-kit:reviewer-critical` | opus / high | критичное ревью, итоговый вердикт критичного пакета |
-| `orc-kit:scout` | sonnet / low | факты с `file:line` в файл |
-| `orc-kit:integrator` | sonnet / medium | конфликты слияния, красные проверки |
-| `orc-kit:release` | sonnet / medium | релиз, только по слову владельца |
-| `orc-kit:consult` | sonnet / low | консультации во внешних моделях |
-| `orc-kit:media` | sonnet / low | единственная роль для PDF и изображений |
+| `ghorc:implementer` | sonnet / medium (деньги, миграции - high) | код, тесты, документы по брифу |
+| `ghorc:reviewer` | sonnet / medium | обычное ревью по диффу |
+| `ghorc:reviewer-critical` | opus / high | критичное ревью, итоговый вердикт критичного пакета |
+| `ghorc:scout` | sonnet / low | факты с `file:line` в файл |
+| `ghorc:integrator` | sonnet / medium | конфликты слияния, красные проверки |
+| `ghorc:release` | sonnet / medium | релиз, только по слову владельца |
+| `ghorc:consult` | sonnet / low | консультации во внешних моделях |
+| `ghorc:media` | sonnet / low | единственная роль для PDF и изображений |
 
 ### Проверки проекта
 - fast: `<команда>` (запускают агенты и лид)

@@ -6,7 +6,7 @@ const { load } = require('./lib/config.cjs');
 const args = process.argv.slice(2);
 if (args.includes('--help')) {
   console.log(
-    'check-config.cjs [--cwd <каталог>] [--sample "<команда>"]: проверяет .claude/orc-kit.json (JSON, ключи, типы, ' +
+    'check-config.cjs [--cwd <каталог>] [--sample "<команда>"]: проверяет .claude/ghorc.json (JSON, ключи, типы, ' +
       'компиляция heavyCommands). --sample (можно несколько раз) показывает, какие шаблоны срабатывают на команду. ' +
       'Код выхода 1 при ошибках.',
   );

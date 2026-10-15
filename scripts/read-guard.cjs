@@ -11,7 +11,7 @@ if (process.argv.includes('--help')) {
     'read-guard.cjs: хук Claude Code. Вход: JSON события на stdin. ' +
       'PreToolUse(Read) может вернуть deny; PostToolUse(Edit|Write|NotebookEdit|Bash|PowerShell) сбрасывает счётчик повторов ' +
       '(Bash и PowerShell - только если команда упоминает читаемый файл). Повтор - полностью одинаковый вызов: ' +
-      'путь, offset, limit, pages. Настройки: readGuard.* в <проект>/.claude/orc-kit.json.',
+      'путь, offset, limit, pages. Настройки: readGuard.* в <проект>/.claude/ghorc.json.',
   );
   process.exit(0);
 }

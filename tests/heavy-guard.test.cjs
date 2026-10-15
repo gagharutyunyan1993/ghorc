@@ -30,15 +30,15 @@ test('обычная команда от агента разрешена', () =>
   assert.equal(isDeny(runScript('heavy-check-guard.cjs', bash(cwd, 'git status', 'ag1'))), false);
 });
 
-test('requireLeadEnv: лид без ORC_ROLE=lead запрещён', () => {
+test('requireLeadEnv: лид без GHORC_ROLE=lead запрещён', () => {
   const cwd = tmpProject({ ...CFG, heavyGuard: { requireLeadEnv: true } });
-  const r = runScript('heavy-check-guard.cjs', bash(cwd, 'make full'), { env: { ORC_ROLE: '' } });
+  const r = runScript('heavy-check-guard.cjs', bash(cwd, 'make full'), { env: { GHORC_ROLE: '' } });
   assert.equal(isDeny(r), true);
 });
 
-test('requireLeadEnv: ORC_ROLE=lead пропускает лида', () => {
+test('requireLeadEnv: GHORC_ROLE=lead пропускает лида', () => {
   const cwd = tmpProject({ ...CFG, heavyGuard: { requireLeadEnv: true } });
-  const r = runScript('heavy-check-guard.cjs', bash(cwd, 'make full'), { env: { ORC_ROLE: 'lead' } });
+  const r = runScript('heavy-check-guard.cjs', bash(cwd, 'make full'), { env: { GHORC_ROLE: 'lead' } });
   assert.equal(isDeny(r), false);
 });
 
