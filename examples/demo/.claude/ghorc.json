@@ -1,0 +1,13 @@
+{
+  "checks": {
+    "fast": "npm test",
+    "full": "npm run test:full"
+  },
+  "heavyCommands": [
+    "^npm\\s+run\\s+test:full\\b",
+    "^node\\s+scripts/slow-check\\.js\\b"
+  ],
+  "watchdog": {
+    "autostart": false
+  }
+}

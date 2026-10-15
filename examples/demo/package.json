@@ -1,0 +1,10 @@
+{
+  "name": "ghorc-demo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Tiny project for the ghorc walk-through: one failing test, one slow check.",
+  "scripts": {
+    "test": "node --test",
+    "test:full": "node --test && node scripts/slow-check.js"
+  }
+}
