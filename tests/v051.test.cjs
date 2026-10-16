@@ -202,10 +202,10 @@ test('#17: applying statusLine saves the previous one; --restore puts it back; c
   }
 });
 
-test('0.5.1 manifests carry the same version', () => {
+test('manifests carry the same version', () => {
   const v = (f) => JSON.parse(fs.readFileSync(path.join(ROOT, f), 'utf8'));
-  assert.equal(v('package.json').version, '0.5.1');
-  assert.equal(v('.claude-plugin/plugin.json').version, '0.5.1');
+  assert.equal(v('package.json').version, '0.6.0');
+  assert.equal(v('.claude-plugin/plugin.json').version, '0.6.0');
   const mp = v('.claude-plugin/marketplace.json');
-  assert.ok(JSON.stringify(mp).includes('0.5.1'));
+  assert.ok(JSON.stringify(mp).includes('0.6.0'));
 });

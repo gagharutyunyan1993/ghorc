@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.6.0 - 2026-10-16
 
 ### Added
 - ledger: a PostToolUse hook on `Agent` appends one line per subagent call to `.claude/ghorc-out/ledger.jsonl`

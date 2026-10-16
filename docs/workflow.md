@@ -216,7 +216,7 @@ not the conversation. While a background `full` runs, the lead waits for the not
 | `pct` | global `settings.json`; `--project`: `settings.local.json` | `env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` = `"18"` |
 | `idle` | `~/.claude/settings.json` | `idleCompaction` = `false` (no compaction while the lead waits) |
 | `model` (owner decision) | `~/.claude/settings.json` | `model` = `lead.model` |
-| `effort` (owner decision) | `~/.claude/settings.json` | `effortLevel` = `lead.effort` (advice: prefer no top-level `effortLevel` and per-model medium) |
+| `effort` (owner decision) | `~/.claude/settings.json` | `modelSettings.<lead model id>.effortLevel` = `lead.effort` (full id, e.g. `claude-opus-5-5`; no top-level `effortLevel`) |
 | `config` | `<project>/.claude/ghorc.json` | copied from the short template if missing |
 | `claudemd` | `<project>/CLAUDE.md` | `templates/CLAUDE-section.md` appended if the marker is missing |
 | `exclude` | git `info/exclude` (via `git rev-parse --git-path`) | lines `.claude/ctx-*.json`, `.claude/ghorc-out/` |
