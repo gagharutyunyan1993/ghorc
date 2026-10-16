@@ -98,6 +98,31 @@ function restoreStatusLine(cwd) {
 }
 
 // Path of info/exclude as git sees it (right also in a linked worktree); falls back to <root>/.git/info/exclude.
+// Project's own roles: .claude/agents/*.md (name, model, effort, first sentence of description).
+function projectRoles(root) {
+  const dir = path.join(root, '.claude', 'agents');
+  let files = [];
+  try {
+    files = fs.readdirSync(dir).filter((f) => f.toLowerCase().endsWith('.md')).sort();
+  } catch {
+    return [];
+  }
+  return files.map((f) => {
+    const text = readText(path.join(dir, f)) || '';
+    const m = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text);
+    const fm = {};
+    if (m) {
+      for (const line of m[1].split(/\r?\n/)) {
+        const kv = /^([A-Za-z_-]+):\s*(.*)$/.exec(line);
+        if (kv) fm[kv[1]] = kv[2].trim().replace(/^["']|["']$/g, '');
+      }
+    }
+    const desc = (fm.description || '').replace(/\|/g, '/');
+    const first = (/^(.*?[.!?])(\s|$)/.exec(desc) || [, desc])[1].slice(0, 80);
+    return { name: fm.name || f.replace(/\.md$/i, ''), model: fm.model || '?', effort: fm.effort || '?', purpose: first };
+  });
+}
+
 function excludePath(root) {
   try {
     const r = git(['rev-parse', '--git-path', 'info/exclude'], root);
@@ -268,13 +293,17 @@ function check(cwd, opts = {}) {
   });
   const mdFile = path.join(root, 'CLAUDE.md');
   const md = readText(mdFile);
+  const roles = projectRoles(root);
+  const rolesNote = roles.length ? `project roles: ${roles.map((r) => r.name).join(', ')}` : '';
   add({
     id: 'claudemd',
     scope: 'project',
     what: `${mdFile}: ${MARKER} section`,
-    current: md === null ? 'no CLAUDE.md' : md.includes(MARKER) ? 'present' : 'missing',
+    current: (md === null ? 'no CLAUDE.md' : md.includes(MARKER) ? 'present' : 'missing') + (rolesNote ? `; ${rolesNote}` : ''),
     recommended: 'present',
-    why: 'gives every agent the ghorc working rules (templates/CLAUDE-section.md)',
+    why:
+      'gives every agent the ghorc working rules (templates/CLAUDE-section.md)' +
+      (rolesNote ? `; ${rolesNote} (they take precedence; the appended section gets a table to fill)` : ''),
     ok: md !== null && md.includes(MARKER),
   });
   const { file: excludeFile, git: hasGit } = excludePath(root);
@@ -441,7 +470,14 @@ function apply(cwd, ids, opts = {}) {
       diff.push(`+ ${dst} (copied from templates/ghorc.json)`);
     } else if (it.id === 'claudemd') {
       const dst = path.join(c.root, 'CLAUDE.md');
-      const section = fs.readFileSync(path.join(PLUGIN_ROOT, 'templates', 'CLAUDE-section.md'), 'utf8');
+      let section = fs.readFileSync(path.join(PLUGIN_ROOT, 'templates', 'CLAUDE-section.md'), 'utf8');
+      const pr = projectRoles(c.root);
+      if (pr.length) {
+        const anchor = 'plugin counterpart).\n';
+        const rows = pr.map((r) => `| ${r.name} | ${r.model} / ${r.effort} from its frontmatter | ${r.purpose} | |`);
+        const table = ['', '| Project role | Model / effort | Purpose | Plugin counterpart |', '|---|---|---|---|', ...rows, ''].join('\n');
+        if (section.includes(anchor)) section = section.replace(anchor, anchor + table);
+      }
       const old = readText(dst) || '';
       fs.writeFileSync(dst, old + (old && !old.endsWith('\n') ? '\n' : '') + (old ? '\n' : '') + section);
       diff.push(`+ ${dst} (appended templates/CLAUDE-section.md)`);

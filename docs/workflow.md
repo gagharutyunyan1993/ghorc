@@ -48,6 +48,12 @@ Tool sets: **edit** = Read, Edit, Write, Grep, Glob, Bash; **review** = Read, Gr
 
 The first three are the core set; the others are for projects that need them. Browser MCP for `ghorc:consult`:
 `mcp__chrome-devtools__*`, `mcp__claude-in-chrome__*`. `ghorc:media` needs poppler (`pdftotext`, `pdftoppm`) for PDFs.
+Project roles: when the project defines its own roles in `.claude/agents/`, they take precedence over the `ghorc:*`
+roles for the same purpose; the lead launches them by name with explicit `model` and `effort` and keeps the same effort
+table. A herdr worker is for a task that waits on an external event for longer than about 15 minutes (a pipeline, a
+release), must survive a lead restart, or that the owner wants to watch or answer; otherwise use an Agent call (cheaper,
+and only Agent calls reach the ledger).
+
 No role spawns subagents; every role reads `<project>/CLAUDE.md` and `.claude/ghorc.json` itself. Plugin skills and
 agents are namespaced by Claude Code, so they cannot collide with your own.
 

@@ -94,6 +94,12 @@ tab through herdr. `candidatePermissionArgs` (`[]`): permission-mode arguments f
 Critical areas of the project (money, contracts, policy, hooks). Edits there go to `ghorc:reviewer-critical`.
 Example: `["src/billing/**", "POLICY.md"]`.
 
+Project roles: if the project has `.claude/agents/*.md`, `setup --check` lists them on the `claudemd` item and
+`--apply claudemd` appends a table of them (name, model / effort from the frontmatter, first sentence of the
+description) under the roles table of the CLAUDE.md section. Those roles take precedence over the `ghorc:*` roles for
+the same purpose; the lead launches them by name with explicit `model` and `effort`, and the critical reviewer may be
+the project's own role at opus / high. Without `.claude/agents/` nothing changes.
+
 ## Environment variables
 - `GHORC_ROLE`: optional. Empty on a main session means `lead`. `worker` marks a herdr worker (no lead reminder, heavy
   commands denied). `lead` switches on the strict mode (`leadNoMedia`, `heavyGuard.requireLeadEnv`).

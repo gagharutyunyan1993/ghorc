@@ -184,3 +184,36 @@ test('setup: CLAUDE_PROJECT_DIR is ignored, the root comes from cwd (check and a
     for (const d of [a, b, home]) fs.rmSync(d, { recursive: true, force: true });
   }
 });
+
+test('setup: project roles in .claude/agents are detected and listed in the appended section; no agents keeps the template as is', () => {
+  const p = fs.realpathSync.native(mk('ghorc-roles-'));
+  const q = fs.realpathSync.native(mk('ghorc-noroles-'));
+  const home = mk('ghorc-home-');
+  try {
+    for (const d of [p, q]) git(d, 'init', '-q');
+    fs.mkdirSync(path.join(p, '.claude', 'agents'), { recursive: true });
+    fs.writeFileSync(
+      path.join(p, '.claude', 'agents', 'foo-implementer.md'),
+      ['---', 'name: foo-implementer', 'description: Writes code from a brief. Second sentence.', 'model: sonnet', 'effort: high', '---', 'body', ''].join('\n'),
+    );
+    const env = { GHORC_HOME: home };
+    const chk = lastJson(runScript('setup.cjs', '', { args: ['--check'], env, cwd: p }).out);
+    const item = chk.items.find((i) => i.id === 'claudemd');
+    assert.match(item.current, /project roles: foo-implementer/);
+    const ap = runScript('setup.cjs', '', { args: ['--apply', 'claudemd'], env, cwd: p });
+    assert.equal(ap.code, 0, ap.out + ap.err);
+    const md = fs.readFileSync(path.join(p, 'CLAUDE.md'), 'utf8');
+    assert.ok(md.includes('foo-implementer'));
+    assert.ok(md.includes('sonnet / high'));
+    assert.ok(md.includes('Writes code from a brief.') && !md.includes('Second sentence'));
+    const ap2 = runScript('setup.cjs', '', { args: ['--apply', 'claudemd'], env, cwd: q });
+    assert.equal(ap2.code, 0, ap2.out + ap2.err);
+    assert.equal(
+      fs.readFileSync(path.join(q, 'CLAUDE.md'), 'utf8'),
+      fs.readFileSync(path.join(REPO, 'templates', 'CLAUDE-section.md'), 'utf8'),
+      'no agents: byte-identical to the template',
+    );
+  } finally {
+    for (const d of [p, q, home]) fs.rmSync(d, { recursive: true, force: true });
+  }
+});
