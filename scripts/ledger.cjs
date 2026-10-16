@@ -122,8 +122,11 @@ function modeHook() {
 function modeStop() {
   try {
     const input = obj(parseInput(readStdin()));
-    const file = input && (strOrNull(input.agent_transcript_path) || strOrNull(input.transcript_path));
     const agentId = input && (strOrNull(input.agent_id) || strOrNull(input.agentId));
+    // Never the main session transcript: transcript_path counts only for a subagent whose basename is not the session id.
+    const tp = input && strOrNull(input.transcript_path);
+    const own = tp && path.basename(tp).replace(/.jsonl$/, "") !== String(input.session_id || "") ? tp : null;
+    const file = input && (strOrNull(input.agent_transcript_path) || (agentId ? own : null));
     if (file && agentId) {
       const t = transcriptTotals(file);
       if (t) append(ledgerPath(input.cwd), { ts: new Date().toISOString(), kind: 'done', agentId, ...t });

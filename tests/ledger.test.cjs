@@ -294,14 +294,43 @@ test('setup: a missing top-level effortLevel is ok; --apply effort writes only m
     const e = { GHORC_HOME: home };
     const run = (...a) => runScript('setup.cjs', '', { args: a, env: e }).out;
     assert.doesNotMatch(run('--check', '--cwd', proj), /MISSING effort/);
-    fs.writeFileSync(sf, JSON.stringify({ model: 'opus', modelSettings: { opus: { effortLevel: 'high' } } }));
+    fs.writeFileSync(sf, JSON.stringify({ model: 'opus', modelSettings: { 'claude-opus-5-5': { effortLevel: 'high' } } }));
     assert.match(run('--check', '--cwd', proj), /MISSING effort/, 'a differing per-model value is not ok');
     run('--apply', 'effort', '--cwd', proj);
     const s = JSON.parse(fs.readFileSync(sf, 'utf8'));
-    assert.equal(s.modelSettings.opus.effortLevel, 'medium');
+    assert.equal(s.modelSettings['claude-opus-5-5'].effortLevel, 'medium');
+    assert.equal('opus' in s.modelSettings, false, 'the alias is not used as a key');
     assert.equal('effortLevel' in s, false);
     assert.doesNotMatch(run('--check', '--cwd', proj), /MISSING effort/);
   } finally {
     fs.rmSync(home, { recursive: true, force: true });
   }
+});
+
+test('setup: lead.model alias maps to a full id; an explicit full id passes through', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ghorc-home-'));
+  try {
+    fs.mkdirSync(path.join(home, '.claude'), { recursive: true });
+    const sf = path.join(home, '.claude', 'settings.json');
+    for (const [model, key] of [['sonnet', 'claude-sonnet-5-5'], ['haiku', 'claude-haiku-5-5'], ['claude-opus-4-1', 'claude-opus-4-1']]) {
+      fs.writeFileSync(sf, '{}');
+      const proj = tmpProject({ lead: { model, effort: 'high' } });
+      runScript('setup.cjs', '', { args: ['--apply', 'effort', '--cwd', proj], env: { GHORC_HOME: home } });
+      assert.deepEqual(JSON.parse(fs.readFileSync(sf, 'utf8')).modelSettings, { [key]: { effortLevel: 'high' } });
+    }
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test('stop: never falls back to the main session transcript', () => {
+  const dir = tmpProject();
+  const main = writeTranscript(dir, 'sess-1234.jsonl');
+  const run = (p) => runScript('ledger.cjs', { cwd: dir, ...p }, { args: ['stop'], env: env(dir) });
+  assert.equal(run({ session_id: 'sess-1234', agent_id: 'a1', transcript_path: main }).code, 0);
+  assert.equal(run({ session_id: 'sess-1234', transcript_path: main }).code, 0);
+  assert.equal(fs.existsSync(ledgerFile(dir)), false, 'session transcript only: nothing written');
+  const sub = writeTranscript(dir, 'agent-a1.jsonl');
+  run({ session_id: 'sess-1234', agent_id: 'a1', transcript_path: sub });
+  assert.equal(readLines(dir)[0].agentId, 'a1');
 });

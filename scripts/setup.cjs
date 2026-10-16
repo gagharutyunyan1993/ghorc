@@ -35,6 +35,11 @@ function leadDefaults(root) {
   return { ...(tpl.lead || {}), ...(proj.lead || {}) };
 }
 
+// lead.model alias -> full model id (the key of modelSettings); a full id passes through.
+function fullModelId(m) {
+  return { opus: "claude-opus-5-5", sonnet: "claude-sonnet-5-5", haiku: "claude-haiku-5-5" }[m] || m;
+}
+
 function perModelEffort(settings, model) {
   const ms = settings.modelSettings && typeof settings.modelSettings === 'object' ? settings.modelSettings[model] : null;
   return ms && typeof ms === 'object' ? ms.effortLevel : undefined;
@@ -242,11 +247,13 @@ function check(cwd, opts = {}) {
     id: 'effort',
     scope: 'user',
     owner: true,
-    what: `${settingsFile}: modelSettings.${lead.model ?? 'opus'}.effortLevel`,
-    current: perModelEffort(settings, lead.model ?? 'opus') ?? null,
+    what: `${settingsFile}: modelSettings.${fullModelId(lead.model ?? 'opus')}.effortLevel`,
+    current: perModelEffort(settings, fullModelId(lead.model ?? 'opus')) ?? null,
     recommended: lead.effort ?? 'medium',
     why: 'matches lead.effort in ghorc.json (owner decision); a missing top-level effortLevel is fine',
-    ok: effortOk(settings, lead.model ?? 'opus', lead.effort ?? 'medium'),
+    ok: effortOk(settings, fullModelId(lead.model ?? 'opus'), lead.effort ?? 'medium'),
+    // ok without a per-model value, but an explicit apply still writes it
+    writeAnyway: perModelEffort(settings, fullModelId(lead.model ?? 'opus')) !== (lead.effort ?? 'medium'),
   });
 
   const cfgFile = path.join(root, '.claude', 'ghorc.json');
@@ -342,7 +349,7 @@ function apply(cwd, ids, opts = {}) {
   const want = new Set(ids.includes('all') ? c.items.filter((i) => !i.warn).map((i) => i.id) : ids);
   const unknown = [...want].filter((id) => !c.items.some((i) => i.id === id));
   if (unknown.length) throw new Error(`unknown item(s): ${unknown.join(', ')}`);
-  const todo = c.items.filter((i) => want.has(i.id) && !i.ok && (!i.warn || i.applicable));
+  const todo = c.items.filter((i) => want.has(i.id) && (!i.ok || i.writeAnyway) && (!i.warn || i.applicable));
   const diff = [];
   const userItems = todo.filter((i) => i.scope === 'user');
   if (userItems.length) {
@@ -382,7 +389,7 @@ function apply(cwd, ids, opts = {}) {
         set('model', settings.model, it.recommended);
         settings.model = it.recommended;
       } else if (it.id === 'effort') {
-        const m = leadDefaults(c.root).model ?? 'opus';
+        const m = fullModelId(leadDefaults(c.root).model ?? 'opus');
         const ms = settings.modelSettings && typeof settings.modelSettings === 'object' ? settings.modelSettings : {};
         const entry = ms[m] && typeof ms[m] === 'object' ? ms[m] : {};
         set(`modelSettings.${m}.effortLevel`, entry.effortLevel, it.recommended);

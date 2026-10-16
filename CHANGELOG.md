@@ -13,7 +13,7 @@
 
 ### Fixed
 - `setup --check` treats a missing top-level `effortLevel` as ok; `--apply effort` writes only
-  `modelSettings.<lead model>.effortLevel`, never a top-level key.
+  `modelSettings.<full lead model id>.effortLevel` (opus -> claude-opus-5-5), never a top-level key.
 
 ## 0.5.1
 Robustness fixes; no contract or config key changes.
