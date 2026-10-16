@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- ledger: a PostToolUse hook on `Agent` appends one line per subagent call to `.claude/ghorc-out/ledger.jsonl`
+  (`scripts/ledger.cjs hook`); `ledger.cjs verdict` records the lead's review verdicts with a cause code;
+  `ledger.cjs report` and `/ghorc:status` show per-role tokens, duration and tools, and the first-round accept rate.
+
 ## 0.5.1
 Robustness fixes; no contract or config key changes.
 
