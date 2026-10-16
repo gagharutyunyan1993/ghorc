@@ -47,16 +47,26 @@ Claim template: "[X]% lower estimated API cost per accepted package, counting wo
 
 `scripts/ledger.cjs` keeps `<project>/.claude/ghorc-out/ledger.jsonl` (git-excluded by setup), one JSON line each.
 
-- **Call line** (PostToolUse hook on `Agent`): `ts`, `session` (first 8 chars), `desc` (max 80), `role`
-  (`subagent_type`, else `agent`), `modelReq`, `modelRes` (`resolvedModel`), `effortReq`, `tokens` (`totalTokens`),
-  `usage` (as received), `ms`, `tools`. The prompt and the response text are never stored.
+- **Synchronous call line** (PostToolUse hook on `Agent`): `ts`, `session` (first 8 chars), `desc` (max 80), `role`
+  (`subagent_type`, else `agent`), `modelReq`, `modelRes` (`resolvedModel`), `effortReq`, `agentId`, `tokens`
+  (`totalTokens`), `usage` (as received), `ms`, `tools`. The prompt and the response text are never stored.
+- **Background call, two stages.** For a background Agent call PostToolUse fires at launch with
+  `{isAsync:true, status:"async_launched", agentId, outputFile, ...}` and no totals, so the hook writes a `launch` line
+  (same fields, plus `outputFile`, no totals). The SubagentStop hook (`ledger.cjs stop`) reads the transcript path
+  (`agent_transcript_path` or `transcript_path`) and `agent_id` from its payload and appends a `done` line:
+  `{agentId, tokens:{input, output, cacheRead, cacheCreate, total}, tools, ms, turns}`, summed from each assistant
+  message's `usage` (once per message id); a payload without those fields writes nothing. `report` joins `launch` and
+  `done` by `agentId`; a launch without a done line is read lazily from its `outputFile`, if the file exists.
 - **Verdict line** (the lead): `{ts, kind:"verdict", pkg, round, verdict, cause}` through
-  `ledger.cjs verdict <pkg> <round> <ACCEPT|CHANGES_REQUIRED> [BRIEF_OMISSION|SKIPPED_CHECK|REASONING_FAILURE|OTHER]`.
+  `ledger.cjs verdict <pkg> <round 1-9> <ACCEPT|CHANGES_REQUIRED> [cause] [--class critical|ordinary]`; the cause
+  (`BRIEF_OMISSION|SKIPPED_CHECK|REASONING_FAILURE|OTHER`) is required for CHANGES_REQUIRED and absent for ACCEPT.
 - **Report** (`ledger.cjs report`, `/ghorc:status`): per role calls, median and upper-quartile tokens and ms, mean
-  tools, share of calls where the resolved model differs from the requested one; per package rounds and first-round
-  verdict; first-round ACCEPT rate and cause counts.
-- **Unverified:** `tokens` and `usage` may cover only the final API request of the subagent, not the whole run. Until
-  they are compared with the agent transcripts on the first 10 calls, read them as a relative signal only.
+  tools, share of calls where the resolved model really differs from the requested one (`sonnet` matches
+  `claude-sonnet-5-5`: a dash-delimited part counts); per package rounds and first-round verdict; first-round ACCEPT
+  rate overall and per class (critical, ordinary); cause counts.
+- **Unverified:** `tokens` and `usage` of a synchronous call may cover only the final API request of the subagent, not
+  the whole run. The transcript totals of a `done` line (and of a call with a matching `done` line) cover every
+  assistant message. Compare the two on the first 10 calls before trusting the synchronous figures.
 - **Sample sizes:** 10 packages before the instrumentation is trusted; 20 observed packages per role before any
   effort table change; a change needs first-round ACCEPT rate +15 pp or tokens -20% with no lost P0/P1.
 

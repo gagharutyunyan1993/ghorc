@@ -5,7 +5,8 @@ user-invocable: true
 ---
 # ghorc status
 
-Run these and report one block of at most 12 lines. Do not paste raw output.
+Run steps 1 and 2 and report one block of at most 12 lines. Do not paste raw output. The ledger section below is the
+exception: show its report in full.
 
 1. `node "${CLAUDE_PLUGIN_ROOT}/scripts/setup.cjs" --check --status` (add `--cwd <project>` if the session is not in the project).
    It prints the role, the guards, the heavy patterns, the watchdog state and the denial log (last 5 lines, counts per hook).
@@ -15,7 +16,7 @@ Run these and report one block of at most 12 lines. Do not paste raw output.
 Report: role (`lead` unless `GHORC_ROLE` says otherwise), guards active (read guard, heavy guard), heavy patterns
 (count, or "none: the heavy guard denies nothing"), watchdog (on/off, running or not), context (tokens against
 `thresholds.ctxPrepare` and `ctxHandoff`), denials (last 5, counts per hook). Name what is missing and the fix
-(`/ghorc:setup`). Change nothing.
+(`/ghorc:setup`). Change nothing, except `--verdict` (see Ledger), which appends one ledger line.
 
 ## Ledger
 
@@ -26,10 +27,11 @@ The ledger is `<project>/.claude/ghorc-out/ledger.jsonl`: one line per subagent 
   and shows its output as is: per role calls, median and upper-quartile tokens and ms, mean tools, share of calls whose
   resolved model differs from the requested one; per package the rounds and the first-round verdict; the first-round
   ACCEPT rate and cause counts. An empty ledger prints `no ledger yet`.
-- `/ghorc:status --verdict E123 1 CHANGES_REQUIRED REASONING_FAILURE` runs
+- `/ghorc:status --verdict E123 1 CHANGES_REQUIRED REASONING_FAILURE [--class critical]` runs
   `node "${CLAUDE_PLUGIN_ROOT}/scripts/ledger.cjs" verdict E123 1 CHANGES_REQUIRED REASONING_FAILURE`
-  (`<pkg> <round> <ACCEPT|CHANGES_REQUIRED> [cause]`; exit 2 and a usage line on bad arguments). Record one verdict per
-  review round; on CHANGES_REQUIRED give the cause.
+  (`<pkg> <round 1-9> <ACCEPT|CHANGES_REQUIRED> [cause] [--class critical|ordinary]`, class defaults to ordinary; the
+  cause is required for CHANGES_REQUIRED and absent for ACCEPT; exit 2 and a usage line on bad arguments). Record one
+  verdict per review round. This is the only write of the skill.
 
 Cause codes:
 

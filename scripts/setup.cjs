@@ -35,6 +35,18 @@ function leadDefaults(root) {
   return { ...(tpl.lead || {}), ...(proj.lead || {}) };
 }
 
+function perModelEffort(settings, model) {
+  const ms = settings.modelSettings && typeof settings.modelSettings === 'object' ? settings.modelSettings[model] : null;
+  return ms && typeof ms === 'object' ? ms.effortLevel : undefined;
+}
+
+// A missing top-level effortLevel is fine. Not ok: a per-model value that differs, or (without one) a differing top-level value.
+function effortOk(settings, model, want) {
+  const pm = perModelEffort(settings, model);
+  if (pm !== undefined) return pm === want;
+  return settings.effortLevel === undefined || settings.effortLevel === want;
+}
+
 function statusLineCommand() {
   return `node "${path.join(PLUGIN_ROOT, 'scripts', 'statusline.cjs').replace(/\\/g, '/')}"`;
 }
@@ -230,11 +242,11 @@ function check(cwd, opts = {}) {
     id: 'effort',
     scope: 'user',
     owner: true,
-    what: `${settingsFile}: effortLevel`,
-    current: settings.effortLevel ?? null,
+    what: `${settingsFile}: modelSettings.${lead.model ?? 'opus'}.effortLevel`,
+    current: perModelEffort(settings, lead.model ?? 'opus') ?? null,
     recommended: lead.effort ?? 'medium',
-    why: 'matches lead.effort in ghorc.json (owner decision)',
-    ok: settings.effortLevel === (lead.effort ?? 'medium'),
+    why: 'matches lead.effort in ghorc.json (owner decision); a missing top-level effortLevel is fine',
+    ok: effortOk(settings, lead.model ?? 'opus', lead.effort ?? 'medium'),
   });
 
   const cfgFile = path.join(root, '.claude', 'ghorc.json');
@@ -370,8 +382,11 @@ function apply(cwd, ids, opts = {}) {
         set('model', settings.model, it.recommended);
         settings.model = it.recommended;
       } else if (it.id === 'effort') {
-        set('effortLevel', settings.effortLevel, it.recommended);
-        settings.effortLevel = it.recommended;
+        const m = leadDefaults(c.root).model ?? 'opus';
+        const ms = settings.modelSettings && typeof settings.modelSettings === 'object' ? settings.modelSettings : {};
+        const entry = ms[m] && typeof ms[m] === 'object' ? ms[m] : {};
+        set(`modelSettings.${m}.effortLevel`, entry.effortLevel, it.recommended);
+        settings.modelSettings = { ...ms, [m]: { ...entry, effortLevel: it.recommended } };
       }
     }
     fs.mkdirSync(path.dirname(c.settingsFile), { recursive: true });

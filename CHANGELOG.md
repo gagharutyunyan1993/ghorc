@@ -5,7 +5,15 @@
 ### Added
 - ledger: a PostToolUse hook on `Agent` appends one line per subagent call to `.claude/ghorc-out/ledger.jsonl`
   (`scripts/ledger.cjs hook`); `ledger.cjs verdict` records the lead's review verdicts with a cause code;
-  `ledger.cjs report` and `/ghorc:status` show per-role tokens, duration and tools, and the first-round accept rate.
+  `ledger.cjs report` and `/ghorc:status` show per-role tokens, duration and tools, and the first-round accept rate
+  (overall and per class). Background calls are recorded in two stages: a `launch` line, then a `done` line with
+  transcript totals from a SubagentStop hook (`ledger.cjs stop`).
+- effort table with move-up conditions, cause-first escalation, per-model role lines, methodology lines (lead, brief,
+  roles, docs).
+
+### Fixed
+- `setup --check` treats a missing top-level `effortLevel` as ok; `--apply effort` writes only
+  `modelSettings.<lead model>.effortLevel`, never a top-level key.
 
 ## 0.5.1
 Robustness fixes; no contract or config key changes.

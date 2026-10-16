@@ -3,6 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const { runScript, tmpProject } = require('./helpers.cjs');
 
@@ -94,7 +95,21 @@ test('hook: malformed stdin exits 0 and writes nothing', () => {
 test('verdict validates its arguments', () => {
   const dir = tmpProject();
   const v = (...args) => runScript('ledger.cjs', '', { args: ['verdict', ...args], env: env(dir), cwd: dir });
-  for (const bad of [[], ['E1'], ['E1', '0', 'ACCEPT'], ['E1', 'x', 'ACCEPT'], ['E1', '1', 'MAYBE'], ['E1', '1', 'CHANGES_REQUIRED', 'WHY'], ['E1', '1', 'ACCEPT', 'OTHER', 'extra']]) {
+  const bads = [
+    [],
+    ['E1'],
+    ['E1', '0', 'ACCEPT'],
+    ['E1', '10', 'ACCEPT'],
+    ['E1', 'x', 'ACCEPT'],
+    ['-E1', '1', 'ACCEPT'],
+    ['E1', '1', 'MAYBE'],
+    ['E1', '1', 'CHANGES_REQUIRED'],
+    ['E1', '1', 'CHANGES_REQUIRED', 'WHY'],
+    ['E1', '1', 'ACCEPT', 'OTHER'],
+    ['E1', '1', 'ACCEPT', '--class', 'huge'],
+    ['E1', '1', 'ACCEPT', 'extra', 'more'],
+  ];
+  for (const bad of bads) {
     const r = v(...bad);
     assert.equal(r.code, 2, bad.join(' '));
     assert.match(r.err, /usage/);
@@ -108,6 +123,115 @@ test('verdict validates its arguments', () => {
   assert.equal(a.round, 1);
   assert.equal(a.cause, 'REASONING_FAILURE');
   assert.equal(b.cause, null);
+});
+
+test('verdict --class is stored, default ordinary', () => {
+  const dir = tmpProject();
+  const v = (...args) => runScript('ledger.cjs', '', { args: ['verdict', ...args], env: env(dir), cwd: dir });
+  assert.equal(v('E1', '1', 'ACCEPT', '--class', 'critical').code, 0);
+  assert.equal(v('E2', '1', 'ACCEPT').code, 0);
+  const [a, b] = readLines(dir);
+  assert.equal(a.class, 'critical');
+  assert.equal(b.class, 'ordinary');
+});
+
+test('nothing is written (and no directory created) when the project dir does not exist', () => {
+  const dir = path.join(tmpProject(), 'gone', 'deeper');
+  const r = runScript('ledger.cjs', payload(dir), { args: ['hook'], env: env(dir) });
+  assert.equal(r.code, 0);
+  assert.equal(fs.existsSync(path.dirname(dir)), false);
+  const v = runScript('ledger.cjs', '', { args: ['verdict', 'E1', '1', 'ACCEPT'], env: env(dir), cwd: os.tmpdir() });
+  assert.equal(v.code, 1);
+  assert.equal(fs.existsSync(path.dirname(dir)), false);
+});
+
+const T = (id, ts, usage, content) =>
+  JSON.stringify({ type: 'assistant', timestamp: ts, message: { id, usage, content } });
+
+function writeTranscript(dir, name = 'agent.jsonl') {
+  const f = path.join(dir, name);
+  fs.writeFileSync(
+    f,
+    [
+      JSON.stringify({ type: 'user', timestamp: '2026-10-16T10:00:00.000Z', message: { role: 'user' } }),
+      T('m1', '2026-10-16T10:00:05.000Z', { input_tokens: 10, output_tokens: 20, cache_read_input_tokens: 100, cache_creation_input_tokens: 1000 }, [{ type: 'tool_use', id: 't1' }]),
+      T('m1', '2026-10-16T10:00:06.000Z', { input_tokens: 10, output_tokens: 20, cache_read_input_tokens: 100, cache_creation_input_tokens: 1000 }, [{ type: 'tool_use', id: 't1' }]),
+      T('m2', '2026-10-16T10:00:20.000Z', { input_tokens: 5, output_tokens: 15, cache_read_input_tokens: 1100, cache_creation_input_tokens: 0 }, [{ type: 'tool_use', id: 't2' }, { type: 'text', text: 'x' }]),
+      T('m3', '2026-10-16T10:01:00.000Z', { input_tokens: 1, output_tokens: 2, cache_read_input_tokens: 1200, cache_creation_input_tokens: 3 }, [{ type: 'text', text: 'done' }]),
+    ].join('\n') + '\n',
+  );
+  return f;
+}
+// m1 (deduplicated) 1130 + m2 1120 + m3 1206 = 3456; 2 tool_use blocks; 60 s; 3 turns
+
+test('async launch writes a launch line without totals or prompt; stop writes a done line from the transcript', () => {
+  const dir = tmpProject();
+  const out = writeTranscript(dir, 'out.jsonl');
+  const p = payload(dir);
+  p.tool_response = { isAsync: true, status: 'async_launched', agentId: 'agX', outputFile: out, resolvedModel: 'claude-sonnet-5-5', description: 'd', prompt: SECRET };
+  runScript('ledger.cjs', p, { args: ['hook'], env: env(dir) });
+  const [l] = readLines(dir);
+  assert.equal(l.kind, 'launch');
+  assert.equal(l.agentId, 'agX');
+  assert.equal(l.outputFile, out);
+  assert.equal(l.tokens, undefined);
+  assert.ok(!fs.readFileSync(ledgerFile(dir), 'utf8').includes('SECRET-BRIEF-TEXT'));
+
+  const t = writeTranscript(dir);
+  runScript('ledger.cjs', { hook_event_name: 'SubagentStop', session_id: 's', cwd: dir, agent_id: 'agX', agent_transcript_path: t }, { args: ['stop'], env: env(dir) });
+  const d = readLines(dir)[1];
+  assert.equal(d.kind, 'done');
+  assert.equal(d.agentId, 'agX');
+  assert.deepEqual(d.tokens, { input: 16, output: 37, cacheRead: 2400, cacheCreate: 1003, total: 3456 });
+  assert.equal(d.tools, 2);
+  assert.equal(d.ms, 60000);
+  assert.equal(d.turns, 3);
+});
+
+test('stop: payload without transcript path or agent id, or with an unreadable file, writes nothing and exits 0', () => {
+  const dir = tmpProject();
+  for (const p of [{ cwd: dir }, { cwd: dir, agent_id: 'a' }, { cwd: dir, agent_transcript_path: 'x' }, { cwd: dir, agent_id: 'a', transcript_path: path.join(dir, 'nope') }]) {
+    assert.equal(runScript('ledger.cjs', p, { args: ['stop'], env: env(dir) }).code, 0);
+  }
+  assert.equal(runScript('ledger.cjs', 'garbage', { args: ['stop'], env: env(dir) }).code, 0);
+  assert.equal(fs.existsSync(ledgerFile(dir)), false);
+});
+
+test('report: a launch joins its done line; a launch without one is read lazily from outputFile', () => {
+  const dir = tmpProject();
+  const out = writeTranscript(dir, 'out.jsonl');
+  const base = { ts: '2026-10-16T10:00:00.000Z', session: 's', desc: 'd', role: 'ghorc:implementer', modelReq: 'sonnet', modelRes: 'claude-sonnet-5-5', effortReq: 'medium' };
+  const lines = [
+    { kind: 'launch', ...base, agentId: 'a1', outputFile: path.join(dir, 'missing.jsonl') },
+    { kind: 'done', ts: base.ts, agentId: 'a1', tokens: { total: 1000 }, tools: 4, ms: 2000, turns: 2 },
+    { kind: 'launch', ...base, agentId: 'a2', outputFile: out },
+    { kind: 'launch', ...base, agentId: 'a3', outputFile: path.join(dir, 'missing2.jsonl') },
+  ];
+  fs.mkdirSync(path.dirname(ledgerFile(dir)), { recursive: true });
+  fs.writeFileSync(ledgerFile(dir), lines.map((l) => JSON.stringify(l)).join('\n') + '\n');
+  const j = JSON.parse(runScript('ledger.cjs', '', { args: ['report', '--json'], env: env(dir), cwd: dir }).out);
+  assert.equal(j.calls, 3);
+  const r = j.roles[0];
+  assert.equal(r.tokensMedian, 2228); // a1 1000, a2 3456 (a3 unknown)
+  assert.equal(r.toolsMean, 3);
+  assert.equal(r.modelDiffShare, 0, 'sonnet matches claude-sonnet-5-5');
+});
+
+test('report: first-round accept rate per class and overall', () => {
+  const dir = tmpProject();
+  const vs = [
+    ['E1', 1, 'ACCEPT', null, 'critical'],
+    ['E2', 1, 'CHANGES_REQUIRED', 'OTHER', 'critical'],
+    ['E3', 1, 'ACCEPT', null, 'ordinary'],
+    ['E4', 1, 'ACCEPT', null, 'ordinary'],
+  ].map(([pkg, round, verdict, cause, cls]) => ({ ts: '2026-10-16T10:00:00.000Z', kind: 'verdict', pkg, round, verdict, cause, class: cls }));
+  fs.mkdirSync(path.dirname(ledgerFile(dir)), { recursive: true });
+  fs.writeFileSync(ledgerFile(dir), vs.map((l) => JSON.stringify(l)).join('\n') + '\n');
+  const j = JSON.parse(runScript('ledger.cjs', '', { args: ['report', '--json'], env: env(dir), cwd: dir }).out);
+  assert.equal(j.byClass.critical.firstRoundAcceptRate, 0.5);
+  assert.equal(j.byClass.ordinary.firstRoundAcceptRate, 1);
+  assert.equal(j.firstRoundAcceptRate, 0.75);
+  assert.match(runScript('ledger.cjs', '', { args: ['report'], env: env(dir), cwd: dir }).out, /critical: 50% \(2 packages\)/);
 });
 
 test('report: empty ledger prints one line', () => {
@@ -150,7 +274,7 @@ test('report: median, upper quartile, accept rate on a 5-line fixture', () => {
   assert.equal(role.modelDiffShare, 0.2);
   assert.equal(j.firstRoundAcceptRate, 0.5);
   assert.deepEqual(j.causes, { BRIEF_OMISSION: 1 });
-  assert.deepEqual(j.packages.find((p) => p.pkg === 'E2'), { pkg: 'E2', rounds: 2, firstVerdict: 'CHANGES_REQUIRED', firstCause: 'BRIEF_OMISSION' });
+  assert.deepEqual(j.packages.find((p) => p.pkg === 'E2'), { pkg: 'E2', class: 'ordinary', rounds: 2, firstVerdict: 'CHANGES_REQUIRED', firstCause: 'BRIEF_OMISSION' });
   const text = run().out;
   assert.match(text, /ghorc:implementer: calls=5 tokens med=300 q3=400/);
   assert.match(text, /first-round ACCEPT rate: 50% \(2 packages\)/);
@@ -158,4 +282,26 @@ test('report: median, upper quartile, accept rate on a 5-line fixture', () => {
   const since = JSON.parse(run('--since', '2026-10-16T10:30:00Z', '--json').out);
   assert.equal(since.calls, 0);
   assert.equal(since.packages.length, 2);
+});
+
+test('setup: a missing top-level effortLevel is ok; --apply effort writes only modelSettings.<model>.effortLevel', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ghorc-home-'));
+  try {
+    fs.mkdirSync(path.join(home, '.claude'), { recursive: true });
+    const sf = path.join(home, '.claude', 'settings.json');
+    fs.writeFileSync(sf, JSON.stringify({ model: 'opus' }));
+    const proj = tmpProject({});
+    const e = { GHORC_HOME: home };
+    const run = (...a) => runScript('setup.cjs', '', { args: a, env: e }).out;
+    assert.doesNotMatch(run('--check', '--cwd', proj), /MISSING effort/);
+    fs.writeFileSync(sf, JSON.stringify({ model: 'opus', modelSettings: { opus: { effortLevel: 'high' } } }));
+    assert.match(run('--check', '--cwd', proj), /MISSING effort/, 'a differing per-model value is not ok');
+    run('--apply', 'effort', '--cwd', proj);
+    const s = JSON.parse(fs.readFileSync(sf, 'utf8'));
+    assert.equal(s.modelSettings.opus.effortLevel, 'medium');
+    assert.equal('effortLevel' in s, false);
+    assert.doesNotMatch(run('--check', '--cwd', proj), /MISSING effort/);
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
 });

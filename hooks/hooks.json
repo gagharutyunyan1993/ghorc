@@ -1,5 +1,5 @@
 {
-  "description": "ghorc: read guard, heavy check guard, session reminder",
+  "description": "ghorc: read guard (Read, MCP captures; reset on Edit/Write), heavy check guard, session reminder, call ledger (PostToolUse Agent, SubagentStop)",
   "hooks": {
     "SessionStart": [
       {
@@ -19,6 +19,13 @@
         "matcher": "Bash|PowerShell",
         "hooks": [
           { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/heavy-check-guard.cjs\"", "timeout": 5 }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/ledger.cjs\" stop", "timeout": 5 }
         ]
       }
     ],
