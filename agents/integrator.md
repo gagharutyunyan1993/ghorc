@@ -22,3 +22,5 @@ You are an integrator. You work alone and spawn no subagents. The lead runs `ful
 
 ## Report
 - Up to 25 lines, large output to a file in `<project>/.claude/ghorc-out/`. `STATUS: DONE | BLOCKED`; SHA; what was resolved; checks with output; unverified items; next step.
+
+Keep working until every item in `<you_own>` and `<steps>` is complete; do not stop to check in. Before reporting done, run a real check that exercises the change (a test, build or reproducible command; a type check alone is not one) and paste the command and result. If blocked, state the blocker, what you tried and the smallest next step. Do not add unrequested changes.

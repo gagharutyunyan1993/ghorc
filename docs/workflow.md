@@ -102,7 +102,7 @@ agents are namespaced by Claude Code, so they cannot collide with your own.
 
 | Class of work | Role / model | Effort |
 |---|---|---|
-| Ordinary implementation | `ghorc:implementer` | medium |
+| Ordinary implementation | `ghorc:implementer` | medium (high: critical area, concurrency/IPC state, cause not named) |
 | Edit by a ready pattern | `ghorc:implementer` | low |
 | Money, recovery, migrations | `ghorc:implementer` | high |
 | Architecture with clear constraints | Opus | medium (conflicting invariants: high) |
@@ -124,8 +124,23 @@ agents are namespaced by Claude Code, so they cannot collide with your own.
 | high | critical review, delicate debugging, conflicting invariants, money; name the reason |
 | xhigh / max | only manually, for a single task |
 
-A known risk gets the right model and effort at once. Unexpected difficulty: reformulate the task, then raise effort,
-then change the model. A network failure, out of memory or a wrong command is no reason to raise effort.
+Move-up conditions (one per role; the lead names it in the brief): implementer -> high on a critical area, concurrency/IPC
+state or an unnamed cause; reviewer -> high on a diff over 5 files or 300 lines (provisional) or shared state;
+scout -> medium when sources conflict; integrator -> high when the resolution changes behavior or a check stays red;
+consult/media -> medium to adjudicate conflicting answers or interpret charts and contracts; reviewer-critical -> xhigh
+only for one named task on a disputed P0 reproduction. The implementer on a critical package is Sonnet high, never Opus:
+the critical reviewer is Opus and the models must differ.
+
+Escalation is cause first. On CHANGES_REQUIRED with P0/P1 the lead classifies the cause: `BRIEF_OMISSION` (the brief
+lacked a fact or a check; fix the brief, same effort), `SKIPPED_CHECK` (the agent skipped a check it could run; add the
+check line, same effort), `REASONING_FAILURE` (the brief was complete; next implementer call one level up). A second
+CHANGES_REQUIRED changes the task statement or splits it. A fourth code, `OTHER` (a cause outside the three: environment, flaky check, owner change), never changes effort. The cause
+is required on CHANGES_REQUIRED and absent on ACCEPT; the verdict command takes an optional `--class critical|ordinary`. A network failure, out of memory or a wrong command never
+raises effort. The lead records the verdict with `/ghorc:status --verdict <pkg> <round> <verdict> <cause>`.
+
+Effort precedence: env `CLAUDE_CODE_EFFORT_LEVEL` > per-call `effort` > frontmatter > session. Pass `effort` on every
+Agent call. Advice for `~/.claude/settings.json`: no top-level `effortLevel`; per-model medium for sonnet-5.5 and
+opus-5.5, so a call that omits effort never lands on low or high by accident.
 
 ## Thresholds
 
@@ -201,7 +216,7 @@ not the conversation. While a background `full` runs, the lead waits for the not
 | `pct` | global `settings.json`; `--project`: `settings.local.json` | `env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` = `"18"` |
 | `idle` | `~/.claude/settings.json` | `idleCompaction` = `false` (no compaction while the lead waits) |
 | `model` (owner decision) | `~/.claude/settings.json` | `model` = `lead.model` |
-| `effort` (owner decision) | `~/.claude/settings.json` | `effortLevel` = `lead.effort` |
+| `effort` (owner decision) | `~/.claude/settings.json` | `effortLevel` = `lead.effort` (advice: prefer no top-level `effortLevel` and per-model medium) |
 | `config` | `<project>/.claude/ghorc.json` | copied from the short template if missing |
 | `claudemd` | `<project>/CLAUDE.md` | `templates/CLAUDE-section.md` appended if the marker is missing |
 | `exclude` | git `info/exclude` (via `git rev-parse --git-path`) | lines `.claude/ctx-*.json`, `.claude/ghorc-out/` |
