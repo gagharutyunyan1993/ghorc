@@ -73,7 +73,7 @@ Lead context in tokens. `ctxPrepare` (120000): refresh STATE.md. `ctxHandoff` (1
 the shift over (skill `ghorc:handoff`).
 
 ### lead
-`model` (`opus`) and `effort` (`medium`): used by `/ghorc:handoff` for the candidate and by `/ghorc:setup`.
+`model` (`opus`) and `effort` (`medium`): used by `/ghorc:handoff` for the candidate and by `/ghorc:setup`. Effort precedence: env `CLAUDE_CODE_EFFORT_LEVEL` > per-call `effort` > role frontmatter > session; keep the variable unset and pass `effort` on every Agent call. Global advice: no top-level `effortLevel` in `~/.claude/settings.json`; per-model medium for sonnet-5.5 and opus-5.5.
 `remind` (true): SessionStart reminds a main session to load skill `ghorc:lead`. Workers
 (`GHORC_ROLE=worker`) and subagents get no reminder.
 

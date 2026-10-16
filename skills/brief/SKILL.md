@@ -5,7 +5,7 @@ user-invocable: true
 ---
 # Brief
 
-The same structure for every role; the question changes, not the form. An ordinary brief is at most 500 words, a critical review at most 800, over 200 lines is a task-statement error. An Agent call always carries an explicit `effort`.
+The same structure for every role; the question changes, not the form. An ordinary brief is at most 500 words, a critical review at most 800 (a low-effort brief may add up to 100 words of checklist), over 200 lines is a task-statement error. An Agent call always carries an explicit `effort`.
 
 | Tag | Purpose |
 |---|---|
@@ -26,6 +26,12 @@ The same structure for every role; the question changes, not the form. An ordina
 - For Sonnet: explicit `file:line`; "every" only where it really is every; a file over 400 lines - question first.
 - Take check commands from `checks` in the project config (`.claude/ghorc.json`); do not invent them (`eslint --fix`, `prettier --write`).
 - Do not ask for reasoning to be returned. Large output goes to a file, the report gives the path.
+- A brief never contains exhortations about effort or care, or a request to return reasoning; the effort is set on the call, and a named check beats an exhortation.
+- No report examples inside a brief: the agent copies the example instead of reporting facts. The single example lives in this skill.
+- Every constraint carries a one-clause reason ("..., because ..."): a reason lets the agent decide the cases the rule did not foresee.
+- A debugging brief names 2 competing hypotheses and 1 falsifying check before any fix step, because a fix without a falsified rival hypothesis only hides the cause.
+- Sonnet high is justified only when the scope is bounded (at most 4 writable files), the acceptance command is deterministic and the cause is named; the brief names the move-up condition (see `ghorc:lead`, Effort).
+- On a critical package, write the pre-mortem first (at most 3 ways it could pass review and still be wrong) and turn each into a check in `<steps>`.
 - Agents read `<project>/CLAUDE.md` and the config themselves; do not retell them in the brief.
 - Reports, scratch and large outputs go to `<project>/.claude/ghorc-out/` (setup git-excludes it); name it in `<report_back>`.
 - Reviewer model must differ from the implementer's; when the default would be equal, pass `model` on the Agent call and say so in `<context>`.
@@ -56,14 +62,14 @@ Done when:
 </steps>
 
 <constraints>
-- <invariants, compatibility, prohibitions (paid calls, release, other people's branches)>
-- Do not widen the task with incidental refactoring.
-- Checks only through <command>; do not run full or the whole test suite; reuse already valid results for the same tree.
-- After two failed fixes of the same cause stop guessing: return observations, hypotheses and the next step.
+- <invariants, compatibility, prohibitions (paid calls, release, other people's branches)>, because <reason>.
+- Do not widen the task with incidental refactoring, because the diff is reviewed as written.
+- Checks only through <command>; do not run full or the whole test suite, because heavy runs are the lead's and one per machine; reuse already valid results for the same tree.
+- After two failed fixes of the same cause stop guessing: return observations, hypotheses and the next step, because a third guess usually repeats the first two.
 </constraints>
 
 <report_back>
-STATUS: DONE | HANDOFF | BLOCKED. Then: SHA; behavior change; checks with output and links; unverified items; blockers; next step; suggestions. Up to 25 lines, the rest goes to file <path> (under `.claude/ghorc-out/`).
+STATUS: DONE | HANDOFF | BLOCKED. Then: SHA; behavior change; acceptance map (one line per acceptance item, PASS/FAIL/UNVERIFIED); checks with output and links; unverified items; blockers; next step; suggestions. Up to 25 lines, the rest goes to file <path> (under `.claude/ghorc-out/`).
 </report_back>
 ```
 
@@ -94,8 +100,9 @@ Start with the diff. Widen reading to the affected dependencies, calling code an
 </steps>
 
 <constraints>
-- full and the whole test runner without arguments are forbidden.
-- The budget does not permit closing P0/P1.
+- full and the whole test runner without arguments are forbidden, because heavy runs are the lead's and one per machine.
+- The budget does not permit closing P0/P1, because a closed P0/P1 without a reproduction is not evidence.
+- "No worse than before" is not acceptance: a known defect left in place is CHANGES_REQUIRED unless this brief excluded it.
 </constraints>
 
 <report_back>
@@ -120,7 +127,7 @@ All substantiated findings go to the review file <path under .claude/ghorc-out/>
 3. Check: <command or rule>.
 </steps>
 
-<constraints>If the input does not match the description - BLOCKED with the reason. Assume nothing.</constraints>
+<constraints>If the input does not match the description - BLOCKED with the reason, because a guess on mismatched input passes silently. Assume nothing.</constraints>
 
 <report_back>The result in the stated format; up to 10 lines.</report_back>
 ```

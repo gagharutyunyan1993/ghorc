@@ -96,7 +96,8 @@ Details: [docs/hooks.md](docs/hooks.md) and [docs/workflow.md](docs/workflow.md)
 
 ## Roles
 
-Called as `ghorc:<role>`. The lead passes `effort` on every call.
+Called as `ghorc:<role>`. The lead passes `effort` on every call and names the move-up condition when it
+raises one; effort choices are measured, not guessed (see [docs/evidence.md](docs/evidence.md)).
 
 | Role | Model / effort | Purpose |
 |---|---|---|

@@ -9,7 +9,7 @@ Project config: `.claude/ghorc.json` (checks, critical areas, thresholds). Plugi
 
 ## Rules on one page
 1. The lead is Opus/medium; model and effort are set explicitly at launch (`--model opus --effort medium`); a global fallback does not replace this for a role.
-2. The implementer is Sonnet/medium; money, recovery, migrations - Sonnet/high.
+2. The implementer is Sonnet/medium; money, recovery, migrations - Sonnet/high (never Opus on a critical package).
 3. Ordinary review and re-check of fixes of an ordinary package - Sonnet/medium; critical review - Opus/high in round 1; on a critical package the final verdict and the check of money findings are Opus/high, and Sonnet checks only non-critical findings.
 4. Opus again - if a fix changes a money invariant.
 5. Haiku/low - only mechanical work with a machine-checkable result; not browser work, not scouting.
@@ -49,15 +49,32 @@ Project config: `.claude/ghorc.json` (checks, critical areas, thresholds). Plugi
 | Separate process or owner interaction | herdr worker, `--effort` explicit | - |
 
 ## Effort
-- low: mechanical work, scouting, edits by a pattern. medium: everything routine. high: critical review, delicate debugging, conflicting invariants, money - for a named reason. xhigh/max: only manually for a single task.
-- Escalation: if the risk is known in advance - the right model and effort immediately; unexpected difficulty - first reformulate the task, then raise effort, then change the model; network failure, out of memory, a wrong command - do not raise effort.
-- Make sure the variable `CLAUDE_CODE_EFFORT_LEVEL` is not set: it overrides frontmatter and the call.
+Roles keep their frontmatter effort; the lead raises it for one named condition and writes that condition in the brief.
+
+| Role | Default | Moves up when |
+|---|---|---|
+| `implementer` | sonnet / medium | high: critical area (money, contracts, policy, hooks, migrations), concurrency/IPC state, or a bug whose cause is not named in the brief |
+| `reviewer` | sonnet / medium | high: diff over 5 files or 300 lines, or shared state/concurrency |
+| `reviewer-critical` | opus / high | xhigh: only a single named task on a disputed P0 reproduction |
+| `scout` | sonnet / low | medium: sources conflict or a cross-file inference is needed |
+| `integrator` | sonnet / medium | high: the resolution changes behavior, or a check stays red after resolution |
+| `consult`, `media` | sonnet / low | medium: conflicting answers to adjudicate / charts or contracts to interpret |
+| `release` | sonnet / medium | none |
+
+The thresholds (5 files, 300 lines) are provisional until the ledger (`docs/evidence.md`) replaces them.
+
+- The implementer on a critical package is Sonnet high, never Opus: the critical reviewer is Opus and the models must differ. Its escalation path: reformulate, then high, then split the task. A switch to Opus is allowed only on non-critical packages.
+- Sonnet high is eligible when the scope is bounded (at most 4 writable files), the acceptance command is deterministic and the cause is named. "Investigate" or an unclear cause across subsystems goes to Opus medium on non-critical packages only.
+- Cause first, effort second. On CHANGES_REQUIRED with P0/P1 the lead classifies the cause before re-briefing: `BRIEF_OMISSION` (the brief lacked a fact or a check) - fix the brief, same effort; `SKIPPED_CHECK` (the agent did not run a check it could run) - add the check line, same effort; `REASONING_FAILURE` (the brief was complete, the agent reasoned wrong) - the next implementer call goes one level up (medium to high). A second CHANGES_REQUIRED with P0/P1 changes the task statement or splits it; no further raise. Network failure, out of memory or a wrong command never raise effort. There is no automatic downshift; the table changes only through the ledger. The critical reviewer stays high in every round. The lead records the verdict with `/ghorc:status --verdict <pkg> <round> <verdict> <cause>`.
+- Pre-mortem for a critical package: before writing the brief, list at most 3 ways the package could pass review and still be wrong, and turn each into a check in the brief.
+- Precedence: env `CLAUDE_CODE_EFFORT_LEVEL` > per-call `effort` > frontmatter > session. Keep the variable unset, and pass `effort` on every Agent call.
+- Global settings: no top-level `effortLevel`; per-model medium for sonnet-5.5 and opus-5.5, so an Agent call that omits effort never lands on low or high by accident.
 
 ## The lead never
 - reads PDFs and images; reads transcripts, logs and files over 100 lines whole;
 - writes package code; runs checks synchronously; polls agents (it waits in the background);
 - measures its own context by itself (only `ctx.cjs --session <id>`); applies `/clear`;
-- asks "return your reasoning" (output tokens settle in the window).
+- asks an agent to return its reasoning (output tokens settle in the window).
 
 ## Thresholds and state
 - STATE.md (template `templates/STATE.md`) 40-80 lines: package and stage, branch and SHA, `head` and `seq`, `in_flight`, decisions, blockers, checks, authority, `unanswered_owner_messages`. The source of truth is STATE, not the conversation.
