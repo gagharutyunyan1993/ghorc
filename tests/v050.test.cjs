@@ -209,16 +209,16 @@ test('#9 agent descriptions are one line and start with the role name', () => {
   }
 });
 
-test('#1 #18 manifests: marketplace ghorc, version 0.6.0 everywhere, plugin metadata', () => {
+test('#1 #18 manifests: marketplace ghorc, version 0.6.1 everywhere, plugin metadata', () => {
   const j = (f) => JSON.parse(fs.readFileSync(path.join(ROOT, f), 'utf8'));
   const mp = j('.claude-plugin/marketplace.json');
   const pl = j('.claude-plugin/plugin.json');
   assert.equal(mp.name, 'ghorc');
-  assert.equal(mp.plugins[0].version, '0.6.0');
-  assert.equal(pl.version, '0.6.0');
-  assert.equal(j('package.json').version, '0.6.0');
+  assert.equal(mp.plugins[0].version, '0.6.1');
+  assert.equal(pl.version, '0.6.1');
+  assert.equal(j('package.json').version, '0.6.1');
   assert.equal(pl.license, 'MIT');
   assert.ok(pl.repository && pl.homepage);
-  assert.match(fs.readFileSync(path.join(ROOT, 'CHANGELOG.md'), 'utf8'), /^# Changelog\n\n(## Unreleased\n[\s\S]*?)?## 0\.6\.0 - \d{4}-\d\d-\d\d\n[\s\S]*## 0\.5\.1/);
+  assert.match(fs.readFileSync(path.join(ROOT, 'CHANGELOG.md'), 'utf8'), /^# Changelog\n\n(## Unreleased\n[\s\S]*?)?## 0\.6\.1 - \d{4}-\d\d-\d\d\n[\s\S]*## 0\.6\.0 - [\s\S]*## 0\.5\.1/);
   assert.ok(TEST_TMP);
 });

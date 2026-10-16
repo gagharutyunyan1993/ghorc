@@ -7,7 +7,7 @@
       "name": "ghorc",
       "source": "./",
       "description": "An Opus lead plans, Sonnet subagents work, hooks block repeated reads and worker test-suite runs.",
-      "version": "0.6.0"
+      "version": "0.6.1"
     }
   ]
 }

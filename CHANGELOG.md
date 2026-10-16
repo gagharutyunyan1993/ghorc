@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.6.1 - 2026-10-16
 
 - 0.6.1: `templates/CLAUDE-section.md`: a "Project roles" paragraph (project roles in `.claude/agents/` take precedence) and a
   critical reviewer line that allows the project's own role.

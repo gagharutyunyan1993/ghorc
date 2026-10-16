@@ -1,6 +1,6 @@
 {
   "name": "ghorc",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Claude Code plugin: an Opus lead plans, Sonnet subagents work, hooks block repeated reads and worker test-suite runs.",
   "author": { "name": "Gagik Harutyunyan" },
   "license": "MIT",
