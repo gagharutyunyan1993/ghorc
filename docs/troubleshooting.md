@@ -91,6 +91,15 @@ claude plugin update ghorc@ghorc
 Users of 0.4.x have the old marketplace name: remove `ghorc-local` and add `gagharutyunyan1993/ghorc` (see
 [CHANGELOG.md](../CHANGELOG.md)).
 
+## Removal
+
+- **Put the previous status line back.** `node "<plugin>/scripts/setup.cjs" --restore statusline` restores the status
+  line that `/ghorc:setup` replaced (or removes the `statusLine` key when there was none) and deletes
+  `~/.claude/ghorc-statusline-backup.json`. Without that file it says so and changes nothing.
+- **Stop the watchdog.** `node "<plugin>/scripts/watchdog.cjs" --stop`.
+- **Uninstall.** `claude plugin uninstall ghorc@ghorc`; `.claude/ghorc.json` and the `<!-- ghorc -->` section of
+  `CLAUDE.md` stay until you delete them.
+
 ## Debugging hooks and development
 
 `GHORC_HOOK_DUMP=<file>` makes every hook append its raw stdin JSON, one line per call, to that file (off by default;

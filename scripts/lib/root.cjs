@@ -5,7 +5,37 @@ const fs = require('node:fs');
 const path = require('node:path');
 const cp = require('node:child_process'); // called as cp.spawnSync so tests can stub it
 
-const GIT_TIMEOUT_MS = 1500;
+const GIT_TIMEOUT_MS = 1000;
+const GIT_BUDGET_MS = 2500; // all git calls of one process together
+let gitSpent = 0;
+let gitDead = false; // set by the first timeout: git hangs, so no further spawn is tried in this process
+
+// The only way scripts spawn git: a per-call timeout, a shared budget and a kill switch after the first timeout, so a
+// hanging git costs a hook one timeout instead of one per call. Returns { status, stdout } (status null on failure).
+function git(args, cwd) {
+  if (gitDead || gitSpent >= GIT_BUDGET_MS) return { status: null, stdout: '' };
+  const t0 = Date.now();
+  try {
+    const r = cp.spawnSync('git', args, {
+      cwd,
+      encoding: 'utf8',
+      timeout: Math.min(GIT_TIMEOUT_MS, GIT_BUDGET_MS - gitSpent),
+      windowsHide: true,
+    });
+    if (r.error && r.error.code === 'ETIMEDOUT') gitDead = true;
+    return r;
+  } catch {
+    return { status: null, stdout: '' };
+  } finally {
+    gitSpent += Date.now() - t0;
+  }
+}
+
+// Tests only: forget the budget and the kill switch.
+function resetGit() {
+  gitSpent = 0;
+  gitDead = false;
+}
 
 function envProjectDir() {
   const v = process.env.CLAUDE_PROJECT_DIR;
@@ -17,7 +47,7 @@ function envProjectDir() {
 function gitCommonRoot(cwd) {
   try {
     const base = path.resolve(cwd || process.cwd());
-    const r = cp.spawnSync('git', ['rev-parse', '--git-common-dir'], { cwd: base, encoding: 'utf8', timeout: GIT_TIMEOUT_MS, windowsHide: true });
+    const r = git(['rev-parse', '--git-common-dir'], base);
     if (r.status !== 0) return null;
     const out = String(r.stdout).trim();
     if (!out) return null;
@@ -58,7 +88,7 @@ function projectRoot(cwd) {
 function cliRoot(cwd) {
   const base = path.resolve(cwd || process.cwd());
   try {
-    const r = cp.spawnSync('git', ['rev-parse', '--show-toplevel'], { cwd: base, encoding: 'utf8', timeout: GIT_TIMEOUT_MS, windowsHide: true });
+    const r = git(['rev-parse', '--show-toplevel'], base);
     const out = r.status === 0 ? String(r.stdout).trim() : '';
     if (out) return path.resolve(base, out);
   } catch {
@@ -68,4 +98,4 @@ function cliRoot(cwd) {
   return fs.existsSync(path.join(last, '.git')) ? last : base;
 }
 
-module.exports = { GIT_TIMEOUT_MS, cliRoot, projectRoot, gitCommonRoot, ancestors, envProjectDir };
+module.exports = { git, resetGit, GIT_TIMEOUT_MS, cliRoot, projectRoot, gitCommonRoot, ancestors, envProjectDir };

@@ -110,14 +110,19 @@ test('#5 setup --check proposes heavyCommands from package.json scripts, --apply
     const chk = runScript('setup.cjs', '', { args: ['--check', '--cwd', proj], env }).out;
     assert.match(chk, /proposed heavyCommands/);
     const item = JSON.parse(chk.trim().split('\n').pop()).items.find((i) => i.id === 'heavy');
-    assert.deepEqual(item.proposed, ['^npm\\s+(?:run\\s+)?test\\b', '^npm\\s+run\\s+build\\b', '^npm\\s+run\\s+e2e\\b']);
+    assert.deepEqual(item.proposed, [
+      '^npm\\s+(?:run\\s+)?test\\b(?!:)',
+      '^npm\\s+run\\s+test:e2e\\b',
+      '^npm\\s+run\\s+build\\b',
+      '^npm\\s+run\\s+e2e\\b',
+    ]);
     assert.ok(!item.proposed.some((p) => /lint/.test(p)), 'checks.fast is never proposed');
     const before = JSON.parse(fs.readFileSync(path.join(proj, '.claude', 'ghorc.json'), 'utf8'));
     assert.deepEqual(before.heavyCommands, undefined, 'check writes nothing');
     const all = runScript('setup.cjs', '', { args: ['--apply', 'all', '--cwd', proj], env }).out;
     assert.doesNotMatch(all, /heavyCommands:/, 'all does not apply heavy');
     const ap = runScript('setup.cjs', '', { args: ['--apply', 'heavy', '--cwd', proj], env }).out;
-    assert.match(ap, /adding 3 regex/);
+    assert.match(ap, /adding 4 regex/);
     const after = JSON.parse(fs.readFileSync(path.join(proj, '.claude', 'ghorc.json'), 'utf8'));
     assert.deepEqual(after.heavyCommands, item.proposed);
     assert.equal(after.checks.fast, 'npm run lint');
@@ -204,16 +209,16 @@ test('#9 agent descriptions are one line and start with the role name', () => {
   }
 });
 
-test('#1 #18 manifests: marketplace ghorc, version 0.5.0 everywhere, plugin metadata', () => {
+test('#1 #18 manifests: marketplace ghorc, version 0.5.1 everywhere, plugin metadata', () => {
   const j = (f) => JSON.parse(fs.readFileSync(path.join(ROOT, f), 'utf8'));
   const mp = j('.claude-plugin/marketplace.json');
   const pl = j('.claude-plugin/plugin.json');
   assert.equal(mp.name, 'ghorc');
-  assert.equal(mp.plugins[0].version, '0.5.0');
-  assert.equal(pl.version, '0.5.0');
-  assert.equal(j('package.json').version, '0.5.0');
+  assert.equal(mp.plugins[0].version, '0.5.1');
+  assert.equal(pl.version, '0.5.1');
+  assert.equal(j('package.json').version, '0.5.1');
   assert.equal(pl.license, 'MIT');
   assert.ok(pl.repository && pl.homepage);
-  assert.match(fs.readFileSync(path.join(ROOT, 'CHANGELOG.md'), 'utf8'), /^# Changelog\n\n## 0\.5\.0/);
+  assert.match(fs.readFileSync(path.join(ROOT, 'CHANGELOG.md'), 'utf8'), /^# Changelog\n\n## 0\.5\.1/);
   assert.ok(TEST_TMP);
 });

@@ -5,6 +5,9 @@
 // backtick substitutions inside double quotes are kept). A pattern must match at the start of a segment, after optional
 // env assignments (FOO=bar), shell wrappers (cmd /c, bash -c, powershell -Command, call, &) and an optional
 // `npm run` / `npx` prefix; npm global options (--prefix x, -C x, -w x, --silent) are dropped and run-script reads as run.
+// Bash heredoc bodies (<<EOF ... EOF) are not commands and are removed first (an unterminated one is kept). For the
+// PowerShell tool and powershell/pwsh wrappers the command is also read with PowerShell quoting (backtick escapes, a
+// backslash is plain text, the -Command argument runs to the last quote); a segment found either way counts.
 
 // Subagent-only denies, built in (not from config).
 const BUILTIN_SUBAGENT_DENY = [/^\s*claude\b.*\s(?:-p|--print)\b/i, /^\s*herdr\s+agent\s+start\b/i, /^\s*herdr\s+agent\s+prompt\b/i];
@@ -30,15 +33,24 @@ const WRAPPER_PREFIX = new RegExp(
   String.raw`^(?:${SHELLS}(?:\s+(?:[-/][\w:-]+|\w+))*?\s+(?:-l?c|/c|/k|-command)\s+|call\s+|time\s+|exec\s+)`,
   'i',
 );
+const BASH_DQ = String.raw`"(?:[^"\\]|\\.)*"`;
+const PS_DQ = String.raw`"(?:[^"\x60]|\x60[\s\S])*"`;
+const SQ = "'[^']*'";
+const WRAP_HEAD = String.raw`(^|[\s;&|(\x60{])(${SHELLS}(?:\s+(?:[-/][\w:-]+|\w+))*?\s+)`;
 // A shell wrapper followed (after its flags) by a quoted argument: the quotes are dropped so the argument is matched too.
-const WRAPPED_QUOTE = new RegExp(String.raw`(^|[\s;&|(\x60{])(${SHELLS}(?:\s+(?:[-/][\w:-]+|\w+))*?\s+)("(?:[^"\\]|\\.)*"|'[^']*')`, 'gi');
+const WRAPPED_QUOTE = new RegExp(`${WRAP_HEAD}(${BASH_DQ}|${SQ})`, 'gi');
+const WRAPPED_QUOTE_PS = new RegExp(`${WRAP_HEAD}(${PS_DQ}|${SQ})`, 'gi');
+const PS_WRAPPER = /(^|[\s;&|(\x60{])(?:powershell|pwsh)(?:\.exe)?\s/i;
+// powershell -Command "..." at the end of the command: everything between the first and the last quote is the script.
+const PS_GREEDY = /(^|[\s;&|(\x60{])((?:powershell|pwsh)(?:\.exe)?(?:\s+(?:[-/][\w:-]+|\w+))*?\s+)"([\s\S]*)"\s*$/i;
 // npm global options before the subcommand; the listed ones take a value.
 const NPM_OPTS = /^npm((?:\s+(?:(?:--prefix|-C|--workspace|-w)(?:=|\s+)\S+|-{1,2}[\w-]+(?:=\S+)?))+)(?=\s)/i;
 
-function inlineWrapped(command) {
+function inlineWrapped(command, ps) {
   let s = String(command);
+  const re = ps ? WRAPPED_QUOTE_PS : WRAPPED_QUOTE;
   for (let i = 0; i < 4; i++) {
-    const next = s.replace(WRAPPED_QUOTE, (_m, pre, head, q) => `${pre}${head}${q.slice(1, -1)}`);
+    const next = s.replace(re, (_m, pre, head, q) => `${pre}${head}${q.slice(1, -1)}`);
     if (next === s) break;
     s = next;
   }
@@ -46,8 +58,9 @@ function inlineWrapped(command) {
 }
 
 // Quoted text is blanked; inside double quotes $(...) and backtick substitutions run, so they are kept as segments.
-function stripQuotes(command) {
-  return inlineWrapped(command).replace(/"(?:[^"\\]|\\.)*"|'[^']*'/g, (q) => {
+function stripQuotes(command, ps = false) {
+  const quoted = new RegExp(`${ps ? PS_DQ : BASH_DQ}|${SQ}`, 'g');
+  return inlineWrapped(command, ps).replace(quoted, (q) => {
     if (q[0] !== '"') return '""';
     const subs = [];
     q.replace(/\$\(([^)]*)\)|`([^`]*)`/g, (_m, a, b) => subs.push(a !== undefined ? a : b));
@@ -55,11 +68,58 @@ function stripQuotes(command) {
   });
 }
 
-function segments(command) {
-  return stripQuotes(command)
+// Heredoc operators on one line, outside quotes: [{ tag, dash }]. <<< (a here-string) is not one.
+function heredocTags(line) {
+  const masked = line.replace(new RegExp(`${BASH_DQ}|${SQ}`, 'g'), (q) => ' '.repeat(q.length));
+  const out = [];
+  const re = /<<(-?)[ \t]*(?:'([^']+)'|"([^"]+)"|\\?(\w+))/g;
+  let m;
+  while ((m = re.exec(line))) {
+    if (masked.slice(m.index, m.index + 2) !== '<<' || line[m.index - 1] === '<') continue;
+    out.push({ tag: m[2] || m[3] || m[4], dash: m[1] === '-' });
+  }
+  return out;
+}
+
+// Drops heredoc bodies and their terminator lines; the command line that opens a heredoc stays.
+function stripHeredocs(text) {
+  if (!text.includes('<<')) return text;
+  const lines = text.split('\n');
+  const out = [];
+  for (let i = 0; i < lines.length; i++) {
+    out.push(lines[i]);
+    for (const { tag, dash } of heredocTags(lines[i])) {
+      let end = -1;
+      for (let j = i + 1; j < lines.length; j++) {
+        let l = lines[j].replace(/\r$/, '');
+        if (dash) l = l.replace(/^\t+/, '');
+        if (l === tag) {
+          end = j;
+          break;
+        }
+      }
+      if (end < 0) break; // unterminated: bash would not read a body either, so the lines stay matchable
+      i = end;
+    }
+  }
+  return out.join('\n');
+}
+
+const cut = (text, ps) =>
+  stripQuotes(text, ps)
     .split(/&&|\|\||\$\(|[;|&\n()`{}]/)
     .map((s) => s.trim())
     .filter(Boolean);
+
+// opts.powershell: the command comes from the PowerShell tool.
+function segments(command, opts = {}) {
+  const raw = String(command);
+  const out = cut(stripHeredocs(raw), false);
+  if (opts.powershell || PS_WRAPPER.test(raw)) {
+    const ps = raw.replace(PS_GREEDY, (_m, pre, head, body) => `${pre}${head}${body}`);
+    for (const s of cut(ps, true)) if (!out.includes(s)) out.push(s);
+  }
+  return out;
 }
 
 // The forms of one segment a pattern is tried against: as written, and without the npm run / npx runner.
@@ -75,8 +135,8 @@ function variants(segment) {
 }
 
 // regexes: RegExp[]. True when any matches at the start of any segment.
-function matches(command, regexes) {
-  for (const seg of segments(command)) {
+function matches(command, regexes, opts = {}) {
+  for (const seg of segments(command, opts)) {
     for (const v of variants(seg)) {
       for (const re of regexes) {
         const m = re.exec(v);

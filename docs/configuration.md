@@ -51,7 +51,9 @@ Regex strings (case-insensitive) of commands that subagents and `GHORC_ROLE=work
 matched at the start of a command segment (the command is split on `&&`, `||`, `;`, `|`, newlines and so on), after env
 assignments, shell wrappers and an `npm run` or `npx` prefix. Write `"^npm\\s+run\\s+test:e2e\\b"`. An empty list means
 the guard denies nothing. `/ghorc:setup` proposes a list from the `package.json` scripts (root and `app/`) and writes it
-only after you confirm (`setup.cjs --apply heavy`); it never proposes a pattern that matches `checks.fast`.
+only after you confirm (`setup.cjs --apply heavy`). Every script whose name contains test, e2e, full, build, lint or
+typecheck becomes `npm run <name>` (`npm test` for `test`), unless `checks.fast` already matches that pattern, so a
+project with `test` and `test:full` gets `test:full` proposed even when `npm test` is its fast check. No new keys.
 
 ### readGuard
 - `maxRepeat` (3): reads of one file allowed between edits of it, per agent. A file changed by someone else starts a

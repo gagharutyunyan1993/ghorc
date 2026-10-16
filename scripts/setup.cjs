@@ -4,8 +4,7 @@
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const cp = require('node:child_process');
-const { cliRoot } = require('./lib/root.cjs');
+const { cliRoot, git } = require('./lib/root.cjs');
 const cmdlib = require('./lib/cmd.cjs');
 
 const PLUGIN_ROOT = path.join(__dirname, '..');
@@ -50,10 +49,41 @@ function statusLineStale(slCmd) {
   return !cmd.includes(mine);
 }
 
+// Where `apply` saves the status line it replaces: next to the settings file it edits.
+function statusLineBackup(settingsFile) {
+  return path.join(path.dirname(settingsFile), 'ghorc-statusline-backup.json');
+}
+
+// `--restore statusline`: puts the saved previous statusLine back (removes the key when there was none) and deletes the backup.
+function restoreStatusLine(cwd) {
+  const c = check(cwd);
+  const bakFile = statusLineBackup(c.settingsFile);
+  const saved = readJson(bakFile);
+  if (saved === null || typeof saved !== 'object') throw new Error(`no saved previous status line (${bakFile} is missing)`);
+  if (c.settingsError) throw new Error(`${c.settingsFile}: ${c.settingsError}; fix it by hand first`);
+  const exists = fs.existsSync(c.settingsFile);
+  const settings = exists ? readJson(c.settingsFile) : {};
+  const diff = [];
+  if (exists) {
+    const bak = `${c.settingsFile}.ghorc-${stamp()}.bak`;
+    fs.copyFileSync(c.settingsFile, bak);
+    diff.push(`backup: ${bak}`);
+  }
+  const had = saved.had === true;
+  diff.push(`- statusLine: ${JSON.stringify(settings.statusLine ?? null)}\n+ statusLine: ${had ? JSON.stringify(saved.value) : '(removed)'}`);
+  if (had) settings.statusLine = saved.value;
+  else delete settings.statusLine;
+  fs.mkdirSync(path.dirname(c.settingsFile), { recursive: true });
+  fs.writeFileSync(c.settingsFile, JSON.stringify(settings, null, 2) + '\n');
+  fs.rmSync(bakFile, { force: true });
+  diff.push(`deleted ${bakFile}`);
+  return { diff };
+}
+
 // Path of info/exclude as git sees it (right also in a linked worktree); falls back to <root>/.git/info/exclude.
 function excludePath(root) {
   try {
-    const r = cp.spawnSync('git', ['rev-parse', '--git-path', 'info/exclude'], { cwd: root, encoding: 'utf8', timeout: 1500, windowsHide: true });
+    const r = git(['rev-parse', '--git-path', 'info/exclude'], root);
     if (r.status === 0 && String(r.stdout).trim()) return { file: path.resolve(root, String(r.stdout).trim()), git: true };
   } catch {
     /* no git */
@@ -76,7 +106,7 @@ function readText(file) {
 }
 
 // Names of package.json scripts that look heavy (test, e2e, build, lint) in the root and in app/.
-const HEAVY_NAME = /(^|[:_-])(tests?|e2e|build|lint)([:_-]|$)/i;
+const HEAVY_NAME = /(^|[:_-])(tests?|e2e|full|build|lint|typecheck)([:_-]|$)/i;
 const escRe = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 // Proposed heavyCommands regexes from package.json scripts; patterns that match checks.fast are left out
@@ -88,10 +118,17 @@ function proposeHeavy(root, fast) {
     if (!pkg || typeof pkg.scripts !== 'object' || pkg.scripts === null) continue;
     for (const n of Object.keys(pkg.scripts)) if (HEAVY_NAME.test(n) && !names.includes(n)) names.push(n);
   }
-  const keep = names.filter((n) => !names.some((m) => m !== n && (n.startsWith(`${m}:`) || n.startsWith(`${m}-`))));
-  const out = keep.map((n) => (n === 'test' ? String.raw`^npm\s+(?:run\s+)?test\b` : String.raw`^npm\s+run\s+${escRe(n)}\b`));
+  // one regex per script (`npm test` for test); a script already covered by an earlier regex adds nothing
   const f = typeof fast === 'string' ? fast.trim() : '';
-  return out.filter((re) => !(f && cmdlib.matches(f, cmdlib.compile([re]))));
+  const out = [];
+  for (const n of names) {
+    const re = n === 'test' ? String.raw`^npm\s+(?:run\s+)?test\b(?!:)` : String.raw`^npm\s+run\s+${escRe(n)}\b`;
+    const cmd = n === 'test' ? 'npm test' : `npm run ${n}`;
+    if (f && cmdlib.matches(f, cmdlib.compile([re]))) continue;
+    if (out.length && cmdlib.matches(cmd, cmdlib.compile(out))) continue;
+    out.push(re);
+  }
+  return out;
 }
 
 // Reads <root>/.claude/ghorc.json (creating it from the template when missing), applies mutate(obj), writes it back.
@@ -114,10 +151,12 @@ function check(cwd, opts = {}) {
   const settingsFile = path.join(home(), '.claude', 'settings.json');
   let settings = {};
   let settingsError = null;
+  let settingsWarning = null; // --project: a broken global file only disables the global items, it never blocks
   if (fs.existsSync(settingsFile)) {
     settings = readJson(settingsFile);
     if (settings === null || typeof settings !== 'object' || Array.isArray(settings)) {
-      settingsError = 'settings.json is not valid JSON';
+      if (opts.project) settingsWarning = `${settingsFile} is not valid JSON; global items are not checked`;
+      else settingsError = 'settings.json is not valid JSON';
       settings = {};
     }
   }
@@ -272,7 +311,8 @@ function check(cwd, opts = {}) {
     ok: wdOn,
   });
   const real = items.filter((i) => !i.warn);
-  return { items, settingsFile, settingsError, root, clean: real.every((i) => i.ok) && !settingsError };
+  const slState = !sl ? 'none' : items[0].ok ? (fs.existsSync(statusLineBackup(settingsFile)) ? 'ghorc (previous saved)' : 'ghorc') : 'other';
+  return { items, settingsFile, settingsError, settingsWarning, statusLineState: slState, root, clean: real.every((i) => i.ok) && !settingsError };
 }
 
 function stamp() {
@@ -295,6 +335,7 @@ function apply(cwd, ids, opts = {}) {
   const userItems = todo.filter((i) => i.scope === 'user');
   if (userItems.length) {
     if (c.settingsError) throw new Error(`${c.settingsFile}: ${c.settingsError}; fix it by hand first`);
+    if (c.settingsWarning) throw new Error(`${c.settingsWarning}; fix it by hand, or apply only project items (pct, config, claudemd, exclude, heavy, watchdog)`);
     const exists = fs.existsSync(c.settingsFile);
     const settings = exists ? readJson(c.settingsFile) : {};
     if (exists) {
@@ -307,6 +348,15 @@ function apply(cwd, ids, opts = {}) {
     for (const it of userItems) {
       if (it.id === 'statusLine' || it.id === 'statusLineStale') {
         const next = { type: 'command', command: statusLineCommand(), refreshInterval: 30 };
+        // remember what is replaced, once, and never a ghorc status line (that is not a "previous" worth restoring)
+        const bakFile = statusLineBackup(c.settingsFile);
+        const prev = settings.statusLine;
+        const prevCmd = prev && typeof prev === 'object' ? String(prev.command || '') : '';
+        if (!fs.existsSync(bakFile) && !(/ghorc/i.test(prevCmd) && /statusline\.cjs/.test(prevCmd))) {
+          fs.mkdirSync(path.dirname(bakFile), { recursive: true });
+          fs.writeFileSync(bakFile, JSON.stringify({ had: 'statusLine' in settings, value: prev ?? null, savedAt: new Date().toISOString() }, null, 2) + '\n');
+          diff.push(`saved previous statusLine: ${bakFile} (restore: setup.cjs --restore statusline)`);
+        }
         set('statusLine', settings.statusLine, next);
         settings.statusLine = next;
       } else if (it.id === 'pct') {
@@ -410,14 +460,14 @@ function statusBlock(cwd) {
   return out;
 }
 
-module.exports = { check, apply, statusBlock, findRoot, proposeHeavy, MARKER };
+module.exports = { check, apply, restoreStatusLine, statusBlock, findRoot, proposeHeavy, MARKER };
 
 if (require.main === module) {
   const args = process.argv.slice(2);
   const opt = (n) => (args.includes(n) ? args[args.indexOf(n) + 1] : undefined);
   const cwd = opt('--cwd') || process.cwd();
   const project = args.includes('--project');
-  if (args.includes('--help') || (!args.includes('--check') && !args.includes('--apply'))) {
+  if (args.includes('--help') || (!args.includes('--check') && !args.includes('--apply') && !args.includes('--restore'))) {
     console.log(
       'setup.cjs --check [--project] [--cwd <dir>]: report each setup item (scope, current -> recommended, why) as human lines plus a final JSON line. ' +
         'Items marked WARN (heavy, watchdog) never make the setup unclean and are applied only when named (not by "all"); ' +
@@ -425,11 +475,20 @@ if (require.main === module) {
         'setup.cjs --apply <all|statusLine,statusLineStale,pct,idle,model,effort,config,claudemd,exclude,heavy,watchdog> [--project] [--cwd <dir>]: apply the chosen items; ' +
         'backs up ~/.claude/settings.json first, touches only the listed keys and prints a diff. ' +
         'pct is written GLOBALLY (every project) unless --project, which writes <root>/.claude/settings.local.json instead. ' +
-        'model and effort are owner-level decisions: name them only after the owner says yes. GHORC_HOME overrides the home directory.',
+        'model and effort are owner-level decisions: name them only after the owner says yes. GHORC_HOME overrides the home directory. ' +
+        'Applying statusLine saves the replaced status line (once) in ~/.claude/ghorc-statusline-backup.json; ' +
+        'setup.cjs --restore statusline puts it back (or removes the key when there was none) and deletes the backup. ' +
+        '--check prints "statusline: ghorc (previous saved)", "ghorc", "other" or "none". ' +
+        'With --project a broken global settings.json is only a WARN line: project items still apply.',
     );
     process.exit(0);
   }
   try {
+    if (args.includes('--restore')) {
+      const what = String(opt('--restore') || '').toLowerCase();
+      if (what !== 'statusline') throw new Error('--restore knows only: statusline');
+      console.log(restoreStatusLine(cwd).diff.join('\n'));
+    }
     if (args.includes('--apply')) {
       const list = (opt('--apply') || '')
         .split(',')
@@ -450,9 +509,11 @@ if (require.main === module) {
       console.log('proposed heavyCommands (from package.json scripts; checks.fast is never proposed):');
       for (const p of hv.proposed) console.log(`  ${p}`);
     }
+    console.log(`statusline: ${c.statusLineState}`);
+    if (c.settingsWarning) console.log(`WARN: ${c.settingsWarning}`);
     if (c.settingsError) console.log(`ERROR: ${c.settingsError}`);
     if (args.includes('--status')) console.log(statusBlock(cwd).join('\n'));
-    console.log(JSON.stringify({ clean: c.clean, root: c.root, items: c.items }));
+    console.log(JSON.stringify({ clean: c.clean, root: c.root, statusLine: c.statusLineState, items: c.items }));
   } catch (e) {
     console.log(`ERROR: ${e.message}`);
     process.exit(1);

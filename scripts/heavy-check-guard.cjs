@@ -27,18 +27,19 @@ run((input) => {
   const configured = compile(Array.isArray(cfg.heavyCommands) ? cfg.heavyCommands : []);
 
   // the built-in agent-start denies apply to subagents and workers only, also while the config is invalid
+  const ps = { powershell: input.tool_name === 'PowerShell' };
   const sub = Boolean(input.agent_id) || process.env.GHORC_ROLE === 'worker';
-  if (sub && matches(command, BUILTIN_SUBAGENT_DENY)) {
+  if (sub && matches(command, BUILTIN_SUBAGENT_DENY, ps)) {
     return deny('subagents and workers may not start other agents (claude -p, herdr agent start/prompt): ask the lead.');
   }
 
   if (cfg.invalid) {
-    if (matches(command, [...configured, ...DEFAULT_HEAVY])) {
+    if (matches(command, [...configured, ...DEFAULT_HEAVY], ps)) {
       return deny(`config invalid: ${cfg.invalid}. Heavy-command rules cannot be trusted: fix .claude/ghorc.json (node scripts/check-config.cjs).`);
     }
     return;
   }
-  if (!matches(command, configured)) return;
+  if (!matches(command, configured, ps)) return;
 
   if (sub) return deny('only the lead runs heavy checks.');
   if (cfg.heavyGuard && cfg.heavyGuard.requireLeadEnv && process.env.GHORC_ROLE !== 'lead') {

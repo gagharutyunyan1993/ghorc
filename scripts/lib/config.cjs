@@ -52,7 +52,19 @@ function configPath(cwd) {
   return findConfig(cwd) || path.join(projectRoot(cwd), '.claude', 'ghorc.json');
 }
 
-// Validation result for a config file, cached by mtime+size in the tmp dir: null (valid) or a reason string.
+// mtime+size of the defaults file (the validator schema): part of the validity cache key, so a template change
+// (a new key, another type) invalidates every cached verdict.
+function templateKey() {
+  try {
+    const st = fs.statSync(TEMPLATE);
+    return `${st.mtimeMs}:${st.size}`;
+  } catch {
+    return '';
+  }
+}
+
+// Validation result for a config file, cached by mtime+size of the file and of the template in the tmp dir:
+// null (valid) or a reason string.
 function validity(file) {
   const tmp = require('./tmp.cjs');
   const cacheFile = path.join(tmp.tmpDir(), 'config-valid.json');
@@ -70,12 +82,13 @@ function validity(file) {
     /* no cache yet */
   }
   const hit = cache[file];
-  if (hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size) return hit.reason;
+  const tpl = templateKey();
+  if (hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size && hit.tpl === tpl) return hit.reason;
   const { fatal } = require('./validate.cjs').checkFile(file);
   const reason = fatal.length ? fatal[0] : null;
   try {
     fs.mkdirSync(tmp.tmpDir(), { recursive: true });
-    cache[file] = { mtimeMs: st.mtimeMs, size: st.size, reason };
+    cache[file] = { mtimeMs: st.mtimeMs, size: st.size, tpl, reason };
     tmp.atomicWrite(cacheFile, JSON.stringify(cache));
   } catch {
     /* the cache is optional */
@@ -106,4 +119,4 @@ function found(cwd, opts = {}) {
   return file !== null && readJson(file) !== null;
 }
 
-module.exports = { load, found, merge, configPath, findConfig, projectRoot, gitCommonRoot, ancestors, readJson, TEMPLATE };
+module.exports = { templateKey, load, found, merge, configPath, findConfig, projectRoot, gitCommonRoot, ancestors, readJson, TEMPLATE };

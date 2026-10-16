@@ -89,6 +89,12 @@ JSON. An empty string matches everything; a pattern that does not compile makes 
 node "<plugin>/scripts/check-config.cjs" --sample "npm test | tail -5" --sample "npm run lint"
 ```
 
+Bash heredoc bodies (`cat > x.md <<'EOF' ... EOF`, also `<<EOF` and `<<-EOF`) are not commands and are skipped; the line
+that opens the heredoc and everything after the terminator are matched as usual, and an unterminated heredoc hides
+nothing. For the PowerShell tool and `powershell`/`pwsh` wrappers the command is also read with PowerShell quoting
+(a backtick escapes, a backslash is plain text, so `cd "D:\a\"; npm test` still exposes `npm test`); a segment found
+either way counts.
+
 It prints `config: <path>`, any `ERROR:` lines (invalid JSON, unknown key, wrong type, bad regex) and, per sample,
 `HEAVY (<pattern>)` or `ordinary`. On a config error SessionStart prints one `config invalid:` line and the heavy guard
 denies as above; an unknown key alone prints `config warning:` and denies nothing. Validation results are cached by
@@ -160,6 +166,12 @@ Colors for `ctx`, `5h`, `7d`: green below 50%, yellow 50-69%, red 70-79%, bold r
 `GHORC_GIT_TIMEOUT_MS` raises the 300 ms git call timeout (tests use it). It writes
 `<project root>/.claude/ctx-<session_id>.json`, which `ctx.cjs` reads.
 
+**Previous status line.** `setup.cjs --apply statusLine` saves the status line it replaces, once, in
+`~/.claude/ghorc-statusline-backup.json` (next to `settings.json`); a ghorc line, even a stale one, is never saved as
+"previous". `setup.cjs --restore statusline` puts the saved value back (the key is removed when there was none), keeps a
+`settings.json.ghorc-<stamp>.bak` copy and deletes the backup. `setup.cjs --check` prints
+`statusline: ghorc (previous saved)`, `ghorc`, `other` or `none`.
+
 Verified against a live sample (Claude Code 2.1.300): `rate_limits.five_hour` and `.seven_day` are
 `{used_percentage, resets_at}` with `resets_at` in epoch seconds; `effort` is `{level}`; `model` is
 `{id, display_name}`. Other key spellings in the script are defensive fallbacks only.
@@ -229,3 +241,7 @@ Hooks, the status line and `ctx.cjs` agree on one root (`scripts/lib/root.cjs`):
 the main git root of the cwd (a worktree maps to the main repository), else the cwd. `setup.cjs`, `check-config.cjs`
 and `watchdog.cjs --stop` use the git toplevel of the directory they run in (`--cwd` or `--project-root` overrides),
 so a worktree is its own root for them; they ignore `CLAUDE_PROJECT_DIR`.
+
+Every git call of these scripts goes through one helper (`git()` in `scripts/lib/root.cjs`): 1 s per call, 2.5 s for
+all calls of one process, and after the first timeout no further git is started. A hanging git therefore costs
+SessionStart about one second and it still prints its line.

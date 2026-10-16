@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.5.1
+Robustness fixes; no contract or config key changes.
+
+### Fixed
+- R9 The heavy guard reads the PowerShell tool and `powershell`/`pwsh -Command` with PowerShell quoting (a backslash is
+  plain text), so `cd "D:\a\"; npm test` no longer hides `npm test`.
+- R10 Bash heredoc bodies are not matched as commands (a subagent may write a doc that mentions `npm test`); an
+  unterminated heredoc hides nothing.
+- R12 All git calls share one helper with a 1 s call timeout, a 2.5 s budget and a stop after the first timeout; a
+  hanging git no longer stretches SessionStart.
+- R13 `setup --project` no longer fails on a broken global `settings.json`: it prints a WARN line and applies the
+  project items.
+- R14 The config validity cache key includes the defaults template (mtime and size), so a template change drops a
+  stale verdict.
+- R15 `setup --check` proposes every test/e2e/full/build/lint/typecheck script not already covered by `checks.fast`
+  (the demo now gets `npm run test:full`).
+
+### Added
+- #17 `setup --apply statusLine` saves the status line it replaces in `~/.claude/ghorc-statusline-backup.json`;
+  `setup --restore statusline` puts it back; `setup --check` prints `statusline: ghorc (previous saved)` or `other`.
+
 ## 0.5.0
 Entries are grouped by change number. **Breaking: the marketplace name, the lead skill name and the watchdog default.**
 - #1 Marketplace renamed `ghorc-local` -> `ghorc`. Users of 0.4.x: run `claude plugin marketplace remove ghorc-local`,
