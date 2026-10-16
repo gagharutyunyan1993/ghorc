@@ -103,12 +103,16 @@ function projectRoles(root) {
   const dir = path.join(root, '.claude', 'agents');
   let files = [];
   try {
-    files = fs.readdirSync(dir).filter((f) => f.toLowerCase().endsWith('.md')).sort();
+    files = fs
+      .readdirSync(dir, { withFileTypes: true })
+      .filter((e) => e.isFile() && e.name.toLowerCase().endsWith('.md'))
+      .map((e) => e.name)
+      .sort();
   } catch {
     return [];
   }
   return files.map((f) => {
-    const text = readText(path.join(dir, f)) || '';
+    const text = (readText(path.join(dir, f)) || '').replace(/^\uFEFF/, '');
     const m = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text);
     const fm = {};
     if (m) {
@@ -474,7 +478,7 @@ function apply(cwd, ids, opts = {}) {
       const pr = projectRoles(c.root);
       if (pr.length) {
         const anchor = 'plugin counterpart).\n';
-        const rows = pr.map((r) => `| ${r.name} | ${r.model} / ${r.effort} from its frontmatter | ${r.purpose} | |`);
+        const rows = pr.map((r) => `| ${r.name} | ${r.model} / ${r.effort} | ${r.purpose} | |`);
         const table = ['', '| Project role | Model / effort | Purpose | Plugin counterpart |', '|---|---|---|---|', ...rows, ''].join('\n');
         if (section.includes(anchor)) section = section.replace(anchor, anchor + table);
       }

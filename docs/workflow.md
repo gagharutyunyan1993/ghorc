@@ -82,7 +82,8 @@ agents are namespaced by Claude Code, so they cannot collide with your own.
 7. Small things (at most 2 commands, output at most 100 lines, no package code edits) the lead does itself;
    anything bigger goes to a file or an agent.
 8. On every Agent call the lead passes `effort` explicitly. When the implementer model equals the reviewer's default
-   model, pass `model` on the reviewer call so that they differ, and say so in the brief.
+   model, pass `model` on the reviewer call so that they differ, and say so in the brief. Project roles in `.claude/agents/` are
+   launched instead of the `ghorc:*` roles with the same effort table.
 9. The lead does not read PDFs, images, transcripts, logs or files over 100 lines whole (a diff by `--stat` and by
    file); attachments go as a file path to `ghorc:media`; PDFs are converted to text/PNG first. This is an
    instruction; the hook enforces it only with `GHORC_ROLE=lead`.
@@ -97,8 +98,8 @@ agents are namespaced by Claude Code, so they cannot collide with your own.
 16. `full`: one run, on the final tree, lead only, in the background, after fast; it runs on the merge SHA and the
     report quotes that SHA; if incomplete, find the cause first and restart only the failed phase.
 17. Review limit is 3 rounds; a second `CHANGES_REQUIRED` means the lead rewrites the task instead of resending it.
-18. There is no sub-lead; direct Agent calls by default; a herdr worker when a separate process or owner interaction
-    is needed.
+18. There is no sub-lead; direct Agent calls by default; a herdr worker when the task waits more than about 15 minutes on an external event, must survive a lead restart, or the owner watches or answers it;
+    otherwise an Agent call.
 19. At most the lead plus 2 workers in total; one heavy check per machine.
 20. A consultation is "significant" on any of: money/data/recovery, an external contract or migration, a
     hard-to-reverse dependency, a conflict of key requirements, two failed approaches. Format: an answer plus a
@@ -121,7 +122,7 @@ agents are namespaced by Claude Code, so they cannot collide with your own.
 | Dispute, arbiter | Fable | medium-high |
 | Merge conflict, red pipeline | `ghorc:integrator` | medium |
 | Release (owner's word only) | `ghorc:release` | medium |
-| Separate process or owner interaction | herdr worker, `--effort` explicit | - |
+| Waits >~15 min on an external event, must survive a lead restart, or owner watches/answers | herdr worker, `--effort` explicit | - |
 
 | Effort | Use for |
 |---|---|

@@ -46,7 +46,7 @@ Project config: `.claude/ghorc.json` (checks, critical areas, thresholds). Plugi
 | Dispute, arbiter | Fable, targeted | medium-high |
 | Merge conflict, red pipeline | `ghorc:integrator` | medium |
 | Release (only on the owner's word) | `ghorc:release` | medium |
-| Separate process or owner interaction | herdr worker, `--effort` explicit | - |
+| Waits >~15 min on an external event, must survive a lead restart, or owner watches/answers | herdr worker, `--effort` explicit | - |
 
 ## Effort
 Roles keep their frontmatter effort; the lead raises it for one named condition and writes that condition in the brief.

@@ -7,7 +7,7 @@ watchdog, `/ghorc:lead`, `/ghorc:brief`, `/ghorc:status`, `/ghorc:setup`. `/ghor
 the `/clear` fallback ([handoff.md](handoff.md#without-herdr)).
 
 **With herdr** you also get `/ghorc:handoff` into a new tab and worker sessions with their own process and effort.
-Use a worker when a task needs a separate process or owner interaction; direct Agent calls stay the default. Start
+Use a worker when the task waits more than about 15 minutes on an external event, must survive a lead restart, or the owner watches or answers it; direct Agent calls stay the default. Start
 workers with `GHORC_ROLE=worker`, so they get no lead reminder, start no watchdog, and are treated as subagents by the
 heavy guard (heavy commands and agent starts denied):
 
