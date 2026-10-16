@@ -134,7 +134,8 @@ the critical reviewer is Opus and the models must differ.
 Escalation is cause first. On CHANGES_REQUIRED with P0/P1 the lead classifies the cause: `BRIEF_OMISSION` (the brief
 lacked a fact or a check; fix the brief, same effort), `SKIPPED_CHECK` (the agent skipped a check it could run; add the
 check line, same effort), `REASONING_FAILURE` (the brief was complete; next implementer call one level up). A second
-CHANGES_REQUIRED changes the task statement or splits it. A network failure, out of memory or a wrong command never
+CHANGES_REQUIRED changes the task statement or splits it. A fourth code, `OTHER` (a cause outside the three: environment, flaky check, owner change), never changes effort. The cause
+is required on CHANGES_REQUIRED and absent on ACCEPT; the verdict command takes an optional `--class critical|ordinary`. A network failure, out of memory or a wrong command never
 raises effort. The lead records the verdict with `/ghorc:status --verdict <pkg> <round> <verdict> <cause>`.
 
 Effort precedence: env `CLAUDE_CODE_EFFORT_LEVEL` > per-call `effort` > frontmatter > session. Pass `effort` on every
