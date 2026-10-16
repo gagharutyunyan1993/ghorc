@@ -1,6 +1,6 @@
 # Hooks, status line, watchdog and scripts
 
-ghorc registers three hook scripts in `hooks/hooks.json`. They are plain Node.js, make no network calls and never
+ghorc registers four hook scripts (the call ledger has two entries) in `hooks/hooks.json`. They are plain Node.js, make no network calls and never
 rewrite a command or a file: a PreToolUse hook either stays silent (the call proceeds) or prints a deny decision with a
 reason. Every deny is also appended to the denial log (below).
 
@@ -99,6 +99,16 @@ It prints `config: <path>`, any `ERROR:` lines (invalid JSON, unknown key, wrong
 `HEAVY (<pattern>)` or `ordinary`. On a config error SessionStart prints one `config invalid:` line and the heavy guard
 denies as above; an unknown key alone prints `config warning:` and denies nothing. Validation results are cached by
 file mtime and size in `<tmp>/ghorc-<user>/config-valid.json`.
+
+## ledger.cjs
+
+**When it fires.** PostToolUse on `Agent` (`ledger.cjs hook`) and SubagentStop (`ledger.cjs stop`). It never denies
+and prints nothing; any error exits 0. It writes only inside an existing project directory.
+
+**What it does.** Appends one line per subagent call to `<project>/.claude/ghorc-out/ledger.jsonl` (role, requested
+and resolved model, requested effort, tokens, duration, tool count; never the prompt or the response). A background call
+gets a `launch` line at once and a `done` line (transcript totals) from SubagentStop. `ledger.cjs
+verdict` and `ledger.cjs report` are the lead's commands, see `/ghorc:status` and [evidence.md](evidence.md#call-ledger).
 
 ## session-start.cjs
 

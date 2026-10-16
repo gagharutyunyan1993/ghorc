@@ -124,13 +124,16 @@ test('A13: path keys ignore case on Windows', { skip: process.platform !== 'win3
   assert.equal(isDeny(rg(read(s, cwd, 'A.TXT'))), true);
 });
 
-test('hooks.json: Read matcher covers MCP screenshots; PostToolUse covers Edit|Write|NotebookEdit only', () => {
+test('hooks.json: Read matcher covers MCP screenshots; PostToolUse covers Edit|Write|NotebookEdit and the Agent ledger', () => {
   const h = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'hooks', 'hooks.json'), 'utf8')).hooks;
   const pre = h.PreToolUse.map((e) => e.matcher);
   assert.ok(pre.some((m) => new RegExp(`^(?:${m})$`).test('mcp__chrome-devtools__take_screenshot')));
   assert.ok(pre.some((m) => new RegExp(`^(?:${m})$`).test('Read')));
-  const post = h.PostToolUse.map((e) => e.matcher).join('|');
-  assert.equal(post, 'Edit|Write|NotebookEdit');
+  const cmdOf = (m) => h.PostToolUse.filter((e) => e.matcher === m).map((e) => e.hooks[0].command).join();
+  assert.deepEqual(h.PostToolUse.map((e) => e.matcher).sort(), ['Agent', 'Edit|Write|NotebookEdit']);
+  assert.match(cmdOf('Agent'), /ledger\.cjs" hook$/);
+  assert.match(cmdOf('Edit|Write|NotebookEdit'), /read-guard\.cjs"$/);
+  assert.match(h.SubagentStop[0].hooks[0].command, /ledger\.cjs" stop$/);
 });
 
 // ---- heavy guard and config validity ------------------------------------------------------------------------------
