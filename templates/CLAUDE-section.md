@@ -17,13 +17,18 @@ optional: a plain main session is the lead.
 | `ghorc:consult` | sonnet / low | consultations with external models |
 | `ghorc:media` | sonnet / low | the only role for PDFs and images |
 
+Project roles: if `.claude/agents/*.md` exist, they take precedence over the plugin roles above for the same purpose;
+the lead launches them by name with explicit `model` and `effort`. Map them here (project role | model / effort |
+plugin counterpart).
+
 ### Project checks
 - fast: `<command>` (run by agents and the lead)
 - full: `<command>` (one at a time, lead only, in the background, after fast)
 - A bare test runner and full are forbidden for agents.
 
 ### Critical areas
-`<money, contracts, policy, hooks: paths and invariants>`. Edits here go to `ghorc:reviewer-critical`.
+`<money, contracts, policy, hooks: paths and invariants>`. Edits here go to the critical reviewer (`ghorc:reviewer-critical`, or the project's own critical reviewer role at
+opus / high).
 
 ### Lead rules
 - The lead is started explicitly: `--model opus --effort medium`. On every Agent call pass `effort` explicitly from the

@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- 0.6.1: `templates/CLAUDE-section.md`: a "Project roles" paragraph (project roles in `.claude/agents/` take precedence) and a
+  critical reviewer line that allows the project's own role.
+- `setup`: detects `.claude/agents/*.md`, reports them on the `claudemd` item and appends a ready-to-fill project roles
+  table on apply; no change for projects without `.claude/agents/`.
+- skill `ghorc:lead`: rule 8 (launch project roles instead of `ghorc:*`), rule 18 (sharper herdr worker criterion).
+
 ## 0.6.0 - 2026-10-16
 
 ### Added
