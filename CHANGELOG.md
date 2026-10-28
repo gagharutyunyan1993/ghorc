@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.7.0 - 2026-10-28
+
+### Added
+- Context guard (`scripts/context-guard.cjs`, hooks UserPromptSubmit, PreToolUse on every tool, Stop) for the lead: the
+  thresholds `ctxPrepare` / `ctxWarn` / `ctxHandoff` are now enforced, not only written in the skills. From `ctxHandoff`
+  (handoff mode, kept by a sticky flag file that compaction does not clear) a new Agent and Edit/Write outside
+  `handoff.statePath` / `handoff.handoffPath` are denied; Stop blocks (at most 2 times, never when `stop_hook_active`)
+  until STATE is updated. Transcript size and unread watchdog alerts are shown as lines. No ctx file, or one older than
+  10 minutes, without a flag: warn only.
+- `thresholds.ctxWarn` (0 = `ctxHandoff` - 10000).
+
+### Changed
+- `setup`: the recommended autocompact percentage is `ctxHandoff` + 20K as a share of the window, rounded up (17 for a
+  1M window, was a fixed 18); a value that compacts at or below `ctxHandoff` is reported as wrong, so a compaction
+  cannot reset the counter before the guard reacts.
+
 ## 0.6.1 - 2026-10-16
 
 - 0.6.1: `templates/CLAUDE-section.md`: a "Project roles" paragraph (project roles in `.claude/agents/` take precedence) and a

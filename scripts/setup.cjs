@@ -10,7 +10,33 @@ const cmdlib = require('./lib/cmd.cjs');
 const PLUGIN_ROOT = path.join(__dirname, '..');
 const MARKER = '<!-- ghorc -->';
 const EXCLUDE_LINES = ['.claude/ctx-*.json', '.claude/ghorc-out/'];
-const PCT = '18';
+const cg = require('./lib/ctxguard.cjs');
+const { load } = require('./lib/config.cjs');
+
+// Autocompact must fire ABOVE ctxHandoff, or a compaction drops the counter before the context guard reacts.
+// Recommended: ctxHandoff + 20K tokens as a share of the window, rounded up (1M window: 17). A value that
+// compacts at or below ctxHandoff is wrong; one that compacts more than 50K above it is too late.
+const PCT_MARGIN = 20000;
+const PCT_MAX_OVER = 50000;
+const WINDOW_DEFAULT = 1000000;
+
+// { recommended: '<pct>', ok(value) -> boolean, window }.
+function pctPlan(root) {
+  let handoff = 150000;
+  try {
+    handoff = cg.thresholds(load(root, { cli: true })).handoff;
+  } catch {
+    /* defaults */
+  }
+  const window = cg.newestWindowSize(root) || WINDOW_DEFAULT;
+  const tokens = (v) => (Number(v) * window) / 100;
+  return {
+    window,
+    handoff,
+    recommended: String(Math.ceil(((handoff + PCT_MARGIN) / window) * 100)),
+    ok: (v) => v !== undefined && v !== null && Number.isFinite(Number(v)) && tokens(v) > handoff && tokens(v) <= handoff + PCT_MAX_OVER,
+  };
+}
 
 function readJson(file) {
   try {
@@ -244,14 +270,15 @@ function check(cwd, opts = {}) {
     ok: !statusLineStale(slCmd),
   });
   const pctNow = (pctEnv || env).CLAUDE_AUTOCOMPACT_PCT_OVERRIDE;
+  const plan = pctPlan(root);
   add({
     id: 'pct',
     scope: opts.project ? 'project' : 'user',
     what: `${pctFile}: env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE (${opts.project ? 'this project only' : 'GLOBAL, every project; use --project for this project only'})`,
     current: pctNow ?? null,
-    recommended: PCT,
-    why: 'compacts early so a lead session never works near a full context',
-    ok: String(pctNow) === PCT,
+    recommended: plan.recommended,
+    why: `compacts early, but above thresholds.ctxHandoff (${plan.handoff}) so the context guard sees the threshold first (window ${plan.window})`,
+    ok: plan.ok(pctNow),
   });
   add({
     id: 'idle',
@@ -413,8 +440,8 @@ function apply(cwd, ids, opts = {}) {
         settings.statusLine = next;
       } else if (it.id === 'pct') {
         settings.env = settings.env && typeof settings.env === 'object' ? settings.env : {};
-        set('env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE (global)', settings.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE, PCT);
-        settings.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE = PCT;
+        set('env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE (global)', settings.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE, it.recommended);
+        settings.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE = it.recommended;
       } else if (it.id === 'idle') {
         set('idleCompaction', settings.idleCompaction, false);
         settings.idleCompaction = false;
@@ -444,8 +471,8 @@ function apply(cwd, ids, opts = {}) {
         diff.push(`backup: ${bak}`);
       }
       settings.env = settings.env && typeof settings.env === 'object' ? settings.env : {};
-      diff.push(`- env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE (project): ${JSON.stringify(settings.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE ?? null)}\n+ env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE (project): ${JSON.stringify(PCT)}`);
-      settings.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE = PCT;
+      diff.push(`- env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE (project): ${JSON.stringify(settings.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE ?? null)}\n+ env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE (project): ${JSON.stringify(it.recommended)}`);
+      settings.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE = it.recommended;
       fs.mkdirSync(path.dirname(file), { recursive: true });
       fs.writeFileSync(file, JSON.stringify(settings, null, 2) + '\n');
       continue;

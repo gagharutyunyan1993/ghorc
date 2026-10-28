@@ -10,7 +10,23 @@ over with a READY/STOP protocol. Parameters come from `.claude/ghorc.json`: `lea
 - Context reaches `thresholds.ctxHandoff` (150K) at a package boundary, or ~170K at the nearest stage boundary.
 - From `thresholds.ctxPrepare` (120K): refresh STATE.md at a stage boundary.
 - The lead reads its context with `node "<plugin>/scripts/ctx.cjs" --session <id>` (id from the SessionStart line or
-  the `#id` status segment). The thresholds are instructions, not enforced by a script.
+  the `#id` status segment).
+
+## The context guard
+
+`scripts/context-guard.cjs` (UserPromptSubmit, PreToolUse on every tool, Stop) enforces the thresholds for the lead
+only (not subagents, not `GHORC_ROLE=worker`). It reads the status line ctx file, so the status line must be set up.
+
+- From `ctxPrepare`: an "update STATE" line; from `ctxWarn` (default `ctxHandoff` - 10K): "prepare the handoff".
+  The transcript size (`watchdog.warnMiB`) and unread watchdog alerts are added as lines; they never block.
+- From `ctxHandoff`: handoff mode, kept by a flag file `<tmp>/ghorc-<user>/handoff-<session_id>.json`. Compaction does
+  not clear it; a new session id (after `/clear`) has no flag. The mode denies a new Agent (SendMessage still works)
+  and Edit/Write/NotebookEdit outside `handoff.statePath` and `handoff.handoffPath`; Bash, Read and MCP tools stay
+  allowed with a reminder.
+- Stop blocks until STATE is newer than the flag (at most 2 blocks, never when `stop_hook_active`), then lets the turn
+  end with a "/clear" reminder; after 2 blocks it ends with a message to the owner.
+- No ctx file, or one older than 10 minutes, and no flag: it only warns (fail-open).
+
 
 ## Without herdr
 

@@ -21,6 +21,7 @@ Filled in once in the project config, only read here:
 ## Triggers
 - Context >= `thresholds.ctxHandoff` (150K) at a package boundary: hand over. ~170K - at the nearest stage boundary. Context comes from `node "${CLAUDE_PLUGIN_ROOT}/scripts/ctx.cjs" --session <id>` (id from the SessionStart line or the `#id` status segment).
 - From `thresholds.ctxPrepare` (120K): refresh STATE at a stage boundary.
+- The context guard hook enforces this: from `ctxHandoff` it denies new Agent calls and edits outside `handoff.statePath` / `handoff.handoffPath` (the flag survives compaction), and Stop waits until STATE is newer than the crossing, so write STATE first. A new session after `/clear` starts clean.
 - If the candidate context is large from the start, diagnose the startup instructions instead of rotating again.
 
 ## HANDOFF template (at most 50 lines; `templates/HANDOFF.md`)

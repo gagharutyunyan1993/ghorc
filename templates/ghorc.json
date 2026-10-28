@@ -8,8 +8,9 @@
   "_comment_heavyCommands": "Regexes of commands subagents may not run, e.g. \"^npm\\s+run\\s+test:e2e\\b\". /ghorc:setup proposes them.",
   "heavyCommands": [],
   "thresholds": {
-    "_comment": "Lead context in tokens: ctxPrepare - refresh STATE; ctxHandoff - hand the shift over.",
+    "_comment": "Lead context in tokens (enforced by the context guard hook): ctxPrepare - refresh STATE; ctxWarn - prepare the handoff (0 = ctxHandoff - 10000); ctxHandoff - handoff mode, hand the shift over.",
     "ctxPrepare": 120000,
+    "ctxWarn": 0,
     "ctxHandoff": 150000
   },
   "watchdog": {

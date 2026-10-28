@@ -154,12 +154,14 @@ opus-5.5, so a call that omits effort never lands on low or high by accident.
 | Value | Source | Action |
 |---|---|---|
 | 120K tokens | `thresholds.ctxPrepare` | refresh STATE at the next stage boundary |
-| 150K tokens | `thresholds.ctxHandoff` | take no new package; `/ghorc:handoff` at the package boundary |
-| ~170K tokens | rule 11 | hand over at the nearest stage boundary |
-| 18 | `env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` | context fill percentage at which autocompaction runs |
+| 140K tokens | `thresholds.ctxWarn` (default `ctxHandoff` - 10K) | prepare the handoff; take no new package |
+| 150K tokens | `thresholds.ctxHandoff` | handoff mode: no new agent, edits only to STATE/HANDOFF; `/ghorc:handoff` |
+| 17 | `env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` | context fill percentage at which autocompaction runs |
 
-The token thresholds are applied by the lead (skills), not enforced by a script. The 18 is a percentage of the
-context window: check `context_window_size` in `ctx.cjs` (18% of 1M is about 180K; of 200K about 36K).
+The token thresholds are enforced by the context guard hook for the lead ([handoff.md](handoff.md#the-context-guard)).
+The autocompact percentage is of the context window and must compact above `ctxHandoff`: `setup` recommends
+`ctxHandoff` + 20K as a share of the window, rounded up (17% of 1M is 170K; of 200K 85%); a value at or below
+`ctxHandoff` is reported as wrong.
 
 ## Brief
 
@@ -220,7 +222,7 @@ not the conversation. While a background `full` runs, the lead waits for the not
 |---|---|---|
 | `statusLine` | `~/.claude/settings.json` | `node "<plugin>/scripts/statusline.cjs"`, `refreshInterval` 30 |
 | `statusLineStale` | `~/.claude/settings.json` | check only: older plugin-cache path; same fix as `statusLine` |
-| `pct` | global `settings.json`; `--project`: `settings.local.json` | `env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` = `"18"` |
+| `pct` | global `settings.json`; `--project`: `settings.local.json` | `env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` = `"17"` (computed from `ctxHandoff` and the window) |
 | `idle` | `~/.claude/settings.json` | `idleCompaction` = `false` (no compaction while the lead waits) |
 | `model` (owner decision) | `~/.claude/settings.json` | `model` = `lead.model` |
 | `effort` (owner decision) | `~/.claude/settings.json` | `modelSettings.<lead model id>.effortLevel` = `lead.effort` (full id, e.g. `claude-opus-5-5`; no top-level `effortLevel`) |

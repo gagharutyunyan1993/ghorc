@@ -15,7 +15,7 @@ exception: show its report in full.
 
 Report: role (`lead` unless `GHORC_ROLE` says otherwise), guards active (read guard, heavy guard), heavy patterns
 (count, or "none: the heavy guard denies nothing"), watchdog (on/off, running or not), context (tokens against
-`thresholds.ctxPrepare` and `ctxHandoff`), denials (last 5, counts per hook). Name what is missing and the fix
+`thresholds.ctxPrepare`, `ctxWarn` and `ctxHandoff`; handoff mode is on when `<tmp>/ghorc-<user>/handoff-<session_id>.json` exists), denials (last 5, counts per hook). Name what is missing and the fix
 (`/ghorc:setup`). Change nothing, except `--verdict` (see Ledger), which appends one ledger line.
 
 ## Ledger

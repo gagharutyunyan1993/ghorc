@@ -1,5 +1,5 @@
 {
-  "description": "ghorc: read guard (Read, MCP captures; reset on Edit/Write), heavy check guard, session reminder, call ledger (PostToolUse Agent, SubagentStop)",
+  "description": "ghorc: read guard (Read, MCP captures; reset on Edit/Write), heavy check guard, context guard (UserPromptSubmit, PreToolUse, Stop), session reminder, call ledger (PostToolUse Agent, SubagentStop)",
   "hooks": {
     "SessionStart": [
       {
@@ -10,6 +10,11 @@
     ],
     "PreToolUse": [
       {
+        "hooks": [
+          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/context-guard.cjs\"", "timeout": 5 }
+        ]
+      },
+      {
         "matcher": "Read|mcp__.*(screenshot|snapshot|take_screenshot|read_page)",
         "hooks": [
           { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/read-guard.cjs\"", "timeout": 5 }
@@ -19,6 +24,20 @@
         "matcher": "Bash|PowerShell",
         "hooks": [
           { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/heavy-check-guard.cjs\"", "timeout": 5 }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/context-guard.cjs\"", "timeout": 5 }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/context-guard.cjs\"", "timeout": 5 }
         ]
       }
     ],

@@ -21,7 +21,8 @@
   },
   "thresholds": {
     "ctxPrepare": 120000,
-    "ctxHandoff": 150000
+    "ctxHandoff": 150000,
+    "ctxWarn": 0
   },
   "lead": {
     "model": "opus",

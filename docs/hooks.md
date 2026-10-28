@@ -1,6 +1,6 @@
 # Hooks, status line, watchdog and scripts
 
-ghorc registers four hook scripts (the call ledger has two entries) in `hooks/hooks.json`. They are plain Node.js, make no network calls and never
+ghorc registers five hook scripts (the call ledger has two entries) in `hooks/hooks.json`. They are plain Node.js, make no network calls and never
 rewrite a command or a file: a PreToolUse hook either stays silent (the call proceeds) or prints a deny decision with a
 reason. Every deny is also appended to the denial log (below).
 
@@ -99,6 +99,19 @@ It prints `config: <path>`, any `ERROR:` lines (invalid JSON, unknown key, wrong
 `HEAVY (<pattern>)` or `ordinary`. On a config error SessionStart prints one `config invalid:` line and the heavy guard
 denies as above; an unknown key alone prints `config warning:` and denies nothing. Validation results are cached by
 file mtime and size in `<tmp>/ghorc-<user>/config-valid.json`.
+
+## context-guard.cjs
+
+**When it fires.** UserPromptSubmit, PreToolUse on every tool, and Stop; for the lead only (no `agent_id`, not
+`GHORC_ROLE=worker`).
+
+**What it does.** See [handoff.md](handoff.md#the-context-guard): stage lines at `ctxPrepare` / `ctxWarn`; handoff mode
+at `ctxHandoff` (sticky flag; denies a new Agent and edits outside STATE/HANDOFF; Stop blocks until STATE is updated,
+at most 2 times). Secondary signals that never block: transcript size against `watchdog.warnMiB` and unread watchdog
+alerts (PreToolUse at most every 5 minutes). Without a fresh ctx file (younger than 10 minutes) and without a flag it
+only warns. The flag and its throttle state live in `<tmp>/ghorc-<user>`; a deny is logged to `denials.log`.
+
+**How to disable or loosen.** Raise `thresholds.ctxHandoff`, or disable the plugin.
 
 ## ledger.cjs
 

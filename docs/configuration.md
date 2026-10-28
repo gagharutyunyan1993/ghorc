@@ -69,8 +69,11 @@ project with `test` and `test:full` gets `test:full` proposed even when `npm tes
 `requireLeadEnv` (false): when true, heavy commands are also denied unless the process has `GHORC_ROLE=lead`.
 
 ### thresholds
-Lead context in tokens. `ctxPrepare` (120000): refresh STATE.md. `ctxHandoff` (150000): take no new package and hand
-the shift over (skill `ghorc:handoff`).
+Lead context in tokens, enforced by the context guard hook (`scripts/context-guard.cjs`, [hooks.md](hooks.md)).
+`ctxPrepare` (120000): the guard adds an "update STATE" line. `ctxWarn` (0 = `ctxHandoff` - 10000): "prepare the
+handoff, take no new packages". `ctxHandoff` (150000): handoff mode - no new agent, edits only to `handoff.statePath`
+and `handoff.handoffPath`, Stop waits for the STATE update (skill `ghorc:handoff`). Set autocompact above `ctxHandoff`
+(`/ghorc:setup` item `pct`), otherwise a compaction resets the counter before the guard reacts.
 
 ### lead
 `model` (`opus`) and `effort` (`medium`): used by `/ghorc:handoff` for the candidate and by `/ghorc:setup`. Effort precedence: env `CLAUDE_CODE_EFFORT_LEVEL` > per-call `effort` > role frontmatter > session; keep the variable unset and pass `effort` on every Agent call. Global advice: no top-level `effortLevel` in `~/.claude/settings.json`; per-model medium for sonnet-5.5 and opus-5.5.
