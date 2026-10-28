@@ -38,8 +38,8 @@ opus / high).
 - Small things (at most 2 commands, output at most 100 lines) - do them yourself; the rest goes to agents, large output
   to a file.
 - Context thresholds (`node "<plugin>/scripts/ctx.cjs" --session <id>`, id from SessionStart or the `#id` status
-  segment): 120K - refresh STATE; 150K - take no new package, skill `ghorc:handoff`; ~170K - hand over at a stage
-  boundary.
+  segment): 120K - refresh STATE; 140K - prepare the handoff, take no new package; 150K - handoff mode, skill
+  `ghorc:handoff`.
 - A brief is written with skill `ghorc:brief`; an ordinary one is at most 500 words. An agent report is at most 25 lines
   (review at most 30), large output to a file.
 - Review: at most 3 rounds; a second CHANGES_REQUIRED means the lead changes the task statement.

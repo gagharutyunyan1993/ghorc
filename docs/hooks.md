@@ -54,7 +54,9 @@ plugin (`claude plugin disable ghorc@ghorc`).
 
 **What it checks.**
 
-- Always, for subagents and workers: `claude -p`, `herdr agent start`, `herdr agent prompt` are denied.
+- Always, for subagents and workers: `claude -p`, `herdr agent start|prompt|send-keys` and
+  `herdr pane run|send-keys|send-text` are denied. The lead may use them (it sends prompts and the handoff ACTIVATE with
+  `herdr pane run`). An env prefix, `env`, `bash -c` and a path to the binary do not get around the deny.
 - A command matching `heavyCommands` is denied when a subagent or a `GHORC_ROLE=worker` session runs it. The lead
   runs it freely, unless `heavyGuard.requireLeadEnv` is true and the session lacks `GHORC_ROLE=lead`.
 - If `.claude/ghorc.json` is invalid (JSON error, wrong type, bad regex), it denies every heavy command for everyone,
@@ -66,7 +68,7 @@ plugin (`claude plugin disable ghorc@ghorc`).
 ```
 only the lead runs heavy checks.
 only the lead runs heavy checks (GHORC_ROLE=lead is not set).
-subagents and workers may not start other agents (claude -p, herdr agent start/prompt): ask the lead.
+subagents and workers may not start other agents (claude -p, herdr agent start/prompt/send-keys, herdr pane run/send-keys/send-text): ask the lead.
 config invalid: <reason>. Heavy-command rules cannot be trusted: fix .claude/ghorc.json (node scripts/check-config.cjs).
 ```
 

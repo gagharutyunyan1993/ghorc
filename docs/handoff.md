@@ -7,7 +7,8 @@ over with a READY/STOP protocol. Parameters come from `.claude/ghorc.json`: `lea
 
 ## When
 
-- Context reaches `thresholds.ctxHandoff` (150K) at a package boundary, or ~170K at the nearest stage boundary.
+- From `thresholds.ctxWarn` (140K): prepare the handoff and take no new package. At `thresholds.ctxHandoff` (150K):
+  hand the shift over (handoff mode: no new agents, edits only to STATE and HANDOFF).
 - From `thresholds.ctxPrepare` (120K): refresh STATE.md at a stage boundary.
 - The lead reads its context with `node "<plugin>/scripts/ctx.cjs" --session <id>` (id from the SessionStart line or
   the `#id` status segment).
@@ -61,7 +62,10 @@ herdr agent read lead-next
 
    `<permArgs>` is `handoff.candidatePermissionArgs`; model and effort come from `lead.model` and `lead.effort`. The
    candidate may start with `GHORC_ROLE=lead` (optional: a plain main session is already the lead). Whether herdr
-   passes the variable to the child session is not verified: check the candidate's SessionStart line.
+   passes the variable to the child session is not verified: check the candidate's SessionStart line. A herdr worker
+   that did not receive `GHORC_ROLE=worker` looks like a lead to the context guard: at 150K it would be put in handoff
+   mode and asked to update `handoff.statePath` (the lead's STATE in the main checkout), so verify the variable live
+   when installing 0.7.0.
 
 3. **READY:** the candidate answers `READY handoff=<id>`, the state path, the next action, restrictions and
    discrepancies. With discrepancies the old lead fixes HANDOFF and asks again in the same tab. The old lead polls

@@ -100,7 +100,9 @@ function writeFlag(sid, flag) {
 function handoffSentBy(file, sid) {
   try {
     const text = fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, '');
-    if (!/(^|\s)status:\s*SENT\b/im.test(text)) return false;
+    // the header comes first (fields may share a line): only the FIRST `status:` counts, prose further down does not
+    const status = /(^|\s)status:\s*(\w+)/im.exec(text);
+    if (!status || status[2].toUpperCase() !== 'SENT') return false;
     const old = /(^|\s)old_session_id:\s*(\S+)/im.exec(text);
     return Boolean(old) && old[2] === String(sid);
   } catch {

@@ -89,7 +89,7 @@ agents are namespaced by Claude Code, so they cannot collide with your own.
    instruction; the hook enforces it only with `GHORC_ROLE=lead`.
 10. The lead does not write package code, does not run checks synchronously, does not poll agents.
 11. The lead reads its context with `ctx.cjs --session <id>` at a stage boundary: 120K - refresh STATE; 150K - take
-    no new package, hand the shift over; ~170K - hand over at the nearest stage boundary.
+    no new package, hand the shift over; 140K (`ctxWarn`) - prepare the handoff.
 12. Do not pull large output in; if it was pulled in, the owner runs `/rewind`. The lead does not use `/clear`.
 13. In chat at most 25 lines; an agent report at most 25 lines (review at most 30); anything large goes to a file.
 14. A brief is one tagged structure: ordinary at most 500 words, critical review at most 800; over 200 lines is a

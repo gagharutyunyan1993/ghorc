@@ -21,6 +21,10 @@
   old tab is a mandatory verified step 6 (`herdr agent wait` idle, `MSYS_NO_PATHCONV=1 herdr pane run <pane> "/exit"`, the
   pane is gone from `herdr pane list`). The Stop context guard stays silent once HANDOFF says `status: SENT` for the
   session, so the old lead can go idle.
+- `heavy-check-guard`: the built-in subagent/worker deny now also covers `herdr pane run|send-keys|send-text` and
+  `herdr agent send-keys` (the prompt channels of the lead), also behind an env prefix, `env`, `bash -c` or a binary path;
+  the lead is not affected. `cleanup` removes `handoff-*.json` flags older than `maxAgeDays`. Context lines round the
+  token count down (149999 reads 149K). Only the first `status:` of HANDOFF counts for a SENT header.
 
 ## 0.6.1 - 2026-10-16
 

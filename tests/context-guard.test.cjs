@@ -258,3 +258,92 @@ test('setup pct: recommended is above ctxHandoff, a value at or below it is wron
   fs.writeFileSync(path.join(proj, '.claude', 'ctx-w.json'), JSON.stringify({ context_window_size: 200000 }));
   assert.match(pctLine(), /-> "85"/);
 });
+
+// ---- review round 1 (E300) ----
+
+const hbash = (cwd, command, extra = {}) =>
+  runScript('heavy-check-guard.cjs', { hook_event_name: 'PreToolUse', session_id: sid(), cwd, tool_name: 'Bash', tool_input: { command }, ...extra }, { env: extra.env });
+
+test('P1-1: a subagent and a worker may not put text or keys into another pane, however the command is written', () => {
+  const cwd = tmpProject({});
+  const forbidden = [
+    'herdr pane run w1:p2 "ACTIVATE h-1"',
+    'MSYS_NO_PATHCONV=1 herdr pane run w1:p2 "/exit"',
+    'env MSYS_NO_PATHCONV=1 herdr pane run w1:p2 "/exit"',
+    'bash -c "MSYS_NO_PATHCONV=1 herdr pane run w1:p2 /exit"',
+    "sh -c 'herdr pane run w1:p2 hi'",
+    'cd x && herdr pane run w1:p2 hi',
+    'echo y | herdr pane run w1:p2 hi',
+    'command herdr pane run w1:p2 hi',
+    'herdr.exe pane run w1:p2 hi',
+    '/c/Tools/herdr pane run w1:p2 hi',
+    'herdr --no-color pane run w1:p2 hi',
+    'herdr pane send-keys w1:p2 hi enter',
+    'herdr pane send-text w1:p2 hi',
+    'herdr agent send-keys lead-next enter',
+    'herdr agent prompt lead-next hi',
+    'herdr agent start lead-next --kind claude',
+  ];
+  for (const c of forbidden) {
+    assert.equal(isDeny(hbash(cwd, c, { agent_id: 'ag1' })), true, `subagent: ${c}`);
+    assert.equal(isDeny(hbash(cwd, c, { env: { GHORC_ROLE: 'worker' } })), true, `worker: ${c}`);
+    assert.equal(isDeny(hbash(cwd, c)), false, `lead: ${c}`); // the lead hands the shift over with these
+    assert.equal(isDeny(hbash(cwd, c, { env: { GHORC_ROLE: 'lead' } })), false, `lead role: ${c}`);
+  }
+  for (const c of ['herdr pane list', 'herdr pane read w1:p2', 'herdr agent list', 'herdr agent get x', 'herdr agent read x', 'herdr agent wait x --until idle', 'echo herdr pane run']) {
+    assert.equal(isDeny(hbash(cwd, c, { agent_id: 'ag1' })), false, `read-only: ${c}`);
+  }
+  assert.match(JSON.parse(hbash(cwd, 'herdr pane run p x', { agent_id: 'a' }).out).hookSpecificOutput.permissionDecisionReason, /herdr pane run/);
+});
+
+test('P2-1: only the first status: counts; prose with "status: SENT" in a DRAFT file does not silence Stop', () => {
+  const { cwd, s } = project(160000);
+  const hp = path.join(cwd, 'HANDOFF.md');
+  fs.writeFileSync(hp, `# HANDOFF\nhandoff_id: h-1   status: DRAFT   old_session_id: ${s}\nnote: after ACTIVATE write status: SENT\n`);
+  assert.equal(cg.handoffSentBy(hp, s), false, 'prose after a DRAFT header');
+  assert.equal(blocks(call(hook(cwd, s, 'Stop', { stop_hook_active: false }))), true, 'Stop still blocks');
+  fs.writeFileSync(hp, `handoff_id: h-1   status: SENT   old_session_id: ${s}\nnote: status: DRAFT is the first state\n`);
+  assert.equal(cg.handoffSentBy(hp, s), true, 'a real SENT header, also with prose below and fields on one line');
+  fs.writeFileSync(hp, `handoff_id: h-1\nstatus: sent\nold_session_id: ${s}\n`);
+  assert.equal(cg.handoffSentBy(hp, s), true, 'case-insensitive');
+  fs.writeFileSync(hp, `handoff_id: h-1\nstatus: SENTINEL\nold_session_id: ${s}\n`);
+  assert.equal(cg.handoffSentBy(hp, s), false, 'SENT is a whole word');
+});
+
+test('P2-3: the K in the lines is rounded down, so 149999 is 149K and never reads as the 150K threshold', () => {
+  const a = project(149999);
+  assert.match(ctxText(call(hook(a.cwd, a.s, 'UserPromptSubmit'))), /^Context 149K.*prepare the handoff now/);
+  const b = project(139999);
+  assert.match(ctxText(call(hook(b.cwd, b.s, 'UserPromptSubmit'))), /^Context 139K.*update STATE/);
+});
+
+test('P2-4: MultiEdit is an edit tool; the path compare ignores case on Windows; the flag is written exactly at ctxHandoff', () => {
+  const { cwd, s } = project(160000);
+  assert.equal(isDeny(call(pre(cwd, s, 'MultiEdit', { file_path: path.join(cwd, 'a.js') }))), true, 'MultiEdit outside STATE');
+  assert.equal(isDeny(call(pre(cwd, s, 'MultiEdit', { file_path: path.join(cwd, 'STATE.md') }))), false, 'MultiEdit on STATE');
+  if (process.platform === 'win32') {
+    assert.equal(isDeny(call(pre(cwd, s, 'Edit', { file_path: path.join(cwd, 'STATE.md').toUpperCase() }))), false, 'case-insensitive on Windows');
+  }
+  const exact = project(150000);
+  call(pre(exact.cwd, exact.s, 'Bash', { command: 'ls' }));
+  assert.ok(cg.readFlag(exact.s), 'the flag exists at exactly 150000');
+  const below = project(149999);
+  call(pre(below.cwd, below.s, 'Bash', { command: 'ls' }));
+  assert.equal(cg.readFlag(below.s), null, 'and not at 149999');
+});
+
+test('P2-5: cleanup removes handoff-*.json flags older than maxAgeDays and keeps fresh ones', () => {
+  const cwd = tmpProject({});
+  const dir = tmpLib.tmpDir();
+  fs.mkdirSync(dir, { recursive: true });
+  const oldF = path.join(dir, 'handoff-cleanup-old.json');
+  const newF = path.join(dir, 'handoff-cleanup-new.json');
+  fs.writeFileSync(oldF, '{}');
+  fs.writeFileSync(newF, '{}');
+  const t = new Date(Date.now() - 8 * 24 * 3600 * 1000);
+  fs.utimesSync(oldF, t, t);
+  tmpLib.cleanup(cwd);
+  assert.equal(fs.existsSync(oldF), false, 'old flag removed');
+  assert.equal(fs.existsSync(newF), true, 'fresh flag kept');
+  fs.rmSync(newF, { force: true });
+});

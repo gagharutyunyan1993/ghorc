@@ -165,7 +165,7 @@ function denials(n = 5) {
   return out;
 }
 
-// Deletes ctx-*.json (and stray temp files) under <root>/.claude, plus session state dirs and alert offsets in the tmp dir,
+// Deletes ctx-*.json (and stray temp files) under <root>/.claude, plus session state dirs, alert offsets and handoff flags (handoff-*.json) in the tmp dir,
 // when older than maxAgeDays. Returns the number of removed entries. Never throws.
 function cleanup(root, maxAgeDays = 7, now = Date.now()) {
   let n = 0;
@@ -213,7 +213,7 @@ function cleanup(root, maxAgeDays = 7, now = Date.now()) {
     for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
       const p = path.join(dir, e.name);
       if (e.isDirectory() && old(p)) rm(p);
-      else if (e.isFile() && (/\.offset$/.test(e.name) || /\.tmp$/.test(e.name)) && old(p)) rm(p);
+      else if (e.isFile() && (/\.offset$/.test(e.name) || /\.tmp$/.test(e.name) || /^handoff-.*\.json$/.test(e.name)) && old(p)) rm(p);
     }
   } catch {
     /* no directory */

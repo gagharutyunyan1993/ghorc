@@ -10,7 +10,12 @@
 // backslash is plain text, the -Command argument runs to the last quote); a segment found either way counts.
 
 // Subagent-only denies, built in (not from config).
-const BUILTIN_SUBAGENT_DENY = [/^\s*claude\b.*\s(?:-p|--print)\b/i, /^\s*herdr\s+agent\s+start\b/i, /^\s*herdr\s+agent\s+prompt\b/i];
+// herdr: starting an agent, and every way to put text or keys into another pane (the lead's prompt channel).
+const HERDR = String.raw`^\s*(?:\S*[\\/])?herdr(?:\.exe)?(?:\s+--?[\w-]+(?:=\S+)?)*\s+`;
+const BUILTIN_SUBAGENT_DENY = [
+  /^\s*claude\b.*\s(?:-p|--print)\b/i,
+  new RegExp(`${HERDR}(?:agent\\s+(?:start|prompt|send-keys)|pane\\s+(?:run|send-keys|send-text))\\b`, 'i'),
+];
 
 // Used only while the project config is invalid (the owner's heavyCommands cannot be trusted or read).
 const DEFAULT_HEAVY = [
@@ -30,7 +35,7 @@ const RUNNER_PREFIX = /^(?:npm\s+run|npx)\s+/i;
 // Shell wrappers that run their argument as a command line.
 const SHELLS = String.raw`(?:bash|sh|zsh|dash|cmd|powershell|pwsh)(?:\.exe)?`;
 const WRAPPER_PREFIX = new RegExp(
-  String.raw`^(?:${SHELLS}(?:\s+(?:[-/][\w:-]+|\w+))*?\s+(?:-l?c|/c|/k|-command)\s+|call\s+|time\s+|exec\s+)`,
+  String.raw`^(?:${SHELLS}(?:\s+(?:[-/][\w:-]+|\w+))*?\s+(?:-l?c|/c|/k|-command)\s+|call\s+|time\s+|exec\s+|env\s+(?:-\w+\s+)*|command\s+|nohup\s+)`,
   'i',
 );
 const BASH_DQ = String.raw`"(?:[^"\\]|\\.)*"`;

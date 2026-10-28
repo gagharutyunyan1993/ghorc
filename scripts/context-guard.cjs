@@ -30,7 +30,7 @@ const STALE_WARN_EVERY_MS = 30 * 60 * 1000;
 const EDIT_TOOLS = new Set(['Edit', 'Write', 'NotebookEdit', 'MultiEdit']);
 const AGENT_TOOLS = new Set(['Agent', 'Task']);
 
-const kTokens = (n) => (typeof n === 'number' ? `${Math.round(n / 1000)}K` : '?K');
+const kTokens = (n) => (typeof n === 'number' ? `${Math.floor(n / 1000)}K` : '?K');
 const mib = (input) => {
   try {
     return input.transcript_path ? fs.statSync(input.transcript_path).size / 1048576 : null;

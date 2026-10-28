@@ -11,7 +11,7 @@ if (process.argv.includes('--help')) {
       '(split on && || ; | & newline ( ) { } $( and backticks; quoted text ignored except a shell wrapper argument such as ' +
       'bash -c "..." / cmd /c / powershell -Command and substitutions in double quotes), anchored at the segment start after ' +
       'env assignments, shell wrappers, npm global options and npm run/npx. ' +
-      'Built in for subagents and workers: claude -p/--print, herdr agent start, herdr agent prompt (also with an invalid config). ' +
+      'Built in for subagents and workers: claude -p/--print, herdr agent start/prompt/send-keys, herdr pane run/send-keys/send-text (also with an invalid config; the lead may use them). ' +
       'heavyGuard.requireLeadEnv=true: also denies without GHORC_ROLE=lead. ' +
       'Every deny is appended to <tmp>/ghorc-<user>/denials.log. An invalid project config makes it deny the built-in default heavy commands, with the reason. No project config: nothing is denied.',
   );
@@ -30,7 +30,7 @@ run((input) => {
   const ps = { powershell: input.tool_name === 'PowerShell' };
   const sub = Boolean(input.agent_id) || process.env.GHORC_ROLE === 'worker';
   if (sub && matches(command, BUILTIN_SUBAGENT_DENY, ps)) {
-    return deny('subagents and workers may not start other agents (claude -p, herdr agent start/prompt): ask the lead.');
+    return deny('subagents and workers may not start other agents (claude -p, herdr agent start/prompt/send-keys, herdr pane run/send-keys/send-text): ask the lead.');
   }
 
   if (cfg.invalid) {
