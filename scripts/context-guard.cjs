@@ -151,6 +151,7 @@ run((input) => {
 
   // Stop
   if (!flag) return;
+  if (cg.handoffSentBy(handoffPath, sid)) return; // status SENT of this session: the old lead must go idle, say nothing
   let stateMtime = null;
   try {
     stateMtime = fs.statSync(statePath).mtimeMs;

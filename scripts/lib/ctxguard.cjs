@@ -94,4 +94,18 @@ function writeFlag(sid, flag) {
   return flag;
 }
 
-module.exports = { STALE_MS, thresholds, stageOf, readCtx, newestWindowSize, flagFile, readFlag, writeFlag, safeId };
+// true when the handoff file says `status: SENT` and its `old_session_id` is this session: the old lead has handed the
+// shift over and must be allowed to go idle (the new lead waits for that to close the old tab). A SENT file of an
+// earlier handoff (another old_session_id) does not count. BOM-tolerant; fail-open (false).
+function handoffSentBy(file, sid) {
+  try {
+    const text = fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, '');
+    if (!/(^|\s)status:\s*SENT\b/im.test(text)) return false;
+    const old = /(^|\s)old_session_id:\s*(\S+)/im.exec(text);
+    return Boolean(old) && old[2] === String(sid);
+  } catch {
+    return false;
+  }
+}
+
+module.exports = { STALE_MS, handoffSentBy, thresholds, stageOf, readCtx, newestWindowSize, flagFile, readFlag, writeFlag, safeId };

@@ -169,6 +169,33 @@ test('Stop: a repeated Stop does not loop (stop_hook_active, and at most 2 block
   assert.equal(blocks(stop()), false, 'and it stays released');
 });
 
+test('Stop: HANDOFF status SENT of this session is silent even with an old STATE; a SENT of another session or DRAFT is not', () => {
+  const { cwd, s } = project(160000);
+  const hp = path.join(cwd, 'HANDOFF.md');
+  const stop = () => call(hook(cwd, s, 'Stop', { stop_hook_active: false }));
+  fs.writeFileSync(hp, `\uFEFF# HANDOFF
+handoff_id: h-1
+status: DRAFT
+old_session_id: ${s}
+`);
+  assert.equal(blocks(stop()), true, 'DRAFT');
+  fs.writeFileSync(hp, `handoff_id: h-0
+status: SENT
+old_session_id: other-session
+`);
+  assert.equal(blocks(stop()), true, 'a SENT file of another session');
+  fs.writeFileSync(hp, `\uFEFF# HANDOFF
+handoff_id: h-1
+status: SENT
+old_session_id: ${s}
+`);
+  const r = stop();
+  assert.equal(r.out, '', 'SENT of this session: no block and no message');
+  assert.equal(cg.handoffSentBy(hp, s), true);
+  assert.equal(cg.handoffSentBy(hp, 'x'), false);
+  assert.equal(cg.handoffSentBy(path.join(cwd, 'none.md'), s), false, 'no file');
+});
+
 test('Stop below the threshold and without a flag never blocks', () => {
   const { cwd, s } = project(110000);
   assert.equal(call(hook(cwd, s, 'Stop', { stop_hook_active: false })).out, '');

@@ -15,6 +15,12 @@
 - `setup`: the recommended autocompact percentage is `ctxHandoff` + 20K as a share of the window, rounded up (17 for a
   1M window, was a fixed 18); a value that compacts at or below `ctxHandoff` is reported as wrong, so a compaction
   cannot reset the counter before the guard reacts.
+- skill `ghorc:handoff`: ACTIVATE and any prompt to the candidate or a worker go through `herdr pane run <pane_id> "<text>"`,
+  sent by the old lead itself (never the owner); delivery is checked by status `working` or "running UserPromptSubmit
+  hooks", not by the input field (`herdr agent prompt`/`send-keys enter` could leave a grey suggestion unsent). Closing the
+  old tab is a mandatory verified step 6 (`herdr agent wait` idle, `MSYS_NO_PATHCONV=1 herdr pane run <pane> "/exit"`, the
+  pane is gone from `herdr pane list`). The Stop context guard stays silent once HANDOFF says `status: SENT` for the
+  session, so the old lead can go idle.
 
 ## 0.6.1 - 2026-10-16
 

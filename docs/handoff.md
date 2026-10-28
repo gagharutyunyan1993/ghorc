@@ -46,7 +46,7 @@ messages written to STATE before the candidate starts. STATE.md is written first
 `in_flight`, `unanswered_owner_messages` (verbatim, with time), `head` (git HEAD) and `seq` (+1 on every write), and
 the `handoff_id` copied into it.
 
-**Sequence** (never use `--wait` on `herdr agent prompt`):
+**Sequence** (prompts go through `herdr pane run <pane_id> "<text>"`; pane id from `herdr agent get lead-next`; never use `--wait`):
 
 1. Fill `handoff.handoffPath` from `templates/HANDOFF.md` (at most 50 lines), `status: DRAFT`.
 2. Start the candidate in a new tab, prompt it (the skill has the full prompt text), wait for READY, read:
@@ -54,7 +54,7 @@ the `handoff_id` copied into it.
 ```
 herdr tab create
 herdr agent start lead-next --kind claude -- --model opus --effort medium <permArgs>
-herdr agent prompt lead-next "Read HANDOFF.md, verify it against git, answer READY handoff=<id>; wait for ACTIVATE."
+herdr pane run <pane_id> "Read HANDOFF.md, verify it against git, answer READY handoff=<id>; wait for ACTIVATE."
 herdr agent wait lead-next --until idle,blocked
 herdr agent read lead-next
 ```
@@ -67,13 +67,20 @@ herdr agent read lead-next
    discrepancies. With discrepancies the old lead fixes HANDOFF and asks again in the same tab. The old lead polls
    `herdr agent get lead-next` every 60 s up to `handoff.readyTimeoutMin` (default 10) minutes.
 4. **ACTIVATE and STOP:** on an accepted READY the old lead writes `status: SENT` (STATE `seq` + 1), sends
-   `herdr agent prompt lead-next "ACTIVATE <handoff_id>"` as its last action (the owner does it when
-   `handoff.allowSendKeysExit` is `false`), prints `HANDOFF SENT - STOP` and does nothing more. `/exit` in the old tab
-   comes from the owner, or from the new lead via `herdr agent send-keys` when `allowSendKeysExit` is `true`.
+   `herdr pane run <pane_id> "ACTIVATE <handoff_id>"` (text plus Enter in one call) as its last action; it is always the
+   old lead, never the owner. Delivery is confirmed by status `working` or the line "running UserPromptSubmit hooks" in
+   `herdr agent read`, not by the text in the input field (a `❯ <text>` line can be a grey prompt suggestion); do not
+   press `esc esc`. Then it prints `HANDOFF SENT - STOP` and does nothing more; the Stop hooks stay silent once HANDOFF says
+   `status: SENT` for that session, so it goes idle.
 5. The candidate acts only on `ACTIVATE <id>` and refuses a different id. It re-reads STATE.md and refuses if `head`
    moved without a note or `seq` changed. It then waits until `herdr agent get` shows the old lead finished, reads the
    last owner message there with `herdr agent read`, answers every `unanswered_owner_messages` item, collects every
    `in_flight` item, and verifies SHA, branch and processes itself: READY is a report, not proof.
+6. **Closing the old tab** (mandatory and verified when `handoff.allowSendKeysExit` is `true`; otherwise the owner closes
+   it): right after ACTIVATE the new lead runs `herdr agent wait <old agent> --until idle`, then
+   `MSYS_NO_PATHCONV=1 herdr pane run <old_pane_id> "/exit"`, then checks that the pane is gone from `herdr pane list`.
+   Git Bash turns a slash command into a path (`/exit` becomes `C:/Program Files/Git/exit`), so every `herdr pane run` or
+   `send-keys` with a slash command carries `MSYS_NO_PATHCONV=1` (or runs from PowerShell).
 
 ## Guards
 
@@ -90,8 +97,8 @@ herdr agent read lead-next
 
 Set once in the project config and only read by the skill:
 
-- `handoff.allowSendKeysExit` (`false`): when `true`, the new lead may send `/exit` to the old tab through
-  `herdr agent send-keys`; otherwise the owner does it.
+- `handoff.allowSendKeysExit` (`false`): when `true`, the new lead closes the old tab itself (step 6: `/exit` through
+  `herdr pane run`); otherwise the owner does it.
 - `handoff.candidatePermissionArgs` (`[]`): permission-mode arguments for the candidate, for example
   `["--permission-mode", "acceptEdits"]`. Empty means default permissions, and the candidate may wait on a prompt.
-- The new lead closes the old tab only on the owner's word recorded in the config or STATE.
+- The new lead closes the old tab only with `allowSendKeysExit` `true` (the owner's word in the config) or the owner's word recorded in STATE.
