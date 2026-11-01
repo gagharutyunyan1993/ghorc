@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.8.0 - 2026-11-02
 
 ### Added
 - Sticky handoff, opt-in with `handoff.stickyOnCompact` (default false; off or absent, the compaction paths behave as
@@ -110,6 +110,17 @@ Two changes of this branch are not gated by `handoff.stickyOnCompact`:
 - `status: SENT` of the HANDOFF header is read through markdown noise (`**status:** SENT`, a comma-ended id), so a Stop
   that 0.7.0 blocked can now be silent, and only the first `status:` of the header counts.
 - A ctx file that is not valid JSON is reported as "found, bad JSON" (was "no ctx file").
+
+### Known
+- `in_flight` branch parsing (`scripts/lib/ctxguard.cjs:190`): a qualifier before bold or backticked `branch:` no longer
+  counts as a qualifier, so `- w1 base **branch:** develop, branch: feat/x` reads `develop` and `feat/x` (it read only
+  `feat/x`). Effect: with `handoff.pushGuard` on, a false deny while `develop` is unpushed; editing STATE clears it.
+- Capacity guard idle marker (`scripts/lib/capacity.cjs:47`): `<no-break space>Idle: reason` and `Idle`, a line break,
+  `: reason` are no longer accepted as an idle line (they were); the Stop is blocked until the line is retyped.
+- Linux, node 24 container (same on v0.7.0): `tests/v03.test.cjs` "setup.cjs: --check finds everything missing..." and
+  `tests/v051.test.cjs` "#17: applying statusLine..." fail when the checkout path does not contain `ghorc` (for example
+  `/w`): setup treats a status line command as ghorc's only when it matches `/ghorc/i`. Both pass in a directory named
+  `ghorc`. Not a product fault on a plugin installed as `ghorc`.
 
 ## 0.7.0 - 2026-11-02
 
