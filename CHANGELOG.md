@@ -2,11 +2,65 @@
 
 ## Unreleased
 
+### Added
+- Sticky handoff, opt-in with `handoff.stickyOnCompact` (default false; off or absent, the compaction paths behave as
+  in 0.7.0: no output and no flag on a compaction, Stop blocks at most 2 times and lets go once STATE is newer). On: a
+  compaction (`SessionStart`, source `compact`, new matcher entry in `hooks/hooks.json`) writes the same per-session
+  flag as crossing `ctxHandoff` (`handoff-<session_id>.json`, now with `compacted`). The flag is cleared only when
+  HANDOFF.md has `status: SENT` and `old_session_id` equal to this session; a token number never clears it, and a
+  SENT session is not flagged again by a high number. A flag caused by a compaction denies edits and agents and
+  blocks Stop only for a session with `GHORC_ROLE=lead`; any other session gets a reminder only, so enable the key
+  only when leads run with `GHORC_ROLE=lead`. The flag from crossing `ctxHandoff` keeps its 0.7.0 reach.
+- `scripts/unpushed.cjs [--branches a,b]`: local branches ahead of or missing on `origin/<branch>` (local refs, no
+  network), exit 1 when any. `handoff.pushGuard` (default false): in handoff mode the lead's `herdr agent start` is
+  denied while a branch named in STATE `in_flight` (`branch: <name>`) is unpushed; no such field, no `origin` remote or
+  a fetch refspec that does not cover the branch: nothing is checked (a reminder when `in_flight` names no branch).
+  Skill `ghorc:handoff` gets a push-and-check step before the candidate launch.
+- `ctx.cjs` prints one extra line after a compaction of the session (with `handoff.stickyOnCompact`): the number is
+  unreliable and, for a lead, the handoff is due.
+  The numbers themselves are unchanged.
+
 ### Changed
+- Context guard with `handoff.stickyOnCompact` on: Stop blocks the lead once per turn until SENT (was: at most 2 times,
+  released by a newer STATE); never when `stop_hook_active`; a repeat block within 60 s for the session passes; the
+  reason has no token numbers and names the literal `status: SENT` and `old_session_id: <id>` lines. After a
+  compaction no message quotes token numbers. A non-lead session (`GHORC_ROLE=worker`, or no role after a compaction)
+  gets a reminder only. The reminder also goes to the model through the `additionalContext` of `UserPromptSubmit`.
+- `HANDOFF.md` `status: SENT` is recognised with markdown noise (`**status:** SENT`, a backticked or comma-ended id).
+- `in_flight` branch parsing: only a field that starts an item counts (`base branch: main` does not); main/master
+  and the `origin/HEAD` branch are never required; a `###` sub-heading no longer ends the section; quoted and bold
+  names are read.
+- Worker role: `GHORC_ROLE=worker herdr agent start` never reached the session (`herdr agent start` types the command
+  into an existing pane's shell). Checked live: the role must be set with `herdr tab create --env GHORC_ROLE=worker`.
+  Skills and docs corrected (`herdr agent start` also needs `--pane <pane_id>`).
+- Skill `ghorc:handoff` fallback without herdr: write `status: SENT` with `old_session_id` so the Stop block lifts.
 - Review limit: at most 2 fix rounds (`review.maxFixRounds`, default 2), then a cheap closure check instead of a full
   re-review; P0/P1 open after round 2 means blocked. Replaces "3 rounds" in the lead skill, workflow, templates.
 - The documented subagent ban list is now `herdr agent start|prompt|send-keys` and `herdr pane run|send-keys|send-text`.
 - `setup --check` prints an information line for `handoff.candidatePermissionArgs`; `setup --apply` never writes it.
+
+### Fixed
+- `GHORC_ROLE` is read by one helper that trims and lowercases it (`worker `, `Worker` and `WORKER` are the worker
+  role for the context guard, the heavy check guard, the read guard and the SessionStart line).
+- A worker session without a flag returns from the context guard before the config is loaded.
+- `unpushed.cjs` spawns git through the shared helper (timeout and budget).
+- `ghorc:handoff`: the candidate accepts exactly the READY `seq` + 1 together with `status: SENT`.
+- A ctx file that exists but is not valid JSON is reported as "found, bad JSON", not "no ctx file".
+- With `handoff.stickyOnCompact` on, the sticky Stop block reaches only a session with `GHORC_ROLE=lead`; a roleless
+  session with a flag from crossing `ctxHandoff` takes the 0.7.0 Stop (at most 2 blocks, released by a newer STATE).
+- With the key off, a compaction-only flag left by a run with the key on counts as no flag.
+- With the key on, the compaction reminder of a roleless session is added to the stage lines and watchdog alerts.
+- `in_flight` parsing: a qualifier (`base`, `target`, `main`, ...) counts only when whitespace alone separates it from
+  `branch`; every `branch:` field on a line is read (`branch: a, branch: b`).
+- The status line prints the role through the shared role helper. SessionStart says so when the key is on and
+  `GHORC_ROLE` is unset (no enforcement until `GHORC_ROLE=lead`). Skill `ghorc:handoff` corrected (Stop rule, exit 2
+  and "cannot tell" of `unpushed.cjs`, the lead role of the candidate).
+
+### Changes that apply with the key off
+Two changes of this branch are not gated by `handoff.stickyOnCompact`:
+- `status: SENT` of the HANDOFF header is read through markdown noise (`**status:** SENT`, a comma-ended id), so a Stop
+  that 0.7.0 blocked can now be silent, and only the first `status:` of the header counts.
+- A ctx file that is not valid JSON is reported as "found, bad JSON" (was "no ctx file").
 
 ## 0.7.0 - 2026-11-02
 

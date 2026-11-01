@@ -17,6 +17,9 @@ const BUILTIN_SUBAGENT_DENY = [
   new RegExp(`${HERDR}(?:agent\\s+(?:start|prompt|send-keys)|pane\\s+(?:run|send-keys|send-text))\\b`, 'i'),
 ];
 
+// `herdr agent start` alone: launching a candidate lead or a worker (handoff.pushGuard).
+const HERDR_AGENT_START = new RegExp(`${HERDR}agent\\s+start\\b`, 'i');
+
 // Used only while the project config is invalid (the owner's heavyCommands cannot be trusted or read).
 const DEFAULT_HEAVY = [
   /^npm\s+(?:run\s+)?test\b/i,
@@ -166,4 +169,4 @@ function compile(patterns) {
   return out;
 }
 
-module.exports = { BUILTIN_SUBAGENT_DENY, DEFAULT_HEAVY, segments, stripQuotes, matches, compile };
+module.exports = { BUILTIN_SUBAGENT_DENY, HERDR_AGENT_START, DEFAULT_HEAVY, segments, stripQuotes, matches, compile };

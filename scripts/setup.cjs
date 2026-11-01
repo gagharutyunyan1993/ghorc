@@ -587,7 +587,7 @@ function statusBlock(cwd) {
   const tmp = require('./lib/tmp.cjs');
   const cfg = require('./lib/config.cjs').load(cwd, { cli: true });
   const root = findRoot(cwd);
-  const role = (process.env.GHORC_ROLE || '').trim() || 'lead';
+  const role = require('./lib/role.cjs').role() || 'lead';
   const rg = cfg.readGuard || {};
   const heavy = Array.isArray(cfg.heavyCommands) ? cfg.heavyCommands : [];
   const version = require(path.join(PLUGIN_ROOT, '.claude-plugin', 'plugin.json')).version;
@@ -596,7 +596,7 @@ function statusBlock(cwd) {
   const d = tmp.denials(5);
   const out = [
     `status: role=${role}${process.env.GHORC_ROLE ? '' : ' (GHORC_ROLE not set)'}`,
-    `status: read-guard on (maxRepeat=${rg.maxRepeat}, media blocked for the lead: ${rg.leadNoMedia !== false && process.env.GHORC_ROLE === 'lead' ? 'yes' : 'no'}), ` +
+    `status: read-guard on (maxRepeat=${rg.maxRepeat}, media blocked for the lead: ${rg.leadNoMedia !== false && require('./lib/role.cjs').isLead() ? 'yes' : 'no'}), ` +
       `heavy-check-guard on (${heavy.length ? `${heavy.length} patterns` : 'no patterns: it denies nothing'})`,
     `status: watchdog autostart=${w.autostart === true ? 'on' : 'off'}, ${ws.alive ? `running pid ${ws.pid}` : `not running (${ws.reason})`}`,
     `status: denials ${d.total} total` + (d.total ? ` (${Object.entries(d.counts).map(([k, v]) => `${k}=${v}`).join(', ')}), last ${d.last.length}:` : ''),

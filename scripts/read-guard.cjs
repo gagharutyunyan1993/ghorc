@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { deny, readState, writeState, run } = require('./lib/hook-io.cjs');
 const { load } = require('./lib/config.cjs');
+const { isLead } = require('./lib/role.cjs');
 
 if (process.argv.includes('--help')) {
   console.log(
@@ -100,7 +101,7 @@ run((input) => {
   if (isMedia) {
     if (input.agent_id) {
       if (!isMediaRole) return deny('media is read by the media role: hand this file to ghorc:media.');
-    } else if (leadNoMedia && process.env.GHORC_ROLE === 'lead') {
+    } else if (leadNoMedia && isLead()) {
       return deny('the lead (GHORC_ROLE=lead) does not read media: hand it to the media role.');
     }
   }

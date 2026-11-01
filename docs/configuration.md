@@ -73,8 +73,10 @@ project with `test` and `test:full` gets `test:full` proposed even when `npm tes
 Lead context in tokens, enforced by the context guard hook (`scripts/context-guard.cjs`, [hooks.md](hooks.md)).
 `ctxPrepare` (120000): the guard adds an "update STATE" line. `ctxWarn` (0 = `ctxHandoff` - 10000): "prepare the
 handoff, take no new packages". `ctxHandoff` (150000): handoff mode - no new agent, edits only to `handoff.statePath`
-and `handoff.handoffPath`, Stop waits for the STATE update (skill `ghorc:handoff`). Set autocompact above `ctxHandoff`
-(`/ghorc:setup` item `pct`), otherwise a compaction resets the counter before the guard reacts.
+and `handoff.handoffPath`, Stop blocks until STATE is newer than the flag (at most 2 times; skill `ghorc:handoff`).
+With `handoff.stickyOnCompact` a compaction starts the same mode too, whatever the token numbers say. Set
+autocompact above `ctxHandoff` (`/ghorc:setup` item `pct`), otherwise a compaction resets the counter before the
+guard reacts.
 
 ### lead
 `model` (`opus`) and `effort` (`medium`): used by `/ghorc:handoff` for the candidate and by `/ghorc:setup`. Effort precedence: env `CLAUDE_CODE_EFFORT_LEVEL` > per-call `effort` > role frontmatter > session; keep the variable unset and pass `effort` on every Agent call. Global advice: no top-level `effortLevel` in `~/.claude/settings.json`; per-model medium for sonnet-5.5 and opus-5.5.
@@ -92,7 +94,17 @@ Alerts go to `<tmp>/ghorc-<user>/alerts-<root hash>.log`; `scripts/ctx.cjs --ses
 Standing owner permissions for `/ghorc:handoff`. `allowSendKeysExit` (false): the new lead may send `/exit` to the old
 tab through herdr. `candidatePermissionArgs` (`[]`): permission-mode arguments for the candidate, for example
 `["--permission-mode", "acceptEdits"]`. `readyTimeoutMin` (10): minutes the old lead waits for READY (polled every
-60 s). `statePath` and `handoffPath`: the STATE and HANDOFF files.
+60 s). `statePath` and `handoffPath`: the STATE and HANDOFF files. `pushGuard` (false): in handoff mode the hook denies
+`herdr agent start` from the lead while a branch named in STATE `in_flight` (`branch: <name>`) is ahead of or missing
+on `origin` (`node scripts/unpushed.cjs [--branches a,b]` lists them: local refs, no network, exit 1 when any); no
+`in_flight` branch field means nothing is checked (the hook adds a reminder), and neither does a repository without an
+`origin` remote or a branch that origin's fetch refspec does not cover. The default branch is never required.
+`stickyOnCompact` (false): sticky handoff. A compaction (SessionStart, source `compact`) writes the handoff flag; only
+`HANDOFF.md` with `status: SENT` and `old_session_id` equal to the session clears it; Stop blocks the lead once per
+turn until then (a repeat block within 60 s passes). A flag caused by a compaction denies and blocks only a session
+with `GHORC_ROLE=lead`; every other session (a worker, or one without `GHORC_ROLE`) gets a reminder only. So
+enabling it requires that leads run with `GHORC_ROLE=lead`. Off or absent: a compaction changes nothing and Stop
+behaves as in 0.7.0.
 
 `candidatePermissionArgs` can bypass permission prompts (for example `--dangerously-skip-permissions`), so setting it is
 the project's explicit decision. `setup.cjs --check` prints an information line saying whether it is set;
@@ -115,7 +127,9 @@ the project's own role at opus / high. Without `.claude/agents/` nothing changes
 
 ## Environment variables
 - `GHORC_ROLE`: optional. Empty on a main session means `lead`. `worker` marks a herdr worker (no lead reminder, heavy
-  commands denied). `lead` switches on the strict mode (`leadNoMedia`, `heavyGuard.requireLeadEnv`).
+  commands denied, reminder-only context guard). For a herdr tab set it with `herdr tab create --env GHORC_ROLE=worker`,
+  not before `herdr agent start` (it would not reach the session). `lead` switches on the strict mode (`leadNoMedia`, `heavyGuard.requireLeadEnv`) and is required for
+  `handoff.stickyOnCompact`. The value is trimmed and lowercased (`Worker` is `worker`).
 - `GHORC_TMP`: overrides the state directory `<tmp>/ghorc-<user>`.
 - `GHORC_NO_AUTOSTART=1`: SessionStart never starts the watchdog.
 

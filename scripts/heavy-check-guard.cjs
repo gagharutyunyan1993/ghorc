@@ -2,6 +2,7 @@
 // PreToolUse(Bash|PowerShell): heavy commands from heavyCommands are denied to subagents and workers.
 const { deny, run } = require('./lib/hook-io.cjs');
 const { load } = require('./lib/config.cjs');
+const { isWorker, isLead } = require('./lib/role.cjs');
 const { BUILTIN_SUBAGENT_DENY, DEFAULT_HEAVY, matches, compile } = require('./lib/cmd.cjs');
 
 if (process.argv.includes('--help')) {
@@ -28,7 +29,7 @@ run((input) => {
 
   // the built-in agent-start denies apply to subagents and workers only, also while the config is invalid
   const ps = { powershell: input.tool_name === 'PowerShell' };
-  const sub = Boolean(input.agent_id) || process.env.GHORC_ROLE === 'worker';
+  const sub = Boolean(input.agent_id) || isWorker();
   if (sub && matches(command, BUILTIN_SUBAGENT_DENY, ps)) {
     return deny('subagents and workers may not start other agents (claude -p, herdr agent start/prompt/send-keys, herdr pane run/send-keys/send-text): ask the lead.');
   }
@@ -42,7 +43,7 @@ run((input) => {
   if (!matches(command, configured, ps)) return;
 
   if (sub) return deny('only the lead runs heavy checks.');
-  if (cfg.heavyGuard && cfg.heavyGuard.requireLeadEnv && process.env.GHORC_ROLE !== 'lead') {
+  if (cfg.heavyGuard && cfg.heavyGuard.requireLeadEnv && !isLead()) {
     return deny('only the lead runs heavy checks (GHORC_ROLE=lead is not set).');
   }
 }, 'heavy-check-guard');

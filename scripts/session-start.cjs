@@ -8,6 +8,7 @@ const { found, load, projectRoot } = require('./lib/config.cjs');
 const { check } = require('./lib/validate.cjs');
 const { run } = require('./lib/hook-io.cjs');
 const tmp = require('./lib/tmp.cjs');
+const { role: roleOf } = require('./lib/role.cjs');
 const { refuseReason, deriveTranscriptDir } = require('./lib/scandir.cjs');
 
 if (process.argv.includes('--help')) {
@@ -93,7 +94,7 @@ run((input) => {
   const cwd = input.cwd || process.cwd();
   const sid = input.session_id;
   const root = projectRoot(cwd);
-  const role = (process.env.GHORC_ROLE || '').trim();
+  const role = roleOf();
   const cfg = load(cwd);
   const isMain = !input.agent_id;
 
@@ -117,6 +118,9 @@ run((input) => {
   const ident = [`ghorc ${version}`, `session=${sid || '?'}`, `role=${role || (isMain ? 'lead' : 'agent')}`];
 
   const status = [];
+  if (isMain && role === '' && (cfg.handoff || {}).stickyOnCompact === true) {
+    status.push('handoff.stickyOnCompact is on, but GHORC_ROLE is not set: this session has no enforcement until GHORC_ROLE=lead is set');
+  }
   status.push(found(cwd) ? 'config: ok' : 'config not found: copy templates/ghorc.json to .claude/ghorc.json');
   try {
     const { problems, fatal } = check(cwd);

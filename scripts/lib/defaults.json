@@ -38,6 +38,8 @@
   },
   "handoff": {
     "allowSendKeysExit": false,
+    "pushGuard": false,
+    "stickyOnCompact": false,
     "candidatePermissionArgs": [],
     "readyTimeoutMin": 10,
     "statePath": "STATE.md",

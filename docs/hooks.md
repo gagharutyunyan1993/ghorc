@@ -104,12 +104,16 @@ file mtime and size in `<tmp>/ghorc-<user>/config-valid.json`.
 
 ## context-guard.cjs
 
-**When it fires.** UserPromptSubmit, PreToolUse on every tool, and Stop; for the lead only (no `agent_id`, not
-`GHORC_ROLE=worker`).
+**When it fires.** SessionStart (matcher `compact`), UserPromptSubmit, PreToolUse on every tool, and Stop; for the lead
+only (no `agent_id`, not `GHORC_ROLE=worker`). A worker session gets a reminder only. The compaction entry is inert
+unless `handoff.stickyOnCompact` is true.
 
 **What it does.** See [handoff.md](handoff.md#the-context-guard): stage lines at `ctxPrepare` / `ctxWarn`; handoff mode
-at `ctxHandoff` (sticky flag; denies a new Agent and edits outside STATE/HANDOFF; Stop blocks until STATE is updated,
-at most 2 times). Secondary signals that never block: transcript size against `watchdog.warnMiB` and unread watchdog
+at `ctxHandoff` (flag; denies a new Agent and edits outside STATE/HANDOFF; Stop blocks until STATE is newer, at most 2
+times). With `handoff.stickyOnCompact` also after any compaction (the flag is cleared only by HANDOFF `status: SENT`
+of this session; Stop blocks once per turn until SENT; only a session with `GHORC_ROLE=lead` is denied or blocked for
+a compaction, others get a reminder). With `handoff.pushGuard` also `herdr agent start` while in-flight branches are
+unpushed. Secondary signals that never block: transcript size against `watchdog.warnMiB` and unread watchdog
 alerts (PreToolUse at most every 5 minutes). Without a fresh ctx file (younger than 10 minutes) and without a flag it
 only warns. The flag and its throttle state live in `<tmp>/ghorc-<user>`; a deny is logged to `denials.log`.
 

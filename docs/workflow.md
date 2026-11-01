@@ -12,7 +12,8 @@ The same rules are in skill `ghorc:lead` (`/ghorc:lead`) and in the `CLAUDE.md` 
 SessionStart prints `role=lead` and `lead: load skill ghorc:lead`. A subagent is recognized by `agent_id` and
 prints `role=agent`. Set `GHORC_ROLE` only in two cases:
 
-- `GHORC_ROLE=worker` for a herdr worker session: no lead reminder, no watchdog, heavy commands denied.
+- `GHORC_ROLE=worker` for a herdr worker session: no lead reminder, no watchdog, heavy commands denied, no handoff
+  block. Set it on the tab: `herdr tab create --env GHORC_ROLE=worker` (see [with-herdr.md](with-herdr.md)).
 - `GHORC_ROLE=lead` for the optional strict mode: `readGuard.leadNoMedia` (the lead may not read PDFs and images)
   and `heavyGuard.requireLeadEnv` (heavy commands need this marker) apply only then.
 

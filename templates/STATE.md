@@ -12,7 +12,7 @@ Updated: <date, time>   Session: <session_id>   seq: <N, +1 on every write>   ha
 - head: <git HEAD SHA at the last STATE write; the candidate refuses if it moved without a note>
 
 ## in_flight (mandatory)
-- <agent/worker id, kind, expected output path, how to collect; or "none">
+- <agent/worker id, kind, branch: <name> (the package branch, when it has one), expected output path, how to collect; or "none">
 
 ## Decisions and links to them
 - <decision, date, link>

@@ -4,13 +4,14 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { projectRoot } = require('./lib/config.cjs');
 const { unreadAlerts, markAlertsRead } = require('./lib/tmp.cjs');
+const { readFlag } = require('./lib/ctxguard.cjs');
 
 const args = process.argv.slice(2);
 if (args.includes('--help')) {
   console.log(
     'ctx.cjs --session <id> [--max-age <minutes>] [--cwd <dir>]  |  ctx.cjs --all: shows session context from .claude/ctx-*.json ' +
       '(--session takes the full id or the 8-character prefix from the status line; env GHORC_SESSION is the default), ' +
-      'then up to 10 unread watchdog alerts of that session, oldest first, marking only those read. --all lists every session and marks nothing.',
+      'after a compaction of the session a line says the number is unreliable and the handoff is due; then up to 10 unread watchdog alerts of that session, oldest first, marking only those read. --all lists every session and marks nothing.',
   );
   process.exit(0);
 }
@@ -66,6 +67,12 @@ rows.forEach((r) => {
   const pct = typeof d.used_percentage === 'number' ? `${Math.round(d.used_percentage)}%` : '--';
   const model = d.model && (d.model.display_name || d.model.id) ? d.model.display_name || d.model.id : '?';
   console.log(`  ${r.f}  ${model}  ctx ${pct}  used=${used === null ? '?' : used}/${d.context_window_size ?? '?'}  age=${r.age}m`);
+  // the numbers above are printed as they are; after a compaction they describe the new, shorter context
+  const flag = readFlag(r.f.replace(/^ctx-/, '').replace(/\.json$/, ''));
+  if (flag && flag.compacted) {
+    const due = flag.lead || flag.crossed ? ' and the handoff is due (ghorc:handoff)' : '';
+    console.log(`    ^ this session was compacted: the number above is unreliable${due}.`);
+  }
 });
 
 // Alerts: per session. The full id comes from the matched ctx file when there is exactly one.

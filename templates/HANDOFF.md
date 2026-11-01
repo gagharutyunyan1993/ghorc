@@ -4,7 +4,7 @@ state_path: <path to STATE.md>
 
 ## 1. Package chain and stages
 - Merged this shift: <packages and SHA>. Main branch HEAD: <SHA>.
-- Active package: <ID>, stage <stage>; worktree <path>, branch <name>, HEAD <SHA>;
+- Active package: <ID>, stage <stage>; worktree <path>, branch <name> (pushed to origin), HEAD <SHA>;
   brief <path>; review <path> (verdict, open P0/P1).
 - Queue: <ID> (brief <path>).
 

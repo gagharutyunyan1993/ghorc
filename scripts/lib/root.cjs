@@ -5,8 +5,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const cp = require('node:child_process'); // called as cp.spawnSync so tests can stub it
 
-const GIT_TIMEOUT_MS = 1000;
-const GIT_BUDGET_MS = 2500; // all git calls of one process together
+const GIT_TIMEOUT_MS = Number(process.env.GHORC_HOOK_GIT_TIMEOUT_MS) || 1000; // the env override is for tests on a loaded machine
+const GIT_BUDGET_MS = GIT_TIMEOUT_MS * 2.5; // all git calls of one process together
 let gitSpent = 0;
 let gitDead = false; // set by the first timeout: git hangs, so no further spawn is tried in this process
 

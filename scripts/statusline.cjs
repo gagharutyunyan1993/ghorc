@@ -5,6 +5,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { projectRoot } = require('./lib/root.cjs');
 const { tmpDir } = require('./lib/tmp.cjs');
+const { role: roleOf } = require('./lib/role.cjs');
 
 if (process.argv.includes('--help')) {
   console.log(
@@ -172,7 +173,7 @@ try {
   }
 
   const role = [];
-  if (process.env.GHORC_ROLE) role.push(process.env.GHORC_ROLE);
+  if (roleOf()) role.push(roleOf());
   if (input.agent && input.agent.name) role.push(String(input.agent.name));
   if (role.length) segs.push(role.join(' '));
   if (input.session_id) segs.push(paint(DIM, `#${String(input.session_id).slice(0, 8)}`));

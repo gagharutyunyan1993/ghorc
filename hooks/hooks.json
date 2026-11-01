@@ -1,10 +1,16 @@
 {
-  "description": "ghorc: read guard (Read, MCP captures; reset on Edit/Write), heavy check guard, context guard (UserPromptSubmit, PreToolUse, Stop), session reminder, call ledger (PostToolUse Agent, SubagentStop)",
+  "description": "ghorc: read guard (Read, MCP captures; reset on Edit/Write), heavy check guard, context guard (SessionStart compact, UserPromptSubmit, PreToolUse, Stop), session reminder, call ledger (PostToolUse Agent, SubagentStop)",
   "hooks": {
     "SessionStart": [
       {
         "hooks": [
           { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/session-start.cjs\"", "timeout": 10 }
+        ]
+      },
+      {
+        "matcher": "compact",
+        "hooks": [
+          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/context-guard.cjs\"", "timeout": 5 }
         ]
       }
     ],
