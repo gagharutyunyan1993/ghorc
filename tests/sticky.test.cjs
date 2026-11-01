@@ -250,7 +250,7 @@ function repo(config) {
 
 test('unpushed.cjs: lists branches ahead of or missing on origin, exit 1 when any, no network', () => {
   const cwd = repo({});
-  const run = (...args) => runScript('unpushed.cjs', '', { args: [...args, '--cwd', cwd] });
+  const run = (...args) => runScript('unpushed.cjs', '', { args: [...args, '--cwd', cwd], env: { GHORC_HOOK_GIT_TIMEOUT_MS: '15000' } });
   let r = run();
   assert.equal(r.code, 1);
   assert.match(r.out, /feat\/x: not on origin/);
@@ -271,7 +271,7 @@ test('unpushed.cjs: lists branches ahead of or missing on origin, exit 1 when an
   assert.equal(run('--branches', 'nope').code, 1);
   assert.match(run('--branches', 'nope').out, /nope: no local branch/);
   const plain = fs.mkdtempSync(path.join(TEST_TMP, 'norepo-'));
-  const nr = runScript('unpushed.cjs', '', { args: ['--cwd', plain] });
+  const nr = runScript('unpushed.cjs', '', { args: ['--cwd', plain], env: { GHORC_HOOK_GIT_TIMEOUT_MS: '15000' } });
   assert.equal(nr.code, 2);
   assert.match(nr.out, /not a git repository/);
 });
@@ -519,7 +519,7 @@ test('pushGuard fails open: no origin remote, and a fetch refspec that does not 
   const s2 = sid();
   writeCtx(a.cwd, s2, 160000);
   assert.equal(isDeny(bashPre(a.cwd, s2)), false, 'no origin remote: fail open');
-  const cli = runScript('unpushed.cjs', '', { args: ['--branches', 'feat/x', '--cwd', a.cwd] });
+  const cli = runScript('unpushed.cjs', '', { args: ['--branches', 'feat/x', '--cwd', a.cwd], env: { GHORC_HOOK_GIT_TIMEOUT_MS: '15000' } });
   assert.equal(cli.code, 2);
   assert.match(cli.out, /no origin remote/);
 
@@ -527,7 +527,7 @@ test('pushGuard fails open: no origin remote, and a fetch refspec that does not 
   const b = setup();
   git(b.cwd, 'config', 'remote.origin.fetch', '+refs/heads/main:refs/remotes/origin/main');
   assert.equal(isDeny(bashPre(b.cwd, b.s)), false, 'narrow refspec: fail open');
-  const nb = runScript('unpushed.cjs', '', { args: ['--branches', 'feat/x,main', '--cwd', b.cwd] });
+  const nb = runScript('unpushed.cjs', '', { args: ['--branches', 'feat/x,main', '--cwd', b.cwd], env: { GHORC_HOOK_GIT_TIMEOUT_MS: '15000' } });
   assert.equal(nb.code, 0, nb.out);
   assert.match(nb.out, /feat\/x: not tracked by the fetch refspec of origin, cannot tell/);
   assert.match(nb.out, /main: pushed/);

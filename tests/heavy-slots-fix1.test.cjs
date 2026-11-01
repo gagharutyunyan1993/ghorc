@@ -46,8 +46,10 @@ while (Date.now() < AT) {}
 if (Date.now() >= AT2) { console.log('LATE'); process.exit(0); } // started so late that the winner is gone: not a race
 const t = Date.now();
 const r = s.tryTake(1, { session: 'p' + process.pid, pid: process.pid, ts: t, heartbeat: t, minutes: 0, label: 'race', nonce, slot: 1 });
+const back = Date.now();
 while (Date.now() < AT2) {}
-console.log((r.ok ? 'WIN' : 'LOSE') + ' ' + s.owns(1, nonce));
+// a take that came back after the window ran against a winner that had already exited (its claim was dead): not a race
+console.log(back >= AT2 ? 'LATE' : (r.ok ? 'WIN' : 'LOSE') + ' ' + s.owns(1, nonce));
 `;
 
 test('P1.2: 6 processes on one dead claim, 15 rounds: exactly one winner in every round', async () => {
@@ -205,7 +207,7 @@ test('P1.4: in a linked worktree the wrapper finds the config of the main checko
   assert.doesNotMatch(st.stdout, /off/);
   const r = w.wrap(['run', ...exitNode(0)], { cwd: linked, env });
   assert.equal(r.status, 75, r.stderr);
-  const h = runScript('heavy-check-guard.cjs', hookIn(linked, 'make full'), { env: { ...w.env, CLAUDE_PROJECT_DIR: '' } });
+  const h = runScript('heavy-check-guard.cjs', hookIn(linked, 'make full'), { env: { ...w.env, CLAUDE_PROJECT_DIR: '', GHORC_HOOK_GIT_TIMEOUT_MS: '15000' } });
   assert.equal(isDeny(h), true, 'the hook sees the same config');
 });
 

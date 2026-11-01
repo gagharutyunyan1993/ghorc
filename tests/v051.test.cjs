@@ -81,7 +81,7 @@ test('R12: SessionStart finishes under 5 s with a git that hangs (posix: fake gi
   try {
     const proj = tmpProject({ checks: { fast: 'x' } });
     const t0 = Date.now();
-    const r = runScript('session-start.cjs', { hook_event_name: 'SessionStart', session_id: 'g', cwd: proj }, { env: { PATH: `${bin}${path.delimiter}${process.env.PATH}` } });
+    const r = runScript('session-start.cjs', { hook_event_name: 'SessionStart', session_id: 'g', cwd: proj }, { env: { PATH: `${bin}${path.delimiter}${process.env.PATH}`, GHORC_HOOK_GIT_TIMEOUT_MS: '1000' } }); // the real default, not the test override
     assert.ok(Date.now() - t0 < 5000, `took ${Date.now() - t0} ms`);
     assert.equal(r.code, 0);
     assert.match(r.out, /ghorc /);

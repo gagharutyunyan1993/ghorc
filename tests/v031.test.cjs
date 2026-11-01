@@ -67,7 +67,7 @@ test('setup: statusLine pointing to an older plugin cache version is flagged and
     const run = (args) =>
       spawnSync(process.execPath, [path.join(cur, 'scripts', 'setup.cjs'), ...args], {
         encoding: 'utf8',
-        env: { ...process.env, GHORC_HOME: home, CLAUDE_PROJECT_DIR: '' },
+        env: { ...process.env, GHORC_HOME: home, CLAUDE_PROJECT_DIR: '', GHORC_HOOK_GIT_TIMEOUT_MS: '15000' },
       });
     let c = lastJson(run(['--check', '--cwd', proj]).stdout);
     assert.equal(c.items.find((i) => i.id === 'statusLineStale').ok, false);

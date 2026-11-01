@@ -28,7 +28,7 @@ function mkTmp(prefix = 'ghorc-slots-') {
 function world(heavySlots, extra = {}) {
   const tmp = mkTmp();
   const cwd = tmpProject(heavySlots === undefined ? undefined : { heavySlots, ...extra });
-  const env = { GHORC_TMP: tmp, GHORC_SESSION: '', CLAUDE_CODE_SESSION_ID: '', GHORC_TEST_FREE_RAM_GB: '64' };
+  const env = { GHORC_TMP: tmp, GHORC_SESSION: '', CLAUDE_CODE_SESSION_ID: '', GHORC_TEST_FREE_RAM_GB: '64', GHORC_HOOK_GIT_TIMEOUT_MS: '15000' };
   const dir = path.join(tmp, 'heavy-slots');
   const file = (i) => path.join(dir, `slot-${i}.json`);
   const plant = (i, claim) => {
