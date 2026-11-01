@@ -99,6 +99,11 @@
   are workers), and ignores a compaction-only handoff flag (`handoff.stickyOnCompact`) unless the session is
   `GHORC_ROLE=lead`, like the context guard. `/ghorc:setup` offers `stickyOnCompact` as an opt-in guard (never part of
   `--apply all`); the `heavySlots` item reads its key like the slot wrapper does (a non-integer is off).
+- Slots, `.cmd`/`.bat` through `heavy-slot.cjs run`: an argument made only of `A-Za-z0-9_./:=+@,-` is passed as it is
+  (was: escaped twice, so `x.cmd ci` reached `%~1` as `^"ci^"`: `set MODE=%~1` took the wrong branch and `if "%~1"==...`
+  was a syntax error). Any other argument keeps the double escape (the `"&echo INJECTED` fix); a `%~1` script then gets
+  it with its escape, documented in `docs/hooks.md`. `run -- .\sh.cmd x` keeps the leading `.\`, so it runs with
+  `NoDefaultCurrentDirectoryInExePath=1`.
 
 ### Changes that apply with the key off
 Two changes of this branch are not gated by `handoff.stickyOnCompact`:

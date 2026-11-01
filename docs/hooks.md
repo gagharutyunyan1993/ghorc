@@ -121,10 +121,19 @@ node "<plugin>/scripts/heavy-slot.cjs" release --session <id>
   the main checkout of a linked worktree). `--help` and `-h` count only before `--`.
 - The command is an argument list (no shell: `--` `npm` `run` `x` reaches `npm` as written, `&&` is an argument) or one
   string with spaces (`-- "npm run a && npm run b"`), which the shell runs. On Windows an `.exe` is started directly; a
-  `.cmd` or `.bat` shim such as `npm.cmd` goes through `cmd.exe` with its arguments escaped for `cmd.exe` and again
-  for the `%*` of the shim, wherever the shim lives; an argument with `%` (or a line break) cannot pass through
-  `cmd.exe` unchanged and is refused (exit 2, no slot taken): use the one-string form. A single word that is an
-  existing file (`"/opt/my dir/tool"`) is a program path, not a shell line.
+  `.cmd` or `.bat` shim such as `npm.cmd` goes through `cmd.exe`, wherever the shim lives. An argument made only of
+  `A-Z a-z 0-9 _ . / : = + @ , -` (`ci`, `--fast`, `src/x.js`) is passed as it is, so `%~1` and `%*` of the script see
+  it as typed. Any other argument is escaped for `cmd.exe` and again for the `%*` of the shim (the second level is
+  consumed by a shim that hands `%*` to a program, such as `npm.cmd`; it is what stops `"&echo X` from running).
+  A script that reads such an argument with `%~1` keeps that escape: an argument with a space arrives as `"a b"` with
+  its quotes, one with a double quote as `"say \"hi\""`, and `if "%~1"==...` on it is a `cmd.exe` syntax error (exit
+  255, no branch runs). Put such an argument behind a `%*` shim or a program, or give the whole command as one string.
+  `=` and `,` stay safe words, but `cmd.exe` splits them as separators of the batch parameters, so `%~1` of
+  `x.cmd --max=3` is `--max` (`%*` is `--max=3`), exactly as when typed. A path that starts with `.\` or `./`
+  keeps it, so `.\x.cmd` runs from the current directory also with `NoDefaultCurrentDirectoryInExePath=1`. An
+  argument with `%` (or a line break) cannot pass through `cmd.exe` unchanged and is refused (exit 2, no slot taken):
+  use the one-string form. A single word that is an existing file (`"/opt/my dir/tool"`) is a program path, not a
+  shell line.
 - The session of the claim is `--session`, else `$GHORC_SESSION`, else `$CLAUDE_CODE_SESSION_ID` (Claude Code sets it
   in the environment of the shell tools, and it equals the `session_id` the hook receives), else `pid-<parent pid>`.
   With the default, a check the lead starts counts as the lead's own: the hook does not block it.

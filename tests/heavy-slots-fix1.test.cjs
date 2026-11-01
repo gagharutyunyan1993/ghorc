@@ -371,7 +371,7 @@ test('P2.4: buildSpawn plans', () => {
   assert.equal(cmd.file, 'C:\\Windows\\System32\\cmd.exe');
   assert.deepEqual(cmd.args.slice(0, 3), ['/d', '/s', '/c']);
   assert.equal(cmd.options.windowsVerbatimArguments, true);
-  assert.equal(cmd.args[3], '"C:\\bin\\npm.cmd ^^^"run^^^" ^^^"x^^^" ^^^"a^^^&b^^^" ^^^"^^^""', 'escaped twice: the shim reads %* again (round 2)');
+  assert.equal(cmd.args[3], '"C:\\bin\\npm.cmd run x ^^^"a^^^&b^^^" ^^^"^^^""', 'safe words as they are, the others escaped twice: the shim reads %* again');
   assert.throws(() => buildSpawn(['npm', 'run', '100%'], { platform: 'win32', env, exists }), /cannot be passed unchanged/);
   assert.equal(buildSpawn(['nothing', 'a'], { platform: 'win32', env, exists }).file, 'nothing', 'not found: left to the OS');
   assert.deepEqual(buildSpawn(['git', 'status', '&'], { platform: 'linux' }), { file: 'git', args: ['status', '&'], options: {} });

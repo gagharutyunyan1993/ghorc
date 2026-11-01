@@ -10,6 +10,10 @@ const path = require('node:path');
 
 const META = /([()\][%!^"`<>&|;, *?])/g;
 
+// A word made only of these characters needs no quoting and no escaping for cmd.exe: it reaches `%~1` and `%*` as typed.
+// (`=` and `,` are argument delimiters of a batch file's `%1`, as for a user typing the command; see docs/hooks.md.)
+const SAFE = /^[A-Za-z0-9_./:=+@,-]+$/;
+
 function escapeArg(arg, double) {
   let a = `${arg}`;
   a = a.replace(/(\\*)"/g, '$1$1\\"'); // a quote is escaped, the backslashes before it are doubled
@@ -37,6 +41,13 @@ function resolveWin(word, env, exists) {
   return null;
 }
 
+// path.win32.normalize strips a leading `.\` (`.\sh.cmd` becomes `sh.cmd`, which cmd.exe then finds on PATH only, and not
+// in the current directory with NoDefaultCurrentDirectoryInExePath=1): a path that started with `.\` or `./` keeps it.
+function winPath(file) {
+  const n = path.win32.normalize(file);
+  return /^\.[\\/]/.test(file) && !n.startsWith('.\\') ? `.\\${n}` : n;
+}
+
 // -> { file, args, options } for child_process.spawn. Throws Error for an argument that cannot be passed unchanged.
 function buildSpawn(command, opts = {}) {
   const platform = opts.platform || process.platform;
@@ -61,9 +72,11 @@ function buildSpawn(command, opts = {}) {
   if (bad !== undefined) {
     throw new Error(`the argument ${JSON.stringify(bad)} cannot be passed unchanged to ${path.basename(found)} (a cmd.exe script): use the program itself, or give the whole command as one string`);
   }
-  // Every shim re-reads its arguments through `%*`, so a metacharacter is escaped twice for any shim, not only the ones
-  // under node_modules\.bin (this is also what cross-spawn does for a shim it cannot read).
-  const line = [escapeCommand(path.win32.normalize(found)), ...rest.map((a) => escapeArg(a, true))].join(' ');
+  // A safe word goes as it is. Any other argument is escaped twice, for any shim (not only the ones under
+  // node_modules\.bin): the second level is consumed by a shim that re-parses its arguments (`%*` handed to node); a
+  // script that reads `%~1` keeps the escape of an argument with metacharacters (docs/hooks.md). The double escape is
+  // what closed the `"&echo INJECTED` injection.
+  const line = [escapeCommand(winPath(found)), ...rest.map((a) => (SAFE.test(a) ? a : escapeArg(a, true)))].join(' ');
   return { file: env.ComSpec || env.COMSPEC || 'cmd.exe', args: ['/d', '/s', '/c', `"${line}"`], options: { windowsVerbatimArguments: true } };
 }
 

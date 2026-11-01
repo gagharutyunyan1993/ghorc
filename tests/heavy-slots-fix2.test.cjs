@@ -267,11 +267,11 @@ test('P2.1: buildSpawn escapes a shim twice wherever it lives', () => {
   assert.match(outside, /\^\^\^&/, 'the & is escaped for the two readings');
 });
 
-test('P2.5: a path with forward slashes to a shim is normalised for cmd.exe', () => {
+test('P2.5: a path with forward slashes to a shim is normalised for cmd.exe (the leading .\\ stays)', () => {
   const exists = (f) => f === './bin/node_modules/.bin/plainl.cmd';
   const env = { PATH: '', PATHEXT: '.exe;.cmd', ComSpec: 'cmd.exe' };
   const b = buildSpawn(['./bin/node_modules/.bin/plainl', 'x'], { platform: 'win32', env, exists });
-  assert.match(b.args[3], /^"bin\\node_modules\\\.bin\\plainl\.cmd /, b.args[3]);
+  assert.match(b.args[3], /^"\.\\bin\\node_modules\\\.bin\\plainl\.cmd /, b.args[3]);
   assert.doesNotMatch(b.args[3], /\//);
 });
 
