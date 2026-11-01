@@ -78,7 +78,7 @@ Compare the worker's report with [expected-report.md](examples/demo/expected-rep
 |---|---|
 | A 4th read of a file with no edit in between (`readGuard.maxRepeat`) | Which role, model and effort gets which work |
 | A subagent or `GHORC_ROLE=worker` running a `heavyCommands` match | Briefs: 7 tags, at most 500 words |
-| A subagent starting agents or sending prompts (the list is below the table) | Reports: at most 25 lines, the rest to a file |
+| A subagent starting agents or sending prompts (list below) | Reports: at most 25 lines, the rest to a file |
 | A PDF without `pages`; media outside the media role; media budgets | Context thresholds: 120K, 150K |
 | Any heavy command while `.claude/ghorc.json` is invalid | The lead runs the full check once, in the background |
 
