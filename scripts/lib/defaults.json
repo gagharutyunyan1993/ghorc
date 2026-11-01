@@ -19,6 +19,10 @@
   "heavyGuard": {
     "requireLeadEnv": false
   },
+  "heavySlots": {
+    "slots": 0,
+    "minFreeRamGb": 0
+  },
   "thresholds": {
     "ctxPrepare": 120000,
     "ctxHandoff": 150000,

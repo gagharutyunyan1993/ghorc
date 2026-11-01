@@ -11,7 +11,9 @@
 
 // Subagent-only denies, built in (not from config).
 // herdr: starting an agent, and every way to put text or keys into another pane (the lead's prompt channel).
-const HERDR = String.raw`^\s*(?:\S*[\\/])?herdr(?:\.exe)?(?:\s+--?[\w-]+(?:=\S+)?)*\s+`;
+// Global options: --session|--machine|--remote take a value (`--session x` or `--session=x`); other flags are bare.
+const HERDR_GLOBAL = String.raw`(?:\s+(?:--(?:session|machine|remote)(?:=\S+|\s+\S+)|--?[\w-]+(?:=\S+)?))*`;
+const HERDR = String.raw`^\s*(?:\S*[\\/])?herdr(?:\.exe)?${HERDR_GLOBAL}\s+`;
 const BUILTIN_SUBAGENT_DENY = [
   /^\s*claude\b.*\s(?:-p|--print)\b/i,
   new RegExp(`${HERDR}(?:agent\\s+(?:start|prompt|send-keys)|pane\\s+(?:run|send-keys|send-text))\\b`, 'i'),
@@ -37,10 +39,30 @@ const ENV_PREFIX = /^(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)+/;
 const RUNNER_PREFIX = /^(?:npm\s+run|npx)\s+/i;
 // Shell wrappers that run their argument as a command line.
 const SHELLS = String.raw`(?:bash|sh|zsh|dash|cmd|powershell|pwsh)(?:\.exe)?`;
+// The wrappers of v0.7.0. They stay a separate form of every segment (see variants), so the deny set never shrinks.
 const WRAPPER_PREFIX = new RegExp(
   String.raw`^(?:${SHELLS}(?:\s+(?:[-/][\w:-]+|\w+))*?\s+(?:-l?c|/c|/k|-command)\s+|call\s+|time\s+|exec\s+|env\s+(?:-\w+\s+)*|command\s+|nohup\s+)`,
   'i',
 );
+// Command wrappers that run the rest of the line: timeout [opts] DURATION, nice [-n N], stdbuf -oL, xargs [opts].
+// Option letters are case-sensitive (xargs -i/-l/-e take their value attached, -I/-L/-E take the next word), so this
+// regex has no `i` flag; the command names are spelled in both cases.
+const ci = (w) => w.replace(/./g, (c) => `[${c.toLowerCase()}${c.toUpperCase()}]`);
+const END_OPTS = String.raw`(?:--\s+)?`;
+const RUNNER_WRAPPERS = [
+  String.raw`${ci('timeout')}(?:\.exe)?\s+(?:(?:-[ks]\s*\S+|--(?:kill-after|signal)(?:=|\s+)\S+|--?[\w-]+)\s+)*${END_OPTS}\d+(?:\.\d+)?[smhd]?\s+`,
+  String.raw`${ci('nice')}\s+(?:(?:-n\s*-?\d+|--adjustment(?:=|\s+)-?\d+|-\d+)\s+)*${END_OPTS}`,
+  String.raw`${ci('stdbuf')}\s+(?:(?:-[ioe]\s*\S+|--(?:input|output|error)=\S+)\s+)+${END_OPTS}`,
+  String.raw`${ci('xargs')}(?:\.exe)?\s+(?:(?:-[0oprtxv]*[ILEPJnsad]\s*\S+|-[ile]\S*|-[0oprtxv]+|--(?:arg-file|delimiter|max-args|max-chars|max-procs|process-slot-var)(?:=|\s+)\S+|--[\w-]+(?:=\S+)?)\s+)*${END_OPTS}`,
+].join('|');
+const RUNNER_WRAPPER_PREFIX = new RegExp(`^(?:${RUNNER_WRAPPERS})`);
+// The slot wrapper runs its command after `--`. A quoted path to heavy-slot.cjs is unquoted first (see segments); a quoted
+// label is blanked to "". Options: --label x, --label=x, --label "x y", --label (no value).
+const SLOT_WRAPPER_PREFIX = new RegExp(
+  String.raw`^node(?:\.exe)?\s+(?:--?[\w-]+(?:=\S+)?\s+)*\S*heavy-slot\.cjs\s+run\s+(?:--[A-Za-z][\w-]*(?:=(?:""|\S*)|\s+(?!--(?:\s|$))(?:""|\S+))?\s+)*--\s+`,
+  'i',
+);
+const QUOTED_SLOT_PATH = /(["'])(?:[^"']*[\\/])?heavy-slot\.cjs\1/g;
 const BASH_DQ = String.raw`"(?:[^"\\]|\\.)*"`;
 const PS_DQ = String.raw`"(?:[^"\x60]|\x60[\s\S])*"`;
 const SQ = "'[^']*'";
@@ -121,7 +143,7 @@ const cut = (text, ps) =>
 
 // opts.powershell: the command comes from the PowerShell tool.
 function segments(command, opts = {}) {
-  const raw = String(command);
+  const raw = String(command).replace(QUOTED_SLOT_PATH, 'heavy-slot.cjs');
   const out = cut(stripHeredocs(raw), false);
   if (opts.powershell || PS_WRAPPER.test(raw)) {
     const ps = raw.replace(PS_GREEDY, (_m, pre, head, body) => `${pre}${head}${body}`);
@@ -130,16 +152,35 @@ function segments(command, opts = {}) {
   return out;
 }
 
-// The forms of one segment a pattern is tried against: as written, and without the npm run / npx runner.
-function variants(segment) {
+// The segment with env assignments and the given wrappers peeled off, until nothing changes.
+function peel(segment, wrappers) {
   let a = segment.replace(ENV_PREFIX, '');
-  for (let i = 0; i < 4; i++) {
-    const b = a.replace(WRAPPER_PREFIX, '').replace(ENV_PREFIX, '');
+  for (let i = 0; i < 8; i++) {
+    let b = a;
+    for (const re of wrappers) b = b.replace(re, '');
+    b = b.replace(ENV_PREFIX, '');
     if (b === a) break;
     a = b;
   }
-  a = a.replace(NPM_OPTS, 'npm').replace(/^npm\s+run-script\b/i, 'npm run');
-  return [a, a.replace(RUNNER_PREFIX, '')];
+  return a;
+}
+
+// The forms of one segment a pattern is tried against: as written, with the wrappers of v0.7.0 peeled off (so nothing
+// that was denied before is lost), and with every wrapper peeled off; each also without the npm run / npx runner.
+function variants(segment) {
+  const forms = [
+    ...new Set([
+      segment,
+      peel(segment, [WRAPPER_PREFIX]),
+      peel(segment, [WRAPPER_PREFIX, RUNNER_WRAPPER_PREFIX, SLOT_WRAPPER_PREFIX]),
+    ]),
+  ];
+  const out = [];
+  for (const f of forms) {
+    const a = f.replace(NPM_OPTS, 'npm').replace(/^npm\s+run-script\b/i, 'npm run');
+    for (const v of [a, a.replace(RUNNER_PREFIX, '')]) if (!out.includes(v)) out.push(v);
+  }
+  return out;
 }
 
 // regexes: RegExp[]. True when any matches at the start of any segment.

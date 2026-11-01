@@ -21,6 +21,7 @@ The project config is `<project>/.claude/ghorc.json`. `/ghorc:setup` copies a sh
     "maxScreenshots": 60
   },
   "heavyGuard": { "requireLeadEnv": false },
+  "heavySlots": { "slots": 0, "minFreeRamGb": 0 },
   "thresholds": { "ctxPrepare": 120000, "ctxHandoff": 150000 },
   "lead": { "model": "opus", "effort": "medium", "remind": true },
   "watchdog": {
@@ -78,6 +79,20 @@ project with `test` and `test:full` gets `test:full` proposed even when `npm tes
 
 ### heavyGuard
 `requireLeadEnv` (false): when true, heavy commands are also denied unless the process has `GHORC_ROLE=lead`.
+
+### heavySlots
+Limit on heavy checks running at once on the machine. Off by default.
+- `slots` (0): 0 = off, 1 to 8. A value above 8 is clipped to 8 with a warning (`heavy-slot.cjs status`, and in the
+  text of a hook deny); a negative or non-integer value switches slots off.
+- `minFreeRamGb` (0): free RAM needed to take a slot above the first (0 = no check).
+
+The lock is `scripts/heavy-slot.cjs run --label <text> -- <command>`; the heavy-check hook only denies early, when
+every slot holds a live claim of another session ([hooks.md](hooks.md#heavy-check-slots-scriptsheavy-slotcjs)).
+Call the wrapper from `checks.full`, from the project directory, for example
+`"full": "node \"<plugin>/scripts/heavy-slot.cjs\" run --label full -- npm run test:full"`. The claim's session is
+`--session`, else `$GHORC_SESSION`, else `$CLAUDE_CODE_SESSION_ID` (set by Claude Code in the shell tools' environment,
+equal to the id the hook sees), else `pid-<parent pid>`, so with no setup the lead's own claim is its own.
+`--minutes <n>` marks a claim that runs longer than announced in `status` (it is not removed).
 
 ### thresholds
 Lead context in tokens, enforced by the context guard hook (`scripts/context-guard.cjs`, [hooks.md](hooks.md)).
@@ -154,6 +169,10 @@ prefix are lead sessions and are not counted as workers (empty: none excluded).
 - `GHORC_NO_AUTOSTART=1`: SessionStart never starts the watchdog.
 - `GHORC_CAPACITY_CPU_PCT`, `GHORC_CAPACITY_FREE_GB`, `GHORC_CAPACITY_HERDR_JSON`, `GHORC_CAPACITY_LEDGER`,
   `GHORC_CAPACITY_SAMPLE_MS`: test seams of the capacity guard ([hooks.md](hooks.md#capacity-guardcjs)).
+- `GHORC_SESSION`: the session id `heavy-slot.cjs run` writes into its claim (also read by `ctx.cjs`); without it
+  `CLAUDE_CODE_SESSION_ID` is used.
+- `GHORC_SLOT_STALE_MS` (120000), `GHORC_SLOT_HEARTBEAT_MS` (15000), `GHORC_SLOT_LOCK_WAIT_MS` (2000),
+  `GHORC_TEST_FREE_RAM_GB`: for tests of the slots.
 
 ## Denial log
 Every deny from the read guard and the heavy-check guard appends `<iso time> <session8> <hook> <reason>` to

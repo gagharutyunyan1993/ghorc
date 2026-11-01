@@ -26,7 +26,18 @@
   `herdr agent list` (a herdr failure keeps the hook silent). UserPromptSubmit adds `agents N/M, CPU X%, free Y GB`.
   `weeklyCapPct` and `agentsOverPace` add a weekly brake from `rate_limits.seven_day` of the status line ctx files.
   Errors go to `.claude/ghorc-out/capacity-guard.log`.
-
+- Heavy-check slots, off by default (`heavySlots: { slots: 0, minFreeRamGb: 0 }`; 1-8, above 8 is clipped with a
+  warning). `scripts/heavy-slot.cjs run --label <text> -- <command>` takes a slot (claim file `slot-<n>.json`, created
+  exclusively, with pid and heartbeat; a dead pid or a stale heartbeat frees it), runs the command, passes its exit code
+  and releases on exit; exit 75 and a message naming holder, label and age when no slot is free. `status`,
+  `release --session <id>`. Slots above the first need `minFreeRamGb` of free RAM. With slots on, `heavy-check-guard`
+  also denies `heavyCommands` to the lead while every slot holds a live claim of another session (own session passes,
+  read errors fail open). `checks.full` should call the wrapper. Every change of a slot file runs under a per-slot lock
+  file, so one process wins a slot and a dead claim is removed without touching a live one (not guaranteed for three
+  racers after a process was killed inside the lock, see `docs/hooks.md`); the claim's session
+  defaults to `--session`, `$GHORC_SESSION`, `$CLAUDE_CODE_SESSION_ID`, then `pid-<ppid>`; the command is started
+  without a shell (arguments arrive unchanged, `.cmd` shims go through escaped `cmd.exe`), one string with spaces runs
+  in the shell; `--minutes` marks an overrunning claim in `status`.
 
 ### Changed
 - Context guard with `handoff.stickyOnCompact` on: Stop blocks the lead once per turn until SENT (was: at most 2 times,
@@ -74,13 +85,22 @@
 - `statusline.cjs` removes its `ctx-<id>.json.<pid>.tmp` file when the rename fails (busy target on Windows) instead of
   leaving it behind. `/ghorc:setup` exclude item and `.gitignore` also cover `.claude/ctx-*.tmp`; a project excluded
   with the old two lines gets the new line proposed. `cleanup` already removes old leftovers.
+- Slots: EPERM and EACCES on the exclusive create of the slot lock or the claim (Windows, a file being deleted) count as
+  busy and are retried until the lock deadline; `tryTake` and `acquire` never throw. "No free slot" keeps the
+  "(slot lock busy)" label. A `.cmd`/`.bat` shim anywhere gets its arguments escaped twice (a quote plus a
+  metacharacter no longer reaches `cmd.exe`), its path is normalised (`./bin/shim` works), a single word that is an
+  existing file path (with a space) is run as a program, `xargs --max-lines` and `node --no-warnings ...
+  heavy-slot.cjs` are looked through, the wrapper starts its command with `windowsHide`.
+- The built-in agent-start deny (`claude -p`, `herdr agent start|prompt|send-keys`,
+  `herdr pane run|send-keys|send-text`) now sees herdr global options (`--session x`, `--machine x`, `--remote x`)
+  and the wrappers `timeout`, `nice`, `stdbuf`, `xargs`; the same wrappers are looked through for `heavyCommands`. `docs/hooks.md` lists the forms that stay
+  open: the deny is a seat belt, not a sandbox.
 
 ### Changes that apply with the key off
 Two changes of this branch are not gated by `handoff.stickyOnCompact`:
 - `status: SENT` of the HANDOFF header is read through markdown noise (`**status:** SENT`, a comma-ended id), so a Stop
   that 0.7.0 blocked can now be silent, and only the first `status:` of the header counts.
 - A ctx file that is not valid JSON is reported as "found, bad JSON" (was "no ctx file").
-
 
 ## 0.7.0 - 2026-11-02
 

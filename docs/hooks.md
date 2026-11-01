@@ -56,7 +56,13 @@ plugin (`claude plugin disable ghorc@ghorc`).
 
 - Always, for subagents and workers: `claude -p`, `herdr agent start|prompt|send-keys` and
   `herdr pane run|send-keys|send-text` are denied. The lead may use them (it sends prompts and the handoff ACTIVATE with
-  `herdr pane run`). An env prefix, `env`, `bash -c` and a path to the binary do not get around the deny.
+  `herdr pane run`). An env prefix, `env`, `bash -c`, a path to the binary, herdr's global options (`--session x`,
+  `--machine x`, `--remote x`, also `=` forms) and the wrappers `timeout`, `nice`, `stdbuf` and `xargs` do not get
+  around the deny. The same wrappers are looked through for `heavyCommands`.
+- With `heavySlots.slots` above 0 ([configuration.md](configuration.md#heavyslots)): the lead too is denied a command
+  matching `heavyCommands` while every slot holds a live claim of another session. The text names the holder, its
+  label and age. A claim of the lead's own session does not block it. Claims that cannot be read fail open. This is an
+  early hint; the lock itself is `scripts/heavy-slot.cjs` (below).
 - A command matching `heavyCommands` is denied when a subagent or a `GHORC_ROLE=worker` session runs it. The lead
   runs it freely, unless `heavyGuard.requireLeadEnv` is true and the session lacks `GHORC_ROLE=lead`.
 - If `.claude/ghorc.json` is invalid (JSON error, wrong type, bad regex), it denies every heavy command for everyone,
@@ -70,10 +76,83 @@ only the lead runs heavy checks.
 only the lead runs heavy checks (GHORC_ROLE=lead is not set).
 subagents and workers may not start other agents (claude -p, herdr agent start/prompt/send-keys, herdr pane run/send-keys/send-text): ask the lead.
 config invalid: <reason>. Heavy-command rules cannot be trusted: fix .claude/ghorc.json (node scripts/check-config.cjs).
+no free heavy-check slot (1 configured): slot 1: session 5f3a91c2, "full", 214s ago. Wait for a slot (node scripts/heavy-slot.cjs status).
 ```
 
 **How to disable.** Leave `heavyCommands` empty, or remove the pattern. Fix an invalid config with `check-config.cjs`;
 the fix is seen at once.
+
+### The agent-start deny is a seat belt, not a sandbox
+
+The built-in deny reads the command text. It stops honest mistakes and the usual ways of writing the command; it does
+not stop a subagent that wants to get around it. Forms that stay open:
+
+- another binary or alias for herdr, and herdr options that take a value other than `--session`, `--machine` and
+  `--remote`, or short options with a value (`herdr -s x pane run ...`);
+- a command built at run time: a variable (`$H pane run`), `eval`, `base64 -d | sh`, a script file or `node -e` that
+  runs herdr or `claude -p` inside, `python -c`, `ssh host herdr ...`;
+- other wrappers: `sudo`, `setsid`, `chroot`, `script -c`, `find -exec`, `watch`, `parallel`, `cmd /c start`, PowerShell
+  `Start-Process`, `Invoke-Expression`, `& $path`;
+- options of `xargs`, `timeout`, `nice` or `stdbuf` that are not in the lists the parser knows (an unknown short
+  option of `xargs` that takes a value eats the command word), `xargs -I {} -- cmd` (the `{}` cuts the line into two
+  segments), `node` options that take a separate value before `heavy-slot.cjs` (`node -r x heavy-slot.cjs`; bare
+  options such as `--no-warnings` and `--opt=value` are looked through), and the wrappers' names in a path or an alias;
+- writing into the herdr socket or the pane input by any means other than the herdr CLI.
+
+For a hard boundary use the permission rules of Claude Code (`permissions.deny` for `Bash(herdr pane run:*)` and so on)
+or run workers without a herdr socket. Treat this deny as a second line of defence.
+
+### Heavy-check slots: scripts/heavy-slot.cjs
+
+Off by default (`heavySlots.slots` 0). With slots on, the lock is the wrapper, not the hook:
+
+```
+node "<plugin>/scripts/heavy-slot.cjs" run --label full -- npm run test:full
+node "<plugin>/scripts/heavy-slot.cjs" status
+node "<plugin>/scripts/heavy-slot.cjs" release --session <id>
+```
+
+- `run [--label <text>] [--session <id>] [--minutes <n>] -- <command...>` takes the first free slot, runs the command
+  with the terminal attached, refreshes the heartbeat every 15 s, passes the exit code and releases the slot when the
+  command ends (also on a non-zero exit and a failed start). No free slot: the command does not run, the exit code is
+  75 and stderr names each holder with its full session id, label and age, for example
+  `no free heavy-check slot (1 configured): slot 1: session 5f3a91c2-..., "full", 214s ago`. With `slots` 0 the command
+  just runs. Run it from the project directory: the config is looked up exactly as the hook does (project root, then
+  the main checkout of a linked worktree). `--help` and `-h` count only before `--`.
+- The command is an argument list (no shell: `--` `npm` `run` `x` reaches `npm` as written, `&&` is an argument) or one
+  string with spaces (`-- "npm run a && npm run b"`), which the shell runs. On Windows an `.exe` is started directly; a
+  `.cmd` or `.bat` shim such as `npm.cmd` goes through `cmd.exe` with its arguments escaped for `cmd.exe` and again
+  for the `%*` of the shim, wherever the shim lives; an argument with `%` (or a line break) cannot pass through
+  `cmd.exe` unchanged and is refused (exit 2, no slot taken): use the one-string form. A single word that is an
+  existing file (`"/opt/my dir/tool"`) is a program path, not a shell line.
+- The session of the claim is `--session`, else `$GHORC_SESSION`, else `$CLAUDE_CODE_SESSION_ID` (Claude Code sets it
+  in the environment of the shell tools, and it equals the `session_id` the hook receives), else `pid-<parent pid>`.
+  With the default, a check the lead starts counts as the lead's own: the hook does not block it.
+- The claim is the file `<tmp>/ghorc-<user>/heavy-slots/slot-<n>.json` (under `GHORC_TMP` when set), created
+  exclusively, with `{ session, pid, ts, heartbeat, minutes, label }` (and a `nonce`). Every change of a slot (take,
+  remove a dead claim, heartbeat, release) happens under a per-slot lock file `slot-<n>.lock`, so of any number of
+  processes racing for a slot one wins, and the removal of a dead claim cannot touch a live one. A claim is live
+  while its pid is alive and the heartbeat is younger than 2 minutes; a dead one is removed by the next taker. The
+  heartbeat stops only when the file holds another claim; a missing or unreadable file does not stop it.
+- A claim the hook cannot parse (empty, cut in the middle) does not block the hook; the wrapper treats it as live for
+  2 minutes by the age of the file.
+- `--minutes <n>` announces how long the check should take. `status` and the "no free slot" text mark a live claim
+  past it ("over its n min"); it is reported, never removed. `release --session <id>` (the id as `status` prints it)
+  removes the claims of a session at once; a command that is still running then runs without a slot.
+- The slots above the first need `heavySlots.minFreeRamGb` of free RAM (`os.freemem()`, which counts cache, so it is
+  a weak signal). A claim of the lead's own session on any slot lets the hook pass whatever the RAM. `status` prints the
+  slots, the holders and the free RAM.
+- Signals: on POSIX SIGINT, SIGTERM and SIGHUP stop the command, release the slot and exit 130, 143 and 129. On Windows
+  only Ctrl-C, Ctrl-Break and closing the console reach the handlers; `process.kill(pid, 'SIGTERM')` ends the wrapper
+  at once, the command may keep running, and the claim goes stale and expires after 2 minutes.
+- Known limits: the claim follows the wrapper process, not the command tree, so a command that outlives a killed
+  wrapper is not counted; the pid check can be fooled by pid reuse until the heartbeat goes stale; a machine that sleeps
+  longer than 2 minutes makes the live wrapper's claim stale, and the next taker may remove it on wake; a lock file left
+  by a crash is broken after its owner is gone. That break is a check followed by a rename, so one case is not
+  covered: a process killed while it holds the lock (a lock held for milliseconds), and then three racers at once (a
+  breaker that read the old lock, a second one that broke it and entered, a third that took the lock name). The claim
+  is then not guaranteed to be exclusive: the third racer can run without a claim, and a put-back can delay others for
+  up to 10 s. Not seen in 40 rounds of 8 racers on a planted stale lock.
 
 ### heavyCommands semantics
 
@@ -81,7 +160,8 @@ Each string is a JavaScript regex compiled with flag `i` (case-insensitive). A c
 `||`, `;`, `|`, `&`, newlines, `( ) { }`, `$(` and backticks; quoted text is blanked first, except the quoted argument
 of a shell wrapper (`bash -c "..."`, `cmd /c "..."`, `powershell -Command "..."`) and `$(...)` or backticks inside
 double quotes. The regex must match at the START of a segment, after optional env assignments (`FOO=1 `) and wrappers
-(`cmd /c`, `bash -c`, `powershell -Command`, `call`, `time`). npm global options (`--prefix app`, `-C app`, `-w x`,
+(`cmd /c`, `bash -c`, `powershell -Command`, `call`, `time`, `timeout`, `nice`, `stdbuf`, `xargs`, and the command
+after `--` of `heavy-slot.cjs run`). npm global options (`--prefix app`, `-C app`, `-w x`,
 `--silent`) are dropped, `run-script` reads as `run`, and a leading `npm run ` or `npx ` is also tried off, so
 `^vitest` matches `npx vitest`. Hence `git commit -m "run npm test"` and `echo npm test` are ordinary, while
 `cd app && npm test` is heavy. Write patterns for the segment start (`^npm\s+test\b`); backslashes are doubled in
