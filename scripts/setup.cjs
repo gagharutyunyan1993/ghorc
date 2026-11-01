@@ -9,7 +9,7 @@ const cmdlib = require('./lib/cmd.cjs');
 
 const PLUGIN_ROOT = path.join(__dirname, '..');
 const MARKER = '<!-- ghorc -->';
-const EXCLUDE_LINES = ['.claude/ctx-*.json', '.claude/ghorc-out/'];
+const EXCLUDE_LINES = ['.claude/ctx-*.json', '.claude/ctx-*.tmp', '.claude/ghorc-out/'];
 const cg = require('./lib/ctxguard.cjs');
 const { load } = require('./lib/config.cjs');
 

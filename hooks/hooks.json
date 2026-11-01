@@ -1,5 +1,6 @@
 {
-  "description": "ghorc: read guard (Read, MCP captures; reset on Edit/Write), heavy check guard, context guard (SessionStart compact, UserPromptSubmit, PreToolUse, Stop), session reminder, call ledger (PostToolUse Agent, SubagentStop)",
+  "description": "ghorc: read guard (Read, MCP captures; reset on Edit/Write), heavy check guard, context guard (SessionStart compact, UserPromptSubmit, PreToolUse, Stop), capacity guard (off by default; Stop, UserPromptSubmit, SubagentStart, SubagentStop), session reminder, call ledger (PostToolUse Agent, SubagentStop)",
+
   "hooks": {
     "SessionStart": [
       {
@@ -36,21 +37,31 @@
     "UserPromptSubmit": [
       {
         "hooks": [
-          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/context-guard.cjs\"", "timeout": 5 }
+          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/context-guard.cjs\"", "timeout": 5 },
+          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/capacity-guard.cjs\"", "timeout": 8 }
         ]
       }
     ],
     "Stop": [
       {
         "hooks": [
-          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/context-guard.cjs\"", "timeout": 5 }
+          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/context-guard.cjs\"", "timeout": 5 },
+          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/capacity-guard.cjs\"", "timeout": 8 }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/capacity-guard.cjs\"", "timeout": 8 }
         ]
       }
     ],
     "SubagentStop": [
       {
         "hooks": [
-          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/ledger.cjs\" stop", "timeout": 5 }
+          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/ledger.cjs\" stop", "timeout": 5 },
+          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/capacity-guard.cjs\"", "timeout": 8 }
         ]
       }
     ],

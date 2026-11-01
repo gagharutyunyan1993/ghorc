@@ -3,6 +3,7 @@ node_modules/
 .DS_Store
 tmp/
 .claude/ctx-*.json
+.claude/ctx-*.tmp
 .claude/ghorc-out/
 ghorc-test-*/
 ghorc-testtmp-*/

@@ -48,5 +48,15 @@
   "review": {
     "maxFixRounds": 2
   },
-  "criticalPaths": []
+  "criticalPaths": [],
+  "capacity": {
+    "enabled": false,
+    "agents": 3,
+    "cpuStartPct": 60,
+    "minFreeRamGb": 4,
+    "weeklyCapPct": 0,
+    "agentsOverPace": 0,
+    "idleMarker": "Idle:",
+    "leadNamePrefix": "lead-"
+  }
 }

@@ -165,7 +165,8 @@ function denials(n = 5) {
   return out;
 }
 
-// Deletes ctx-*.json (and stray temp files) under <root>/.claude, plus session state dirs, alert offsets and handoff flags (handoff-*.json) in the tmp dir,
+// Deletes ctx-*.json (and stray temp files) under <root>/.claude, leftover capacity ledger temp files under
+// <root>/.claude/ghorc-out, plus session state dirs, alert offsets and handoff flags (handoff-*.json) in the tmp dir,
 // when older than maxAgeDays. Returns the number of removed entries. Never throws.
 function cleanup(root, maxAgeDays = 7, now = Date.now()) {
   let n = 0;
@@ -189,6 +190,15 @@ function cleanup(root, maxAgeDays = 7, now = Date.now()) {
     const dir = path.join(root, '.claude');
     for (const f of fs.readdirSync(dir)) {
       if (/^ctx-.*\.json(\..*\.tmp)?$/.test(f) && old(path.join(dir, f))) rm(path.join(dir, f));
+    }
+  } catch {
+    /* no directory */
+  }
+  try {
+    // temp files of a failed ledger compaction (capacity-ledger.jsonl.<pid>.tmp)
+    const dir = path.join(root, '.claude', 'ghorc-out');
+    for (const f of fs.readdirSync(dir)) {
+      if (/^capacity-ledger\.jsonl\.[^.]*\.tmp$/.test(f) && old(path.join(dir, f))) rm(path.join(dir, f));
     }
   } catch {
     /* no directory */

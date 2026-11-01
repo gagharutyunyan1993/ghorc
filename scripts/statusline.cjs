@@ -209,8 +209,18 @@ try {
     };
     if (effort) out.effort = effort;
     if (rl) out.rate_limits = rl;
-    fs.writeFileSync(tmp, JSON.stringify(out));
-    fs.renameSync(tmp, target);
+    try {
+      fs.writeFileSync(tmp, JSON.stringify(out));
+      fs.renameSync(tmp, target);
+    } catch (e) {
+      // a busy target (Windows) or a failed write must not leave the temp file behind
+      try {
+        fs.rmSync(tmp, { force: true });
+      } catch {
+        /* ignore */
+      }
+      throw e;
+    }
   }
 } catch {
   /* never break the status line */

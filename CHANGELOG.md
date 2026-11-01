@@ -19,6 +19,14 @@
 - `ctx.cjs` prints one extra line after a compaction of the session (with `handoff.stickyOnCompact`): the number is
   unreliable and, for a lead, the handoff is due.
   The numbers themselves are unchanged.
+- Capacity guard (`scripts/capacity-guard.cjs`; Stop, UserPromptSubmit, SubagentStart, SubagentStop), off by default
+  (`capacity.enabled`). Stop returns the lead's turn once when agents < `capacity.agents`, CPU < `cpuStartPct` and free
+  RAM >= `minFreeRamGb`, unless the last answer has a line starting with `idleMarker` (default `Idle:`) and a real
+  reason. Agents: `background_tasks` of the Stop input, else the SubagentStart/Stop ledger, plus herdr workers of
+  `herdr agent list` (a herdr failure keeps the hook silent). UserPromptSubmit adds `agents N/M, CPU X%, free Y GB`.
+  `weeklyCapPct` and `agentsOverPace` add a weekly brake from `rate_limits.seven_day` of the status line ctx files.
+  Errors go to `.claude/ghorc-out/capacity-guard.log`.
+
 
 ### Changed
 - Context guard with `handoff.stickyOnCompact` on: Stop blocks the lead once per turn until SENT (was: at most 2 times,
@@ -55,12 +63,24 @@
 - The status line prints the role through the shared role helper. SessionStart says so when the key is on and
   `GHORC_ROLE` is unset (no enforcement until `GHORC_ROLE=lead`). Skill `ghorc:handoff` corrected (Stop rule, exit 2
   and "cannot tell" of `unpushed.cjs`, the lead role of the candidate).
+- Capacity guard review round 1: Stop is silent when `last_assistant_message` is not a string, when the handoff is SENT
+  for the session and while the handoff flag is set; the ledger is cleared only when no `workflow`, cloud session or
+  other agent-bearing task is in flight; a stopped herdr server (`server_not_running`) counts as 0 workers; ledger
+  compaction keeps late events and removes its temp file on failure (`cleanup` covers it); `**Idle**: reason` counts.
+- Capacity guard review round 2: `server_not_running` is read from stderr as well as stdout (herdr 0.9.5 prints it on
+  stderr; stderr is piped, never shown); with a running workflow or cloud session the agent count is the larger of the
+  listed subagents and the ledger; the idle-line regex no longer backtracks quadratically (100 KB of blank lines took
+  16 s); the docs state that phantom agents are possible under heavy concurrency and expire in 3 hours.
+- `statusline.cjs` removes its `ctx-<id>.json.<pid>.tmp` file when the rename fails (busy target on Windows) instead of
+  leaving it behind. `/ghorc:setup` exclude item and `.gitignore` also cover `.claude/ctx-*.tmp`; a project excluded
+  with the old two lines gets the new line proposed. `cleanup` already removes old leftovers.
 
 ### Changes that apply with the key off
 Two changes of this branch are not gated by `handoff.stickyOnCompact`:
 - `status: SENT` of the HANDOFF header is read through markdown noise (`**status:** SENT`, a comma-ended id), so a Stop
   that 0.7.0 blocked can now be silent, and only the first `status:` of the header counts.
 - A ctx file that is not valid JSON is reported as "found, bad JSON" (was "no ctx file").
+
 
 ## 0.7.0 - 2026-11-02
 

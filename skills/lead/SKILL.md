@@ -29,6 +29,9 @@ Project config: `.claude/ghorc.json` (checks, critical areas, thresholds). Plugi
 19. Limit: `capacity.agents` (agents and workers together) when the capacity guard is enabled, else the lead plus 2 workers in total; one heavy check per machine.
 20. "Significant" for a consultation - any of: money/data/recovery; an external contract or migration; a hard-to-reverse dependency; a conflict of key requirements; two failed approaches. Composition: a counterpart plus a critic, one round.
 
+## Capacity guard (only when `capacity.enabled` is true in `.claude/ghorc.json`)
+If a prompt line says `agents N/M, CPU X%, free Y GB` or Stop returns your turn as "Machine underloaded", the machine has room: start work that can move in parallel (a package, a review, a scout) or end the answer with a line `Idle: <reason>` (the marker is `capacity.idleMarker`; the reason must be a real one, for example "waiting for the owner" or "CPU busy with a foreign process"). `WEEKLY CAP` in the line means no new agents at all: only merge what is ready. Without the line and the hook nothing here applies.
+
 ## Routing
 | Class of work | Role / model | Effort |
 |---|---|---|

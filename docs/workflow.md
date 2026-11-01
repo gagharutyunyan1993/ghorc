@@ -235,7 +235,7 @@ not the conversation. While a background `full` runs, the lead waits for the not
 | `effort` (owner decision) | `~/.claude/settings.json` | `modelSettings.<lead model id>.effortLevel` = `lead.effort` (full id, e.g. `claude-opus-5-5`; no top-level `effortLevel`) |
 | `config` | `<project>/.claude/ghorc.json` | copied from the short template if missing |
 | `claudemd` | `<project>/CLAUDE.md` | `templates/CLAUDE-section.md` appended if the marker is missing |
-| `exclude` | git `info/exclude` (via `git rev-parse --git-path`) | lines `.claude/ctx-*.json`, `.claude/ghorc-out/` |
+| `exclude` | git `info/exclude` (via `git rev-parse --git-path`) | lines `.claude/ctx-*.json`, `.claude/ctx-*.tmp`, `.claude/ghorc-out/` |
 | `heavy` (warning) | `<project>/.claude/ghorc.json` | proposed `heavyCommands` from `package.json` scripts |
 | `watchdog` (warning) | `<project>/.claude/ghorc.json` | `watchdog.autostart` = `true`, only if you want it |
 

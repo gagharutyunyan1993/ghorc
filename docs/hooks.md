@@ -1,6 +1,6 @@
 # Hooks, status line, watchdog and scripts
 
-ghorc registers five hook scripts (the call ledger has two entries) in `hooks/hooks.json`. They are plain Node.js, make no network calls and never
+ghorc registers six hook scripts (the call ledger has two entries) in `hooks/hooks.json`. They are plain Node.js, make no network calls and never
 rewrite a command or a file: a PreToolUse hook either stays silent (the call proceeds) or prints a deny decision with a
 reason. Every deny is also appended to the denial log (below).
 
@@ -118,6 +118,54 @@ alerts (PreToolUse at most every 5 minutes). Without a fresh ctx file (younger t
 only warns. The flag and its throttle state live in `<tmp>/ghorc-<user>`; a deny is logged to `denials.log`.
 
 **How to disable or loosen.** Raise `thresholds.ctxHandoff`, or disable the plugin.
+
+## capacity-guard.cjs
+
+**When it fires.** Stop, UserPromptSubmit, SubagentStart and SubagentStop. Off by default: without
+`capacity.enabled: true` ([configuration.md](configuration.md#capacity)) it prints nothing and writes nothing.
+It acts for the lead only (no `agent_id`, not `GHORC_ROLE=worker`); SubagentStart/Stop only feed the ledger.
+Stop is silent when the last answer has no text (the field is missing or not a string), when `HANDOFF.md` says
+`status: SENT` for this session (the old lead goes idle) and while the handoff flag of the context guard is set.
+
+**What it does.**
+- Stop returns the turn once (never when `stop_hook_active`) when agents < `capacity.agents` AND average CPU <
+  `cpuStartPct` AND free RAM >= `minFreeRamGb` AND the last answer has no line that starts with `idleMarker` (default
+  `Idle:`) followed by a real reason: at least 4 letters or digits, at least 2 distinct, not the placeholder `<reason>`.
+  The line may carry a list marker, a number, a quote or bold (`**Idle:** x`, `**Idle**: x`). The check order is
+  cheap first; CPU is sampled last.
+- Agents are the in-flight `subagent` and `teammate` entries of the Stop input `background_tasks`; when the field is
+  missing, the SubagentStart/Stop ledger `<project>/.claude/ghorc-out/capacity-ledger.jsonl` (an entry older than
+  3 hours is stale). The session's entries are cleared only when no in-flight task of any agent-bearing type is listed
+  (a `workflow` or cloud session keeps them; `shell` and `monitor` carry no agent). While such a task runs, its agents
+  are not listed in `background_tasks`, so the count is the larger of the listed subagents and teammates and the
+  session's ledger entries. To that it adds the herdr workers
+  of `herdr agent list`: status `working` or `blocked`, name not starting with `leadNamePrefix`, session not this one.
+  herdr not installed, or its server not running (error code `server_not_running`), means 0 workers; any other herdr
+  failure makes the count unknown and the hook silent (logged).
+- The herdr count is machine-wide on purpose: the limit protects the machine, not one project. Workers of other
+  projects and other leads whose name does not start with `leadNamePrefix` count as workers while they are `working`
+  or `blocked`, so a busy neighbour keeps this lead silent. Name your leads with the prefix to keep them out.
+- UserPromptSubmit adds the line `agents N/M, CPU X%, free Y GB` to the context (CPU: one 400 ms sample).
+- CPU is the average of three `os.cpus()` intervals (400 ms each, one interval is capped at 500 ms: Stop waits 1.5 s at
+  most); free RAM is `os.freemem()`. No child process for either.
+- Weekly cap, when `weeklyCapPct` > 0: `rate_limits.seven_day` of `<project>/.claude/ctx-<session_id>.json` (written
+  by the status line; `resets_at` is epoch seconds, the file's `ts` is milliseconds). `f` = clamp((now - (resets_at -
+  7 days)) / 7 days, 0, 1). `used >= weeklyCapPct`: Stop demands no agents and the prompt line says `WEEKLY CAP`.
+  `used > weeklyCapPct * f` and `agentsOverPace` > 0: Stop demands agents only while there are fewer than
+  `agentsOverPace`.
+  Data of a past or missing `resets_at`, or taken from the newest other session's ctx file, is marked `(stale)`; no data
+  at all: the plain rules, a line in the prompt and in the log.
+
+**Failure behavior.** Fails open: any error allows the turn and goes to `.claude/ghorc-out/capacity-guard.log`. The
+ledger is append-only and takes no lock; only the compaction of a file over 256 KB takes a lock file, and a busy lock
+skips the compaction (logged), it never fails the event. Compaction copies the events appended while it ran and removes
+its temp file when it fails; `cleanup` removes old `capacity-ledger.jsonl.<pid>.tmp` leftovers. A start whose stop was
+lost during a compaction stays a phantom agent for at most 3 hours; phantoms are possible under heavy concurrency
+(about 25 in 15000 start/stop pairs from 10 processes) and rare in normal use.
+
+**How to disable or loosen.** `capacity.enabled: false`, a lower `agents`, a higher `cpuStartPct`. Test seams, env:
+`GHORC_CAPACITY_CPU_PCT`, `GHORC_CAPACITY_FREE_GB` (instead of measuring), `GHORC_CAPACITY_HERDR_JSON` (the output of
+`herdr agent list`), `GHORC_CAPACITY_LEDGER` (ledger path), `GHORC_CAPACITY_SAMPLE_MS` (one CPU interval).
 
 ## ledger.cjs
 
