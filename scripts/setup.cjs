@@ -38,6 +38,40 @@ function pctPlan(root) {
   };
 }
 
+// Opt-in guards offered by setup: --apply <id> sets exactly the key below in the project config; never part of "all".
+const GUARDS = [
+  {
+    id: 'capacity',
+    key: 'capacity.enabled',
+    why: 'demands an idle reason when the machine has spare capacity and watches the weekly cap',
+    on: (sub) => sub('capacity').enabled === true,
+    set: (o) => {
+      o.capacity = o.capacity && typeof o.capacity === 'object' ? o.capacity : {};
+      o.capacity.enabled = true;
+    },
+  },
+  {
+    id: 'heavySlots',
+    key: 'heavySlots.slots',
+    why: 'limits heavy checks per machine; the check command must go through scripts/heavy-slot.cjs',
+    on: (sub) => Number(sub('heavySlots').slots) > 0,
+    set: (o) => {
+      o.heavySlots = o.heavySlots && typeof o.heavySlots === 'object' ? o.heavySlots : {};
+      o.heavySlots.slots = 2;
+    },
+  },
+  {
+    id: 'pushGuard',
+    key: 'handoff.pushGuard',
+    why: 'no candidate lead while in-flight branches are unpushed',
+    on: (sub) => sub('handoff').pushGuard === true,
+    set: (o) => {
+      o.handoff = o.handoff && typeof o.handoff === 'object' ? o.handoff : {};
+      o.handoff.pushGuard = true;
+    },
+  },
+];
+
 function readJson(file) {
   try {
     return JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -389,9 +423,28 @@ function check(cwd, opts = {}) {
     why: 'the watchdog is a detached background process that warns about transcripts that grow without bound; stop it with scripts/watchdog.cjs --stop',
     ok: wdOn,
   });
+  // Opt-in guards from other branches: a missing key reads as off. Never part of "all"; applied only by name.
+  const sub = (k) => (projCfg[k] && typeof projCfg[k] === 'object' ? projCfg[k] : {});
+  for (const g of GUARDS) {
+    const on = g.on(sub);
+    add({
+      id: g.id,
+      scope: 'project',
+      warn: true,
+      applicable: true,
+      guard: true,
+      what: `${cfgFile}: ${g.key}`,
+      current: on ? 'on' : 'off',
+      recommended: `on: ${g.why} (apply: --apply ${g.id})`,
+      why: g.why,
+      ok: on,
+    });
+  }
+  const permArgs = sub('handoff').candidatePermissionArgs;
+  const permSet = Array.isArray(permArgs) && permArgs.length > 0;
   const real = items.filter((i) => !i.warn);
   const slState = !sl ? 'none' : items[0].ok ? (fs.existsSync(statusLineBackup(settingsFile)) ? 'ghorc (previous saved)' : 'ghorc') : 'other';
-  return { items, settingsFile, settingsError, settingsWarning, statusLineState: slState, root, clean: real.every((i) => i.ok) && !settingsError };
+  return { items, candidatePermissionArgsSet: permSet, settingsFile, settingsError, settingsWarning, statusLineState: slState, root, clean: real.every((i) => i.ok) && !settingsError };
 }
 
 function stamp() {
@@ -488,6 +541,10 @@ function apply(cwd, ids, opts = {}) {
         o.heavyCommands = [...have, ...it.proposed.filter((p) => !have.includes(p))];
       });
       diff.push(`+ ${dst}: heavyCommands`);
+    } else if (GUARDS.some((g) => g.id === it.id)) {
+      const g = GUARDS.find((x) => x.id === it.id);
+      const dst = editProjectConfig(c.root, g.set);
+      diff.push(`+ ${dst}: ${g.key} (on)`);
     } else if (it.id === 'watchdog') {
       const dst = editProjectConfig(c.root, (o) => {
         o.watchdog = o.watchdog && typeof o.watchdog === 'object' ? o.watchdog : {};
@@ -559,9 +616,9 @@ if (require.main === module) {
   if (args.includes('--help') || (!args.includes('--check') && !args.includes('--apply') && !args.includes('--restore'))) {
     console.log(
       'setup.cjs --check [--project] [--cwd <dir>]: report each setup item (scope, current -> recommended, why) as human lines plus a final JSON line. ' +
-        'Items marked WARN (heavy, watchdog) never make the setup unclean and are applied only when named (not by "all"); ' +
+        'Items marked WARN (heavy, watchdog, and the opt-in guards capacity, heavySlots, pushGuard) never make the setup unclean and are applied only when named (not by "all"); ' +
         'heavy prints a proposed regex list from the package.json scripts (root and app/). --status adds the role, guards, watchdog and recent denials.\n' +
-        'setup.cjs --apply <all|statusLine,statusLineStale,pct,idle,model,effort,config,claudemd,exclude,heavy,watchdog> [--project] [--cwd <dir>]: apply the chosen items; ' +
+        'setup.cjs --apply <all|statusLine,statusLineStale,pct,idle,model,effort,config,claudemd,exclude,heavy,watchdog,capacity,heavySlots,pushGuard> [--project] [--cwd <dir>]: apply the chosen items; ' +
         'backs up ~/.claude/settings.json first, touches only the listed keys and prints a diff. ' +
         'pct is written GLOBALLY (every project) unless --project, which writes <root>/.claude/settings.local.json instead. ' +
         'model and effort are owner-level decisions: name them only after the owner says yes. GHORC_HOME overrides the home directory. ' +
@@ -598,6 +655,7 @@ if (require.main === module) {
       console.log('proposed heavyCommands (from package.json scripts; checks.fast is never proposed):');
       for (const p of hv.proposed) console.log(`  ${p}`);
     }
+    console.log(`info: handoff.candidatePermissionArgs is ${c.candidatePermissionArgsSet ? 'set' : 'not set'} (it can bypass permission prompts; the project decides it, setup never writes it)`);
     console.log(`statusline: ${c.statusLineState}`);
     if (c.settingsWarning) console.log(`WARN: ${c.settingsWarning}`);
     if (c.settingsError) console.log(`ERROR: ${c.settingsError}`);

@@ -43,5 +43,8 @@
     "statePath": "STATE.md",
     "handoffPath": "HANDOFF.md"
   },
+  "review": {
+    "maxFixRounds": 2
+  },
   "criticalPaths": []
 }

@@ -50,9 +50,9 @@ The first three are the core set; the others are for projects that need them. Br
 `mcp__chrome-devtools__*`, `mcp__claude-in-chrome__*`. `ghorc:media` needs poppler (`pdftotext`, `pdftoppm`) for PDFs.
 Project roles: when the project defines its own roles in `.claude/agents/`, they take precedence over the `ghorc:*`
 roles for the same purpose; the lead launches them by name with explicit `model` and `effort` and keeps the same effort
-table. A herdr worker is for a task that waits on an external event for longer than about 15 minutes (a pipeline, a
-release), must survive a lead restart, or that the owner wants to watch or answer; otherwise use an Agent call (cheaper,
-and only Agent calls reach the ledger).
+table. Inside herdr (`HERDR_ENV=1`) every package, review and the integrator run as a separate herdr tab with a report
+file, because background agents inside the lead are invisible to the owner; an Agent call is only for scouting of up to
+about 5 minutes and for writing memory. Tab workers do not reach the ledger. Outside herdr use Agent calls.
 
 No role spawns subagents; every role reads `<project>/CLAUDE.md` and `.claude/ghorc.json` itself. Plugin skills and
 agents are namespaced by Claude Code, so they cannot collide with your own.
@@ -97,10 +97,16 @@ agents are namespaced by Claude Code, so they cannot collide with your own.
 15. Checks only through the project commands (`checks`); a bare test runner and `full` are forbidden for agents.
 16. `full`: one run, on the final tree, lead only, in the background, after fast; it runs on the merge SHA and the
     report quotes that SHA; if incomplete, find the cause first and restart only the failed phase.
-17. Review limit is 3 rounds; a second `CHANGES_REQUIRED` means the lead rewrites the task instead of resending it.
-18. There is no sub-lead; direct Agent calls by default; a herdr worker when the task waits more than about 15 minutes on an external event, must survive a lead restart, or the owner watches or answers it;
-    otherwise an Agent call.
-19. At most the lead plus 2 workers in total; one heavy check per machine.
+17. Review limit is 2 fix rounds (`review.maxFixRounds`), then a cheap closure check, not a full re-review: input is the
+    basis of each taken finding, the fix diff, the surrounding code and the test; output is closed or not closed with
+    evidence per finding plus a scan of the fix diff for new P0/P1 (Sonnet/low, a critical package Opus/high). A full
+    re-review only when the fixes went beyond the findings and changed behaviour. P0/P1 open after round 2: blocked,
+    the lead narrows the task. A second `CHANGES_REQUIRED` means the lead rewrites the task instead of resending it.
+18. There is no sub-lead. Inside herdr every package, review and the integrator run as a herdr tab with a report file;
+    an Agent call only for scouting up to about 5 minutes and for memory (background agents inside the lead are
+    invisible to the owner). Tab workers do not reach the ledger. Outside herdr: direct Agent calls.
+19. At most `capacity.agents` when the capacity guard is enabled, else the lead plus 2 workers in total; one heavy
+    check per machine.
 20. A consultation is "significant" on any of: money/data/recovery, an external contract or migration, a
     hard-to-reverse dependency, a conflict of key requirements, two failed approaches. Format: an answer plus a
     critic, one round.
@@ -122,7 +128,7 @@ agents are namespaced by Claude Code, so they cannot collide with your own.
 | Dispute, arbiter | Fable | medium-high |
 | Merge conflict, red pipeline | `ghorc:integrator` | medium |
 | Release (owner's word only) | `ghorc:release` | medium |
-| Waits >~15 min on an external event, must survive a lead restart, or owner watches/answers | herdr worker, `--effort` explicit | - |
+| Inside herdr: any package, review or integrator; outside: waits >~15 min or owner watches/answers | herdr worker (tab) with a report file, `--effort` explicit | - |
 
 | Effort | Use for |
 |---|---|

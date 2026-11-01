@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+- Review limit: at most 2 fix rounds (`review.maxFixRounds`, default 2), then a cheap closure check instead of a full
+  re-review; P0/P1 open after round 2 means blocked. Replaces "3 rounds" in the lead skill, workflow, templates.
+- The documented subagent ban list is now `herdr agent start|prompt|send-keys` and `herdr pane run|send-keys|send-text`.
+- `setup --check` prints an information line for `handoff.candidatePermissionArgs`; `setup --apply` never writes it.
+
 ## 0.7.0 - 2026-11-02
 
 ### Added

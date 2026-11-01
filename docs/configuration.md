@@ -37,6 +37,7 @@ The project config is `<project>/.claude/ghorc.json`. `/ghorc:setup` copies a sh
     "statePath": "STATE.md",
     "handoffPath": "HANDOFF.md"
   },
+  "review": { "maxFixRounds": 2 },
   "criticalPaths": []
 }
 ```
@@ -92,6 +93,15 @@ Standing owner permissions for `/ghorc:handoff`. `allowSendKeysExit` (false): th
 tab through herdr. `candidatePermissionArgs` (`[]`): permission-mode arguments for the candidate, for example
 `["--permission-mode", "acceptEdits"]`. `readyTimeoutMin` (10): minutes the old lead waits for READY (polled every
 60 s). `statePath` and `handoffPath`: the STATE and HANDOFF files.
+
+`candidatePermissionArgs` can bypass permission prompts (for example `--dangerously-skip-permissions`), so setting it is
+the project's explicit decision. `setup.cjs --check` prints an information line saying whether it is set;
+`setup.cjs --apply` never writes it.
+
+### review
+`maxFixRounds` (2): fix rounds per package before the lead stops resending the implementer. After that comes a cheap
+closure check (closed or not closed with evidence per finding, plus a scan of the fix diff for new P0/P1), not a full
+re-review. P0/P1 still open after the last round: the package is blocked and the lead narrows the task.
 
 ### criticalPaths
 Critical areas of the project (money, contracts, policy, hooks). Edits there go to `ghorc:reviewer-critical`.

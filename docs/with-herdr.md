@@ -7,7 +7,9 @@ watchdog, `/ghorc:lead`, `/ghorc:brief`, `/ghorc:status`, `/ghorc:setup`. `/ghor
 the `/clear` fallback ([handoff.md](handoff.md#without-herdr)).
 
 **With herdr** you also get `/ghorc:handoff` into a new tab and worker sessions with their own process and effort.
-Use a worker when the task waits more than about 15 minutes on an external event, must survive a lead restart, or the owner watches or answers it; direct Agent calls stay the default. Start
+Inside herdr (`HERDR_ENV=1`) every package, every review and the integrator run as a separate herdr tab (a worker)
+with a report file; an Agent call is only for scouting up to about 5 minutes and for writing memory, because
+background agents inside the lead are invisible to the owner. Tab workers do not reach the ledger. Start
 workers with `GHORC_ROLE=worker`, so they get no lead reminder, start no watchdog, and are treated as subagents by the
 heavy guard (heavy commands and agent starts denied):
 
@@ -22,6 +24,8 @@ Whether herdr passes the variable to the child session is not verified: check th
 If it prints `role=lead`, the variable did not arrive.
 
 The read guard does not apply the media rule to a worker session (it has no `agent_id`), so a worker may read images
-and PDFs within the budgets. The limit "the lead plus 2 workers in total" counts agents and workers together.
+and PDFs within the budgets. The limit (`capacity.agents` when the capacity guard is enabled, else the lead plus 2 workers in total)
+counts agents and workers together.
 
-Subagents and workers may not run `herdr agent start` or `herdr agent prompt`: only the lead starts sessions.
+Subagents and workers may not run `herdr agent start|prompt|send-keys` or `herdr pane run|send-keys|send-text`: only
+the lead starts sessions and sends prompts.
