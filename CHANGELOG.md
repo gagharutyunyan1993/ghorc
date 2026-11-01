@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.7.0 - 2026-10-28
+## 0.7.0 - 2026-11-02
 
 ### Added
 - Context guard (`scripts/context-guard.cjs`, hooks UserPromptSubmit, PreToolUse on every tool, Stop) for the lead: the
