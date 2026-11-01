@@ -6,6 +6,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { cliRoot, git } = require('./lib/root.cjs');
 const cmdlib = require('./lib/cmd.cjs');
+const { slotConfig } = require('./lib/slots.cjs');
 
 const PLUGIN_ROOT = path.join(__dirname, '..');
 const MARKER = '<!-- ghorc -->';
@@ -54,7 +55,7 @@ const GUARDS = [
     id: 'heavySlots',
     key: 'heavySlots.slots',
     why: 'limits heavy checks per machine; the check command must go through scripts/heavy-slot.cjs',
-    on: (sub) => Number(sub('heavySlots').slots) > 0,
+    on: (sub) => slotConfig({ heavySlots: sub('heavySlots') }).slots > 0, // the reader of the key: absent, 0 or invalid = off
     set: (o) => {
       o.heavySlots = o.heavySlots && typeof o.heavySlots === 'object' ? o.heavySlots : {};
       o.heavySlots.slots = 2;
@@ -68,6 +69,16 @@ const GUARDS = [
     set: (o) => {
       o.handoff = o.handoff && typeof o.handoff === 'object' ? o.handoff : {};
       o.handoff.pushGuard = true;
+    },
+  },
+  {
+    id: 'stickyOnCompact',
+    key: 'handoff.stickyOnCompact',
+    why: 'a compaction makes the lead hand over at once, because the token number is wrong after it; needs GHORC_ROLE=lead',
+    on: (sub) => sub('handoff').stickyOnCompact === true,
+    set: (o) => {
+      o.handoff = o.handoff && typeof o.handoff === 'object' ? o.handoff : {};
+      o.handoff.stickyOnCompact = true;
     },
   },
 ];
@@ -616,9 +627,9 @@ if (require.main === module) {
   if (args.includes('--help') || (!args.includes('--check') && !args.includes('--apply') && !args.includes('--restore'))) {
     console.log(
       'setup.cjs --check [--project] [--cwd <dir>]: report each setup item (scope, current -> recommended, why) as human lines plus a final JSON line. ' +
-        'Items marked WARN (heavy, watchdog, and the opt-in guards capacity, heavySlots, pushGuard) never make the setup unclean and are applied only when named (not by "all"); ' +
+        'Items marked WARN (heavy, watchdog, and the opt-in guards capacity, heavySlots, pushGuard, stickyOnCompact) never make the setup unclean and are applied only when named (not by "all"); ' +
         'heavy prints a proposed regex list from the package.json scripts (root and app/). --status adds the role, guards, watchdog and recent denials.\n' +
-        'setup.cjs --apply <all|statusLine,statusLineStale,pct,idle,model,effort,config,claudemd,exclude,heavy,watchdog,capacity,heavySlots,pushGuard> [--project] [--cwd <dir>]: apply the chosen items; ' +
+        'setup.cjs --apply <all|statusLine,statusLineStale,pct,idle,model,effort,config,claudemd,exclude,heavy,watchdog,capacity,heavySlots,pushGuard,stickyOnCompact> [--project] [--cwd <dir>]: apply the chosen items; ' +
         'backs up ~/.claude/settings.json first, touches only the listed keys and prints a diff. ' +
         'pct is written GLOBALLY (every project) unless --project, which writes <root>/.claude/settings.local.json instead. ' +
         'model and effort are owner-level decisions: name them only after the owner says yes. GHORC_HOME overrides the home directory. ' +

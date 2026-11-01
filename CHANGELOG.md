@@ -95,6 +95,10 @@
   `herdr pane run|send-keys|send-text`) now sees herdr global options (`--session x`, `--machine x`, `--remote x`)
   and the wrappers `timeout`, `nice`, `stdbuf`, `xargs`; the same wrappers are looked through for `heavyCommands`. `docs/hooks.md` lists the forms that stay
   open: the deny is a seat belt, not a sandbox.
+- Merge follow-ups: the capacity guard reads the worker role through the shared role helper (`worker ` and `Worker`
+  are workers), and ignores a compaction-only handoff flag (`handoff.stickyOnCompact`) unless the session is
+  `GHORC_ROLE=lead`, like the context guard. `/ghorc:setup` offers `stickyOnCompact` as an opt-in guard (never part of
+  `--apply all`); the `heavySlots` item reads its key like the slot wrapper does (a non-integer is off).
 
 ### Changes that apply with the key off
 Two changes of this branch are not gated by `handoff.stickyOnCompact`:

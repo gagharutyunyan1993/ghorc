@@ -478,6 +478,33 @@ test('handoff: SENT of this session and the handoff flag keep Stop silent; DRAFT
   assert.ok(blocks(stop(f)), 'flag removed');
 });
 
+test('merge follow-up P2-2: the worker role is read through the shared helper (trim, case)', () => {
+  const p = setup(base());
+  for (const role of [' Worker ', 'WORKER', 'worker ']) {
+    assert.equal(stop(p, {}, { GHORC_ROLE: role }).out, '', JSON.stringify(role));
+    assert.equal(prompt(p, {}, { GHORC_ROLE: role }).out, '', JSON.stringify(role));
+  }
+  assert.ok(blocks(stop(p)), 'no role: still the lead');
+});
+
+test('merge follow-up P2-3: a compaction-only flag silences Stop for the lead only; a crossed flag for everyone', () => {
+  const now = Date.now();
+  const compacted = { ts: now, tokens: 0, compacted: true, compactedAt: now, lead: false };
+  const crossed = { ts: now, tokens: 170000, stopBlocks: 0 };
+  const p = setup(base());
+  cgl.writeFlag(p.s, compacted);
+  assert.ok(blocks(stop(p)), 'no role: the compaction-only flag is no flag');
+  assert.ok(blocks(stop(p, {}, { GHORC_ROLE: 'someone' })), 'another role');
+  assert.equal(stop(p, {}, { GHORC_ROLE: 'lead' }).out, '', 'GHORC_ROLE=lead: the flag counts');
+  assert.equal(stop(p, {}, { GHORC_ROLE: ' Lead ' }).out, '', 'the lead role is trimmed and lowercased');
+  cgl.writeFlag(p.s, { ...compacted, crossed: true });
+  assert.equal(stop(p).out, '', 'a flag that also crossed ctxHandoff counts for a roleless session');
+  cgl.writeFlag(p.s, crossed);
+  assert.equal(stop(p).out, '', 'the 0.7.0 flag counts for a roleless session');
+  fs.rmSync(cgl.flagFile(p.s), { force: true });
+  assert.ok(blocks(stop(p)));
+});
+
 test('ledger clear: only when no agent-bearing task is in flight (workflow and cloud session count)', () => {
   const run = (bt) => {
     const p = setup(base());

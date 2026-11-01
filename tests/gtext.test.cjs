@@ -9,7 +9,7 @@ const { spawnSync } = require('node:child_process');
 const { runScript } = require('./helpers.cjs');
 
 const REPO = path.join(__dirname, '..');
-const GUARDS = { capacity: ['capacity', 'enabled', true], heavySlots: ['heavySlots', 'slots', 2], pushGuard: ['handoff', 'pushGuard', true] };
+const GUARDS = { capacity: ['capacity', 'enabled', true], heavySlots: ['heavySlots', 'slots', 2], pushGuard: ['handoff', 'pushGuard', true], stickyOnCompact: ['handoff', 'stickyOnCompact', true] };
 const lastJson = (o) => JSON.parse(o.trim().split('\n').pop());
 
 function proj(cfg) {
@@ -27,7 +27,7 @@ const item = (p, id) => lastJson(run(p, '--check').out).items.find((i) => i.id =
 
 test('guards show in --check as off, and as on when the key is set', () => {
   const off = proj({ other: 1 });
-  const on = proj({ capacity: { enabled: true }, heavySlots: { slots: 2 }, handoff: { pushGuard: true } });
+  const on = proj({ capacity: { enabled: true }, heavySlots: { slots: 2 }, handoff: { pushGuard: true, stickyOnCompact: true } });
   try {
     for (const id of Object.keys(GUARDS)) {
       assert.equal(item(off, id).current, 'off', id);
@@ -39,6 +39,31 @@ test('guards show in --check as off, and as on when the key is set', () => {
   } finally {
     off.done();
     on.done();
+  }
+});
+
+test('guard items read their key like the guard does: absent, default and invalid are off', () => {
+  const d = JSON.parse(fs.readFileSync(path.join(REPO, 'scripts', 'lib', 'defaults.json'), 'utf8'));
+  for (const [sec, key] of Object.values(GUARDS)) assert.ok(!d[sec][key], `default ${sec}.${key} is off`);
+  const cases = [
+    ['heavySlots', { slots: 0 }, 'off'],
+    ['heavySlots', { slots: 1.5 }, 'off'],
+    ['heavySlots', { slots: 'x' }, 'off'],
+    ['heavySlots', { slots: '' }, 'off'],
+    ['heavySlots', { slots: 12 }, 'on'], // clipped to 8 by the wrapper, still on
+    ['capacity', { enabled: 'true' }, 'off'],
+    ['handoff', { pushGuard: 1 }, 'off'],
+    ['handoff', { stickyOnCompact: 'true' }, 'off'],
+    ['handoff', { stickyOnCompact: true }, 'on'],
+  ];
+  for (const [sec, val, want] of cases) {
+    const p = proj({ [sec]: val });
+    try {
+      const id = sec === 'handoff' ? Object.keys(val)[0] : sec;
+      assert.equal(item(p, id).current, want, JSON.stringify({ [sec]: val }));
+    } finally {
+      p.done();
+    }
   }
 });
 
@@ -69,6 +94,7 @@ test('--apply all leaves every guard off', () => {
     assert.equal(j.capacity, undefined);
     assert.equal(j.heavySlots, undefined);
     assert.equal(j.handoff && j.handoff.pushGuard, undefined);
+    assert.equal(j.handoff && j.handoff.stickyOnCompact, undefined);
   } finally {
     p.done();
   }
@@ -95,11 +121,11 @@ test('candidatePermissionArgs: --check reports it, --apply never writes it', () 
     assert.match(run(p, '--check').out, /info: handoff\.candidatePermissionArgs is not set/);
     assert.match(run(q, '--check').out, /info: handoff\.candidatePermissionArgs is set/);
     const before = fs.readFileSync(q.cfgFile, 'utf8');
-    for (const a of ['all', 'config,claudemd,exclude,heavy,watchdog,capacity,heavySlots,pushGuard']) run(q, '--apply', a);
+    for (const a of ['all', 'config,claudemd,exclude,heavy,watchdog,capacity,heavySlots,pushGuard,stickyOnCompact']) run(q, '--apply', a);
     const j = JSON.parse(fs.readFileSync(q.cfgFile, 'utf8'));
     assert.deepEqual(j.handoff.candidatePermissionArgs, ['--permission-mode', 'acceptEdits']);
     assert.ok(before.length > 0);
-    run(p, '--apply', 'all,pushGuard');
+    run(p, '--apply', 'all,pushGuard,stickyOnCompact');
     const k = JSON.parse(fs.readFileSync(p.cfgFile, 'utf8'));
     assert.equal(k.handoff.candidatePermissionArgs, undefined, 'apply does not add the key');
   } finally {
