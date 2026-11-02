@@ -138,9 +138,9 @@ function segments(command, opts = {}) {
 }
 
 // The segment with env assignments and the given wrappers peeled off, until nothing changes.
-function peel(segment, wrappers) {
+function peel(segment, wrappers, rounds) {
   let a = segment.replace(ENV_PREFIX, '');
-  for (let i = 0; i < 8; i++) {
+  for (let i = 0; i < rounds; i++) {
     let b = a;
     for (const re of wrappers) b = b.replace(re, '');
     b = b.replace(ENV_PREFIX, '');
@@ -153,7 +153,7 @@ function peel(segment, wrappers) {
 // The forms of one segment a pattern is tried against: with the shell wrappers peeled off (v0.7.0), and with the slot
 // wrapper peeled off as well; each also without the npm run / npx runner.
 function variants(segment) {
-  const forms = [...new Set([peel(segment, [WRAPPER_PREFIX]), peel(segment, [WRAPPER_PREFIX, SLOT_WRAPPER_PREFIX])])];
+  const forms = [...new Set([peel(segment, [WRAPPER_PREFIX], 4), peel(segment, [WRAPPER_PREFIX, SLOT_WRAPPER_PREFIX], 8)])];
   const out = [];
   for (const f of forms) {
     const a = f.replace(NPM_OPTS, 'npm').replace(/^npm\s+run-script\b/i, 'npm run');

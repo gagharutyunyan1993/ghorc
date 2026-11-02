@@ -124,6 +124,7 @@ Two changes of this branch are not gated by `handoff.stickyOnCompact`:
   `tests/v051.test.cjs` "#17: applying statusLine..." fail when the checkout path does not contain `ghorc` (for example
   `/w`): setup treats a status line command as ghorc's only when it matches `/ghorc/i`. Both pass in a directory named
   `ghorc`. Not a product fault on a plugin installed as `ghorc`.
+- A quoted one-string command (`node heavy-slot.cjs run -- "npm test"`) is not seen by `heavy-check-guard`, because quoted text is blanked, so the deny for subagents and workers and the lead's early hint do not apply to it; the wrapper still takes the slot. `run -- cmd /c npm test` is an argument list the guard does match.
 
 ## 0.7.0 - 2026-11-02
 

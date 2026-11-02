@@ -339,6 +339,13 @@ test('P2.1: for a corpus of commands and patterns, whatever v0.7.0 matched still
   }
 });
 
+test('P2.1: a wrapper chain five deep is still seen (v0.7.0 peeled 4 rounds)', () => {
+  const cur = require('../scripts/lib/cmd.cjs');
+  const [re] = cur.compile(['^call\\b']);
+  assert.equal(cur.matches('call call call call call x', [re]), true);
+  assert.equal(cur.matches('call call call call call npm test', cur.DEFAULT_HEAVY), true);
+});
+
 test('P2.2: the slot wrapper with options is looked through', () => {
   const heavy = tmpProject({ heavyCommands: ['^make full'] });
   const sh = (c) => isDeny(runScript('heavy-check-guard.cjs', hookIn(heavy, c, sid(), { agent_id: 'ag1' })));
