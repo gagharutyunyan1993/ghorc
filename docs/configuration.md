@@ -89,7 +89,7 @@ Limit on heavy checks running at once on the machine. Off by default.
 The lock is `scripts/heavy-slot.cjs run --label <text> -- <command>`; the heavy-check hook only denies early, when
 every slot holds a live claim of another session ([hooks.md](hooks.md#heavy-check-slots-scriptsheavy-slotcjs)).
 Call the wrapper from `checks.full`, from the project directory, for example
-`"full": "node \"<plugin>/scripts/heavy-slot.cjs\" run --label full -- npm run test:full"`. The claim's session is
+`"full": "node \"<plugin>/scripts/heavy-slot.cjs\" run --label full -- \"npm run test:full\""` (on Windows `npm` is a `.cmd`, so it goes in as one string). The claim's session is
 `--session`, else `$GHORC_SESSION`, else `$CLAUDE_CODE_SESSION_ID` (set by Claude Code in the shell tools' environment,
 equal to the id the hook sees), else `pid-<parent pid>`, so with no setup the lead's own claim is its own.
 `--minutes <n>` marks a claim that runs longer than announced in `status` (it is not removed).
