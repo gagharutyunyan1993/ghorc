@@ -36,12 +36,10 @@
   file, so one process wins a slot and a dead claim is removed without touching a live one (not guaranteed for three
   racers after a process was killed inside the lock, see `docs/hooks.md`); the claim's session
   defaults to `--session`, `$GHORC_SESSION`, `$CLAUDE_CODE_SESSION_ID`, then `pid-<ppid>`; the command is started
-  without a shell (arguments arrive unchanged), one string with spaces runs in the shell; `--minutes` marks an
-  overrunning claim in `status`. On Windows a `.cmd`/`.bat` goes through `cmd.exe` with one rule per argument: only
-  `A-Za-z0-9_./:+@-` is passed bare; an argument without any of `& | < > ^ " ! ( )` (a space, `=`, `,`, `;`, `~`, `\`,
-  the empty string) is passed as a plain `"word"`, whole at `%~1`, `%1` and `%*`; one with such a character is escaped
-  twice only for `npm`, `npx`, `pnpm`, `yarn` and `node_modules\.bin\*.cmd`, and refused (exit 2, nothing runs) for any
-  other `.cmd`/`.bat`, like an argument with `%`.
+  without a shell (an argument list, arguments arrive unchanged), one string with spaces runs in the shell;
+  `--minutes` marks an overrunning claim in `status`. On Windows an argument list whose first word is a `.cmd` or
+  `.bat` is refused (exit 2, nothing runs, no slot taken): give the whole command as one string
+  (`run -- "npm test"`).
 
 ### Changed
 - Context guard with `handoff.stickyOnCompact` on: Stop blocks the lead once per turn until SENT (was: at most 2 times,
@@ -91,23 +89,15 @@
   with the old two lines gets the new line proposed. `cleanup` already removes old leftovers.
 - Slots: EPERM and EACCES on the exclusive create of the slot lock or the claim (Windows, a file being deleted) count as
   busy and are retried until the lock deadline; `tryTake` and `acquire` never throw. "No free slot" keeps the
-  "(slot lock busy)" label. A `.cmd`/`.bat` shim anywhere gets its arguments escaped twice (a quote plus a
-  metacharacter no longer reaches `cmd.exe`), its path is normalised (`./bin/shim` works), a single word that is an
-  existing file path (with a space) is run as a program, `xargs --max-lines` and `node --no-warnings ...
-  heavy-slot.cjs` are looked through, the wrapper starts its command with `windowsHide`.
-- The built-in agent-start deny (`claude -p`, `herdr agent start|prompt|send-keys`,
-  `herdr pane run|send-keys|send-text`) now sees herdr global options (`--session x`, `--machine x`, `--remote x`)
-  and the wrappers `timeout`, `nice`, `stdbuf`, `xargs`; the same wrappers are looked through for `heavyCommands`. `docs/hooks.md` lists the forms that stay
-  open: the deny is a seat belt, not a sandbox.
+  "(slot lock busy)" label. A single word that is an existing file path (with a space) is run as a program,
+  `node --no-warnings ... heavy-slot.cjs` is looked through, the wrapper starts its command with `windowsHide`.
+- Slots: when the root lookup times out in git (`GHORC_HOOK_GIT_TIMEOUT_MS`), the project config may have been looked up
+  in the wrong place and heavy slots may read as off; `heavy-slot.cjs run` and `status` now print a warning on stderr.
+  The command still runs and the exit code is the command's.
 - Merge follow-ups: the capacity guard reads the worker role through the shared role helper (`worker ` and `Worker`
   are workers), and ignores a compaction-only handoff flag (`handoff.stickyOnCompact`) unless the session is
   `GHORC_ROLE=lead`, like the context guard. `/ghorc:setup` offers `stickyOnCompact` as an opt-in guard (never part of
   `--apply all`); the `heavySlots` item reads its key like the slot wrapper does (a non-integer is off).
-- Slots, `.cmd`/`.bat` through `heavy-slot.cjs run`: an argument made only of `A-Za-z0-9_./:=+@,-` is passed as it is
-  (was: escaped twice, so `x.cmd ci` reached `%~1` as `^"ci^"`: `set MODE=%~1` took the wrong branch and `if "%~1"==...`
-  was a syntax error). Any other argument keeps the double escape (the `"&echo INJECTED` fix); a `%~1` script then gets
-  it with its escape, documented in `docs/hooks.md`. `run -- .\sh.cmd x` keeps the leading `.\`, so it runs with
-  `NoDefaultCurrentDirectoryInExePath=1`.
 
 ### Changes that apply with the key off
 Two changes of this branch are not gated by `handoff.stickyOnCompact`:
@@ -116,8 +106,15 @@ Two changes of this branch are not gated by `handoff.stickyOnCompact`:
 - A ctx file that is not valid JSON is reported as "found, bad JSON" (was "no ctx file").
 
 ### Known
-- A `.cmd` script that reads a bare, unquoted `%~1` (`set X=%~1`, `echo %~1`) splits an argument with a space as when
-  typed (`a b` is `a`); the wrapper passes `"a b"` whole, so quote `%~1` in the script.
+- Deferred to 0.8.1: the `.cmd`/`.bat` wrapper of `heavy-slot.cjs run` (`scripts/lib/runcmd.cjs`) and the bypass forms of
+  the built-in agent-start deny (E402#1). What 0.8.0 does instead: a `.cmd`/`.bat` first word in an argument list on
+  Windows is refused (exit 2, nothing runs, no slot taken) and the command goes in as one string
+  (`run -- "npm test"`); the deny sees what it saw in v0.7.0, so herdr global options that take a value
+  (`--session x`) and the wrappers `timeout`, `nice`, `stdbuf` and `xargs` stay open (listed in `docs/hooks.md`). The
+  two open findings of the last review of the wrapper, unchanged:
+  > P1-A, in `runcmd.cjs:22`, new in c0f0c71: `[\\/]node_modules` needs a separator before it, so a relative path misses KNOWN_SHIM. In a project: `run -- node_modules\.bin\show-argv.cmd "a(b)"`, or `node_modules/.bin/show-argv "a(b)"`: exit 2, 16 of 16 metacharacter words refused, and the message says it is not a `node_modules\.bin` shim. 6a03e71, 9cc1fc3 and fde30cf gave `["a(b)"]`, exit 0. Breaks task 2 and `docs/hooks.md:132` ("any"), for ordinary use such as `vitest -t "a (b)"`. Nothing runs, so not a security item. Expected: `(?:^|[\\/])node_modules`, with a relative case at `tests/heavy-slots-cmdargs.test.cjs:253`.
+
+  > P1-B, in `runcmd.cjs:37`, from the rule as the brief wrote it: `set "F=%~1"`, `if "%F%"=="src\"` or `if "%~1"=="src\"`, with `run -- x.cmd src\`: exit 0 QUICK-PATH, the script reads `src\\`; expected exit 3. `%~1` to node gives `["a\\\\"]` for `a\`. A word changed silently with exit 0, the class of P1-2; `docs/hooks.md:128` says `\` arrives whole. `set` same on all refs; `if` same on 6a03e71, exit 255 on 9cc1fc3 and fde30cf. No quoting serves both: `"%~1"` and `%*` to node need the doubling, `if` must not have it. Lead's decision: refuse a trailing `\` to a `.cmd` outside the shim set, exit 2 (shims are right, node consumes it), or list it in `### Known` and correct `:128`.
 - `in_flight` branch parsing (`scripts/lib/ctxguard.cjs:190`): a qualifier before bold or backticked `branch:` no longer
   counts as a qualifier, so `- w1 base **branch:** develop, branch: feat/x` reads `develop` and `feat/x` (it read only
   `feat/x`). Effect: with `handoff.pushGuard` on, a false deny while `develop` is unpushed; editing STATE clears it.
