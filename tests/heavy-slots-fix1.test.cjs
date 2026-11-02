@@ -80,14 +80,39 @@ test('P1.2: 6 processes on one dead claim, 15 rounds: exactly one winner in ever
   }
   let counted = 0;
   for (const { n, r } of rounds) {
-    const raced = r.filter((x) => x !== 'LATE');
-    if (!raced.length) continue; // every process started after the window: nobody raced, nothing to judge
+    const verdict = judgeRound(r);
+    if (verdict === 'skip') continue;
     counted++;
-    assert.equal(raced.filter((x) => x.startsWith('WIN')).length, 1, `round ${n}: ${r.join(' | ')}`);
-    assert.equal(raced.filter((x) => x === 'WIN true').length, 1, `round ${n}: the winner owns the slot at the end: ${r.join(' | ')}`);
-    assert.equal(raced.filter((x) => x === 'LOSE false').length, raced.length - 1, `round ${n}: ${r.join(' | ')}`);
+    assert.equal(verdict, null, `round ${n}: ${verdict}: ${r.join(' | ')}`);
   }
   assert.ok(counted >= 5, `only ${counted} of 15 rounds had racers in the window (machine too loaded)`);
+});
+
+// One round of the race: null = fine, 'skip' = nobody raced, otherwise the problem. A winner whose take came back after the
+// window is LATE (it won, the others lost to it, and it is gone): a round with a LATE process and no other win is not red.
+// Two live holders (two WIN) are, with or without a LATE one.
+function judgeRound(r) {
+  const raced = r.filter((x) => x !== 'LATE');
+  if (!raced.length) return 'skip'; // every process started after the window: nobody raced, nothing to judge
+  const wins = raced.filter((x) => x.startsWith('WIN'));
+  if (wins.length === 0 && raced.length < r.length) {
+    return raced.every((x) => x === 'LOSE false') ? null : 'a late winner and a loser that owns the slot';
+  }
+  if (wins.length !== 1) return `${wins.length} winners`;
+  if (wins[0] !== 'WIN true') return 'the winner does not own the slot at the end';
+  if (raced.filter((x) => x === 'LOSE false').length !== raced.length - 1) return 'a loser owns the slot or the counts differ';
+  return null;
+}
+
+test('P1.2: a round with a LATE winner and no other win is not a failure; two live holders still are', () => {
+  assert.equal(judgeRound(['LATE', 'LOSE false', 'LOSE false', 'LOSE false', 'LOSE false', 'LOSE false']), null, 'late winner, the rest lost');
+  assert.equal(judgeRound(['WIN true', 'LOSE false', 'LOSE false', 'LATE', 'LOSE false', 'LOSE false']), null, 'ordinary winner, one late process');
+  assert.equal(judgeRound(['LATE', 'LATE', 'LATE']), 'skip');
+  assert.equal(judgeRound(['WIN true', 'WIN true', 'LOSE false']), '2 winners', 'two live holders');
+  assert.equal(judgeRound(['WIN true', 'WIN false', 'LOSE false', 'LATE']), '2 winners', 'two live holders next to a late process');
+  assert.notEqual(judgeRound(['LATE', 'LOSE true', 'LOSE false']), null, 'a loser that owns the slot next to a late winner');
+  assert.notEqual(judgeRound(['LOSE false', 'LOSE false', 'LOSE false']), null, 'nobody won and nobody was late');
+  assert.notEqual(judgeRound(['WIN false', 'LOSE false']), null, 'the winner lost the slot again');
 });
 
 // Runs fn with the slot library pointed at a fresh machine and a short lock wait; the fs seam is restored afterwards.
