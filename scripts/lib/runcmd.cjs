@@ -10,9 +10,16 @@ const path = require('node:path');
 
 const META = /([()\][%!^"`<>&|;, *?])/g;
 
-// A word made only of these characters needs no quoting and no escaping for cmd.exe: it reaches `%~1` and `%*` as typed.
-// (`=` and `,` are argument delimiters of a batch file's `%1`, as for a user typing the command; see docs/hooks.md.)
-const SAFE = /^[A-Za-z0-9_./:=+@,-]+$/;
+// An argument of a .cmd/.bat has one rule (docs/hooks.md):
+//  - only [A-Za-z0-9_./:+@-]: bare. `=` and `,` are not in the set: cmd.exe splits a bare `--mode=ci` at `%~1`.
+//  - none of & | < > ^ " ! ( ): plain "word", no carets, trailing backslashes doubled. Space, `=`, `,`, `;`, `~`, `\` and
+//    the empty string end here; `%~1`, `%1` and `%*` all see the word whole.
+//  - one of those: escaped twice, but only for a shim that hands `%*` on (npm, npx, pnpm, yarn, node_modules\.bin\*.cmd).
+//    Any other script may read the argument into a variable (`set "X=%~1"`), where a caret-escaped metacharacter runs as
+//    a command: refused, like `%`.
+const SAFE = /^[A-Za-z0-9_./:+@-]+$/;
+const META_ARG = /[&|<>^"!()]/;
+const KNOWN_SHIM = /(?:[\\/]node_modules[\\/]\.bin[\\/][^\\/]+|(?:^|[\\/])(?:npm|npx|pnpm|yarn))\.cmd$/i;
 
 function escapeArg(arg, double) {
   let a = `${arg}`;
@@ -23,7 +30,14 @@ function escapeArg(arg, double) {
   return double ? a.replace(META, '^$1') : a;
 }
 
-const escapeCommand = (file) => file.replace(META, '^$1');
+// The word of an argument for the line of a .cmd; null: it has a metacharacter and needs the double escape.
+function plainArg(a) {
+  if (SAFE.test(a)) return a;
+  if (META_ARG.test(a)) return null;
+  return `"${a.replace(/(\\*)$/, '$1$1')}"`;
+}
+
+const escapeCommand =(file) => file.replace(META, '^$1');
 
 // The file for a command word on Windows: a path, or a search of PATH with PATHEXT. null when not found.
 function resolveWin(word, env, exists) {
@@ -72,11 +86,16 @@ function buildSpawn(command, opts = {}) {
   if (bad !== undefined) {
     throw new Error(`the argument ${JSON.stringify(bad)} cannot be passed unchanged to ${path.basename(found)} (a cmd.exe script): use the program itself, or give the whole command as one string`);
   }
-  // A safe word goes as it is. Any other argument is escaped twice, for any shim (not only the ones under
-  // node_modules\.bin): the second level is consumed by a shim that re-parses its arguments (`%*` handed to node); a
-  // script that reads `%~1` keeps the escape of an argument with metacharacters (docs/hooks.md). The double escape is
-  // what closed the `"&echo INJECTED` injection.
-  const line = [escapeCommand(winPath(found)), ...rest.map((a) => (SAFE.test(a) ? a : escapeArg(a, true)))].join(' ');
+  // The double escape of a metacharacter argument is consumed by a shim that re-parses its arguments (`%*` handed to
+  // node: the `"&echo INJECTED` fix); it is only right for a known one.
+  const known = KNOWN_SHIM.test(found);
+  const words = rest.map((a) => {
+    const p = plainArg(a);
+    if (p !== null) return p;
+    if (known) return escapeArg(a, true);
+    throw new Error(`the argument ${JSON.stringify(a)} cannot be passed unchanged to ${path.basename(found)} (a cmd.exe script that is not npm, npx, pnpm, yarn or a node_modules\\.bin shim): an argument with one of & | < > ^ " ! ( ) would run as a command in a script that reads it into a variable; use the program itself, or give the whole command as one string`);
+  });
+  const line = [escapeCommand(winPath(found)), ...words].join(' ');
   return { file: env.ComSpec || env.COMSPEC || 'cmd.exe', args: ['/d', '/s', '/c', `"${line}"`], options: { windowsVerbatimArguments: true } };
 }
 

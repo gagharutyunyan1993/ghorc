@@ -36,8 +36,12 @@
   file, so one process wins a slot and a dead claim is removed without touching a live one (not guaranteed for three
   racers after a process was killed inside the lock, see `docs/hooks.md`); the claim's session
   defaults to `--session`, `$GHORC_SESSION`, `$CLAUDE_CODE_SESSION_ID`, then `pid-<ppid>`; the command is started
-  without a shell (arguments arrive unchanged, `.cmd` shims go through escaped `cmd.exe`), one string with spaces runs
-  in the shell; `--minutes` marks an overrunning claim in `status`.
+  without a shell (arguments arrive unchanged), one string with spaces runs in the shell; `--minutes` marks an
+  overrunning claim in `status`. On Windows a `.cmd`/`.bat` goes through `cmd.exe` with one rule per argument: only
+  `A-Za-z0-9_./:+@-` is passed bare; an argument without any of `& | < > ^ " ! ( )` (a space, `=`, `,`, `;`, `~`, `\`,
+  the empty string) is passed as a plain `"word"`, whole at `%~1`, `%1` and `%*`; one with such a character is escaped
+  twice only for `npm`, `npx`, `pnpm`, `yarn` and `node_modules\.bin\*.cmd`, and refused (exit 2, nothing runs) for any
+  other `.cmd`/`.bat`, like an argument with `%`.
 
 ### Changed
 - Context guard with `handoff.stickyOnCompact` on: Stop blocks the lead once per turn until SENT (was: at most 2 times,
@@ -112,6 +116,8 @@ Two changes of this branch are not gated by `handoff.stickyOnCompact`:
 - A ctx file that is not valid JSON is reported as "found, bad JSON" (was "no ctx file").
 
 ### Known
+- A `.cmd` script that reads a bare, unquoted `%~1` (`set X=%~1`, `echo %~1`) splits an argument with a space as when
+  typed (`a b` is `a`); the wrapper passes `"a b"` whole, so quote `%~1` in the script.
 - `in_flight` branch parsing (`scripts/lib/ctxguard.cjs:190`): a qualifier before bold or backticked `branch:` no longer
   counts as a qualifier, so `- w1 base **branch:** develop, branch: feat/x` reads `develop` and `feat/x` (it read only
   `feat/x`). Effect: with `handoff.pushGuard` on, a false deny while `develop` is unpushed; editing STATE clears it.

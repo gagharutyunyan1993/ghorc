@@ -237,34 +237,46 @@ function makeShims() {
   return { dir, inBin };
 }
 
-test('P2.1: a shim under node_modules/.bin and one outside it both get all 36 arguments unchanged (Windows)', { skip: !win && 'cmd.exe only exists on Windows' }, () => {
+const META_ARG = /[&|<>^"!()]/;
+
+test('P2.1: a shim under node_modules/.bin gets all 36 arguments unchanged; one outside it the plain ones, and refuses the rest (Windows)', { skip: !win && 'cmd.exe only exists on Windows' }, () => {
   const { dir, inBin } = makeShims();
   const env = { PATH: `${dir};${inBin};${process.env.PATH}` };
   const w = world(undefined);
-  for (const shim of ['outside', 'inside']) {
-    const r = w.wrap(['run', '--', shim, ...TABLE], { env });
-    assert.equal(r.status, 0, `${shim}: ${r.stderr}`);
-    assert.deepEqual(JSON.parse(r.stdout), TABLE, shim);
+  const r = w.wrap(['run', '--', 'inside', ...TABLE], { env });
+  assert.equal(r.status, 0, `inside: ${r.stderr}`);
+  assert.deepEqual(JSON.parse(r.stdout), TABLE, 'inside');
+  const plain = TABLE.filter((a) => !META_ARG.test(a));
+  const o = w.wrap(['run', '--', 'outside', ...plain], { env });
+  assert.equal(o.status, 0, `outside: ${o.stderr}`);
+  assert.deepEqual(JSON.parse(o.stdout), plain, 'outside, no metacharacter');
+  for (const bad of TABLE.filter((a) => META_ARG.test(a))) {
+    const x = w.wrap(['run', '--', 'outside', bad], { env });
+    assert.equal(x.status, 2, `outside ${JSON.stringify(bad)}: ${x.stdout}${x.stderr}`);
+    assert.equal(x.stdout, '');
   }
 });
 
-test('P2.1: the quote-plus-metacharacter injection through a shim outside .bin does not run (Windows)', { skip: !win && 'cmd.exe only exists on Windows' }, () => {
+test('P2.1: the quote-plus-metacharacter injection through a shim outside .bin is refused, through npm it arrives whole (Windows)', { skip: !win && 'cmd.exe only exists on Windows' }, () => {
   const { dir } = makeShims();
   const marker = path.join(dir, 'injected.txt');
   const w = world(undefined);
   const r = w.wrap(['run', '--', 'outside', `"&echo X>${marker}`], { env: { PATH: `${dir};${process.env.PATH}` } });
-  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.status, 2, r.stderr);
+  assert.match(r.stderr, /cannot be passed unchanged/);
   assert.equal(fs.existsSync(marker), false, 'the shell did not run the tail of the argument');
-  assert.deepEqual(JSON.parse(r.stdout), [`"&echo X>${marker}`]);
+  assert.equal(r.stdout, '');
 });
 
-test('P2.1: buildSpawn escapes a shim twice wherever it lives', () => {
+test('P2.1: buildSpawn escapes a metacharacter argument twice for a %* shim, and refuses it for any other .cmd', () => {
   const env = { PATH: 'C:\\g', PATHEXT: '.exe;.cmd', ComSpec: 'C:\\Windows\\System32\\cmd.exe' };
   const plan = (file) => buildSpawn([file, 'a&b', 'q"x'], { platform: 'win32', env, exists: (f) => f === file }).args[3];
-  const outside = plan('C:\\g\\tool.cmd');
-  const inside = plan('C:\\p\\node_modules\\.bin\\tool.cmd');
-  assert.equal(outside.replace('C:\\g\\tool.cmd', 'X'), inside.replace('C:\\p\\node_modules\\.bin\\tool.cmd', 'X'), 'same escaping for both');
-  assert.match(outside, /\^\^\^&/, 'the & is escaped for the two readings');
+  for (const known of ['C:\\p\\node_modules\\.bin\\tool.cmd', 'C:\\g\\npm.cmd', 'C:\\g\\npx.cmd', 'C:\\g\\pnpm.cmd', 'C:\\g\\yarn.cmd']) {
+    assert.match(plan(known), /\^\^\^&/, `${known}: the & is escaped for the two readings`);
+  }
+  for (const other of ['C:\\g\\tool.cmd', 'C:\\g\\mynpm.cmd', 'C:\\p\\node_modules\\tool.cmd']) {
+    assert.throws(() => plan(other), /cannot be passed unchanged/, other);
+  }
 });
 
 test('P2.5: a path with forward slashes to a shim is normalised for cmd.exe (the leading .\\ stays)', () => {

@@ -373,7 +373,8 @@ test('P2.4: buildSpawn plans', () => {
   assert.equal(cmd.file, 'C:\\Windows\\System32\\cmd.exe');
   assert.deepEqual(cmd.args.slice(0, 3), ['/d', '/s', '/c']);
   assert.equal(cmd.options.windowsVerbatimArguments, true);
-  assert.equal(cmd.args[3], '"C:\\bin\\npm.cmd run x ^^^"a^^^&b^^^" ^^^"^^^""', 'safe words as they are, the others escaped twice: the shim reads %* again');
+  assert.equal(cmd.args[3], '"C:\\bin\\npm.cmd run x ^^^"a^^^&b^^^" """', 'bare word as it is, a metacharacter escaped twice for npm (it reads %* again), the empty word as "" without carets');
+  assert.throws(() => buildSpawn(['x', 'a&b'], { platform: 'win32', env, exists }), /cannot be passed unchanged/, 'a .bat is not a known %* shim');
   assert.throws(() => buildSpawn(['npm', 'run', '100%'], { platform: 'win32', env, exists }), /cannot be passed unchanged/);
   assert.equal(buildSpawn(['nothing', 'a'], { platform: 'win32', env, exists }).file, 'nothing', 'not found: left to the OS');
   assert.deepEqual(buildSpawn(['git', 'status', '&'], { platform: 'linux' }), { file: 'git', args: ['status', '&'], options: {} });
@@ -382,15 +383,28 @@ test('P2.4: buildSpawn plans', () => {
   assert.equal(escapeArg('', false), '^"^"');
 });
 
-test('P2.4: a .cmd shim receives the arguments unchanged (Windows)', { skip: !win && 'cmd.exe only exists on Windows' }, () => {
+test('P2.4: a .cmd shim receives the arguments unchanged: a %* shim in node_modules/.bin all of them, one outside it the plain ones (Windows)', { skip: !win && 'cmd.exe only exists on Windows' }, () => {
   const dir = mkTmp('ghorc-shim-');
   fs.writeFileSync(path.join(dir, 'argv.js'), ARGV_PRINTER);
-  fs.writeFileSync(path.join(dir, 'shimmed.cmd'), `@"${NODE}" "%~dp0argv.js" %*\r\n`);
-  const env = { PATH: `${dir};${process.env.PATH}` };
+  const bin = path.join(dir, 'node_modules', '.bin');
+  fs.mkdirSync(bin, { recursive: true });
+  fs.writeFileSync(path.join(bin, 'shimmed.cmd'), `@"${NODE}" "%~dp0..\\..\\argv.js" %*\r\n`);
+  fs.writeFileSync(path.join(dir, 'outer.cmd'), `@"${NODE}" "%~dp0argv.js" %*\r\n`);
+  const env = { PATH: `${bin};${dir};${process.env.PATH}` };
+  const meta = /[&|<>^"!()]/;
   for (const w of [world({ slots: 1 }), world(undefined)]) {
     const r = w.wrap(['run', '--', 'shimmed', ...TRICKY], { env });
     assert.equal(r.status, 0, r.stderr);
     assert.deepEqual(JSON.parse(r.stdout), TRICKY);
+    const plain = TRICKY.filter((a) => !meta.test(a));
+    const o = w.wrap(['run', '--', 'outer', ...plain], { env });
+    assert.equal(o.status, 0, o.stderr);
+    assert.deepEqual(JSON.parse(o.stdout), plain, 'a shim outside .bin: the arguments without a metacharacter');
+    for (const bad of TRICKY.filter((a) => meta.test(a))) {
+      const x = w.wrap(['run', '--', 'outer', bad], { env });
+      assert.equal(x.status, 2, `${JSON.stringify(bad)}: ${x.stdout}${x.stderr}`);
+      assert.equal(x.stdout, '', 'nothing ran');
+    }
     const pct = w.wrap(['run', '--', 'shimmed', '%PATH%x'], { env });
     assert.equal(pct.status, 2, 'a % cannot be passed through cmd.exe unchanged: refused, not expanded');
     assert.match(pct.stderr, /cannot be passed unchanged/);
