@@ -10,6 +10,7 @@ const { spawn, spawnSync } = require('node:child_process');
 const slots = require('./lib/slots.cjs');
 const { buildSpawn } = require('./lib/runcmd.cjs');
 const { load } = require('./lib/config.cjs');
+const { gitTimedOut, GIT_TIMEOUT_MS } = require('./lib/root.cjs');
 
 const EXIT_BUSY = 75;
 const argv = process.argv.slice(2);
@@ -143,6 +144,11 @@ function run(sc) {
 
 try {
   const sc = slots.slotConfig(load(process.cwd())); // the same lookup as the hook
+  if (gitTimedOut()) {
+    // the config may have been looked up in the wrong place (a linked worktree reads the main checkout's): heavy slots may
+    // read as off. The command still runs and the exit code is the command's.
+    console.error(`heavy-slot.cjs: warning: git did not answer within ${GIT_TIMEOUT_MS} ms (GHORC_HOOK_GIT_TIMEOUT_MS), so the project config may not have been found: heavy slots may read as off and the command may run without a claim`);
+  }
   if (cmdName === 'run') run(sc);
   else if (cmdName === 'status') status(sc);
   else if (cmdName === 'release') {

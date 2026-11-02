@@ -31,6 +31,9 @@ function git(args, cwd) {
   }
 }
 
+// True once a git call of this process timed out: a root looked up after that may be the fallback, not the real one.
+const gitTimedOut = () => gitDead;
+
 // Tests only: forget the budget and the kill switch.
 function resetGit() {
   gitSpent = 0;
@@ -98,4 +101,4 @@ function cliRoot(cwd) {
   return fs.existsSync(path.join(last, '.git')) ? last : base;
 }
 
-module.exports = { git, resetGit, GIT_TIMEOUT_MS, cliRoot, projectRoot, gitCommonRoot, ancestors, envProjectDir };
+module.exports = { git, resetGit, gitTimedOut, GIT_TIMEOUT_MS, cliRoot, projectRoot, gitCommonRoot, ancestors, envProjectDir };
