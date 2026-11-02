@@ -6,9 +6,9 @@
 // run: takes a free slot, runs the command with the terminal attached, refreshes the heartbeat while it runs, passes its
 // exit code and releases the slot on exit (also on a signal). No free slot: nothing runs, exit 75, the message names the
 // holders. heavySlots.slots = 0 (the default): the command just runs, no claim.
+const fs = require('node:fs');
 const { spawn, spawnSync } = require('node:child_process');
 const slots = require('./lib/slots.cjs');
-const { buildSpawn } = require('./lib/runcmd.cjs');
 const { load } = require('./lib/config.cjs');
 const { gitTimedOut, GIT_TIMEOUT_MS } = require('./lib/root.cjs');
 
@@ -57,6 +57,17 @@ function status(sc) {
   }
 }
 
+// One string with whitespace that is not an existing file: a shell line. Anything else: the argument list, no shell. A
+// .cmd/.bat argument list on Windows is refused (deferred to 0.8.1): the caller gets a throw before any slot is taken.
+function launchPlan(command, win = process.platform === 'win32') {
+  const [word, ...rest] = command;
+  if (command.length === 1 && /\s/.test(word) && !fs.existsSync(word)) return { file: word, args: [], options: { shell: true } };
+  if (win && /\.(?:cmd|bat)$/i.test(word)) {
+    throw new Error(`a .cmd/.bat in an argument list is deferred to 0.8.1: give the whole command as one string (run -- "${command.join(' ')}")`);
+  }
+  return { file: word, args: rest, options: {} };
+}
+
 function run(sc) {
   const command = dashAt >= 0 ? argv.slice(dashAt + 1) : [];
   if (!command.length) {
@@ -68,7 +79,7 @@ function run(sc) {
 
   let launch;
   try {
-    launch = buildSpawn(command);
+    launch = launchPlan(command);
   } catch (e) {
     console.error(`heavy-slot.cjs: ${e.message}`);
     process.exit(2);
@@ -133,7 +144,11 @@ function run(sc) {
   process.on('exit', free);
   child.on('error', (e) => {
     free();
-    console.error(`heavy-slot.cjs: cannot run "${command[0]}": ${e.message}`);
+    const hint =
+      win && e.code === 'ENOENT'
+        ? ` (on Windows a .cmd/.bat such as npm is not found in an argument list: give the whole command as one string, run -- "${command.join(' ')}")`
+        : '';
+    console.error(`heavy-slot.cjs: cannot run "${command[0]}": ${e.message}${hint}`);
     process.exit(127);
   });
   child.on('close', (code, signal) => {

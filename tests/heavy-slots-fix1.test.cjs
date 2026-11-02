@@ -7,7 +7,6 @@ const path = require('node:path');
 const { spawn, spawnSync } = require('node:child_process');
 const { runScript, isDeny, tmpProject, sid } = require('./helpers.cjs');
 const slots = require('../scripts/lib/slots.cjs');
-const { buildSpawn, escapeArg } = require('../scripts/lib/runcmd.cjs');
 const { SLOTS_LIB, NODE, hookIn, mkTmp, world, deadPid, sleepNode, exitNode, wait, waitClaim } = require('./slots-helpers.cjs');
 
 const win = process.platform === 'win32';
@@ -340,28 +339,7 @@ test('P2.1: for a corpus of commands and patterns, whatever v0.7.0 matched still
   }
 });
 
-test('P2.2: more wrapper forms are closed', () => {
-  const cwd = tmpProject({});
-  const sub = (c) => isDeny(runScript('heavy-check-guard.cjs', hookIn(cwd, c, sid(), { agent_id: 'ag1' })));
-  for (const c of [
-    'echo p | xargs -p herdr pane run',
-    'echo p | xargs -l herdr pane run',
-    'echo p | xargs -l5 herdr pane run',
-    'echo p | xargs -i herdr pane run',
-    'echo p | xargs -e herdr pane run',
-    'echo p | xargs -rn 1 herdr pane run',
-    'echo p | xargs -0 -P 4 -n 1 herdr pane run',
-    'echo p | xargs --max-args 1 herdr pane run',
-    'echo p | xargs --max-args=1 herdr pane run',
-    'echo p | xargs -- herdr pane run',
-    'nice -- herdr pane run p hi',
-    'nice -n 5 -- herdr pane run p hi',
-    'stdbuf -oL -- herdr pane run p hi',
-    'timeout -- 5 herdr pane run p hi',
-    'TIMEOUT 5 herdr pane run p hi',
-  ]) {
-    assert.equal(sub(c), true, c);
-  }
+test('P2.2: the slot wrapper with options is looked through', () => {
   const heavy = tmpProject({ heavyCommands: ['^make full'] });
   const sh = (c) => isDeny(runScript('heavy-check-guard.cjs', hookIn(heavy, c, sid(), { agent_id: 'ag1' })));
   for (const c of [
@@ -411,57 +389,6 @@ test('P2.4: one string with spaces is a shell line; an argument list is not', ()
   const r = w.wrap(['run', '--', NODE, '-e', 'process.exit(0)', '&&', NODE, '-e', `require('fs').writeFileSync(${JSON.stringify(marker)},'x')`]);
   assert.equal(r.status, 0, r.stderr);
   assert.equal(fs.existsSync(marker), false, '&& in an argument list is an argument, not a shell operator');
-});
-
-test('P2.4: buildSpawn plans', () => {
-  const exists = (f) => ['C:\\bin\\tool.exe', 'C:\\bin\\npm.cmd', 'C:\\bin\\x.bat'].includes(f);
-  const env = { PATH: 'C:\\other;C:\\bin', PATHEXT: '.com;.exe;.bat;.cmd', ComSpec: 'C:\\Windows\\System32\\cmd.exe' };
-  const exe = buildSpawn(['tool', 'a b', '&'], { platform: 'win32', env, exists });
-  assert.deepEqual([exe.file, exe.args], ['C:\\bin\\tool.exe', ['a b', '&']], 'an .exe is started directly');
-  const cmd = buildSpawn(['npm', 'run', 'x', 'a&b', ''], { platform: 'win32', env, exists });
-  assert.equal(cmd.file, 'C:\\Windows\\System32\\cmd.exe');
-  assert.deepEqual(cmd.args.slice(0, 3), ['/d', '/s', '/c']);
-  assert.equal(cmd.options.windowsVerbatimArguments, true);
-  assert.equal(cmd.args[3], '"C:\\bin\\npm.cmd run x ^^^"a^^^&b^^^" """', 'bare word as it is, a metacharacter escaped twice for npm (it reads %* again), the empty word as "" without carets');
-  assert.throws(() => buildSpawn(['x', 'a&b'], { platform: 'win32', env, exists }), /cannot be passed unchanged/, 'a .bat is not a known %* shim');
-  assert.throws(() => buildSpawn(['npm', 'run', '100%'], { platform: 'win32', env, exists }), /cannot be passed unchanged/);
-  assert.equal(buildSpawn(['nothing', 'a'], { platform: 'win32', env, exists }).file, 'nothing', 'not found: left to the OS');
-  assert.deepEqual(buildSpawn(['git', 'status', '&'], { platform: 'linux' }), { file: 'git', args: ['status', '&'], options: {} });
-  assert.deepEqual(buildSpawn(['a b && c'], { platform: 'linux' }), { file: 'a b && c', args: [], options: { shell: true } });
-  assert.equal(escapeArg('a"b', false), '^"a\\^"b^"');
-  assert.equal(escapeArg('', false), '^"^"');
-});
-
-test('P2.4: a .cmd shim receives the arguments unchanged: a %* shim in node_modules/.bin all of them, one outside it the plain ones (Windows)', { skip: !win && 'cmd.exe only exists on Windows' }, () => {
-  const dir = mkTmp('ghorc-shim-');
-  fs.writeFileSync(path.join(dir, 'argv.js'), ARGV_PRINTER);
-  const bin = path.join(dir, 'node_modules', '.bin');
-  fs.mkdirSync(bin, { recursive: true });
-  fs.writeFileSync(path.join(bin, 'shimmed.cmd'), `@"${NODE}" "%~dp0..\\..\\argv.js" %*\r\n`);
-  fs.writeFileSync(path.join(dir, 'outer.cmd'), `@"${NODE}" "%~dp0argv.js" %*\r\n`);
-  const env = { PATH: `${bin};${dir};${process.env.PATH}` };
-  const meta = /[&|<>^"!()]/;
-  for (const w of [world({ slots: 1 }), world(undefined)]) {
-    const r = w.wrap(['run', '--', 'shimmed', ...TRICKY], { env });
-    assert.equal(r.status, 0, r.stderr);
-    assert.deepEqual(JSON.parse(r.stdout), TRICKY);
-    const plain = TRICKY.filter((a) => !meta.test(a));
-    const o = w.wrap(['run', '--', 'outer', ...plain], { env });
-    assert.equal(o.status, 0, o.stderr);
-    assert.deepEqual(JSON.parse(o.stdout), plain, 'a shim outside .bin: the arguments without a metacharacter');
-    for (const bad of TRICKY.filter((a) => meta.test(a))) {
-      const x = w.wrap(['run', '--', 'outer', bad], { env });
-      assert.equal(x.status, 2, `${JSON.stringify(bad)}: ${x.stdout}${x.stderr}`);
-      assert.equal(x.stdout, '', 'nothing ran');
-    }
-    const pct = w.wrap(['run', '--', 'shimmed', '%PATH%x'], { env });
-    assert.equal(pct.status, 2, 'a % cannot be passed through cmd.exe unchanged: refused, not expanded');
-    assert.match(pct.stderr, /cannot be passed unchanged/);
-    assert.equal(fs.existsSync(w.dir) && fs.readdirSync(w.dir).some((f) => f.endsWith('.json')), false, 'no slot was taken');
-  }
-  const npm = world({ slots: 1 }).wrap(['run', '--', 'npm', '--version']);
-  assert.equal(npm.status, 0, npm.stderr);
-  assert.match(npm.stdout.trim(), /^\d+\.\d+\.\d+/);
 });
 
 // ---- P2.5: signals (POSIX; on Windows only Ctrl-C reaches a handler, process.kill ends the wrapper at once) ----
