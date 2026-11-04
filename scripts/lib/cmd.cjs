@@ -21,17 +21,24 @@ const BUILTIN_SUBAGENT_DENY = [
   new RegExp(`${HERDR}(?:agent\\s+(?:start|prompt|send-keys)|pane\\s+(?:run|send-keys|send-text))\\b`, 'i'),
   new RegExp(`${HC}(?:run|exec|keys|interrupt)\\b`, 'i'),
 ];
-// hc has global options that take a value (--on <machine>, --via ...), so a regex cannot tell where the subcommand starts.
-// canonicalHc() therefore reads the segment as words: the first dangerous verb anywhere after the program name (else the
-// first send) is moved right behind the program name, and the patterns above and below are tried against that form too.
-const HC_PROGRAM = /^(?:\S*[\/])?hc(?:\.exe)?$/i;
+// hc and herdr have global options that take a value (--on <machine>, --via ..., --session x), so a regex cannot tell where
+// the subcommand starts. canonical() therefore reads the segment as words: the first dangerous verb (hc) or verb pair
+// (herdr agent start, ...) anywhere after the program name - else, for hc, the first send - is moved right behind the
+// program name, and the patterns above and below are tried against that form too.
+const HC_PROGRAM = /^(?:\S*[\\/])?hc(?:\.exe)?$/i;
+const HERDR_PROGRAM = /^(?:\S*[\\/])?herdr(?:\.exe)?$/i;
 const HC_DANGEROUS = new Set(['run', 'exec', 'keys', 'interrupt']);
-function canonicalHc(v) {
+const HERDR_DANGEROUS = { agent: new Set(['start', 'prompt', 'send-keys']), pane: new Set(['run', 'send-keys', 'send-text']) };
+function canonical(v) {
   const words = v.trim().split(/\s+/);
-  if (!HC_PROGRAM.test(words[0])) return null;
   const low = words.slice(1).map((w) => w.toLowerCase());
-  let i = low.findIndex((w) => HC_DANGEROUS.has(w));
-  if (i < 0) i = low.indexOf('send');
+  let i = -1;
+  if (HC_PROGRAM.test(words[0])) {
+    i = low.findIndex((w) => HC_DANGEROUS.has(w));
+    if (i < 0) i = low.indexOf('send');
+  } else if (HERDR_PROGRAM.test(words[0])) {
+    i = low.findIndex((w, k) => HERDR_DANGEROUS[w] instanceof Set && HERDR_DANGEROUS[w].has(low[k + 1]));
+  } else return null;
   return i < 0 ? null : [words[0], ...words.slice(1 + i)].join(' ');
 }
 const HC_SEND = new RegExp(`${HC}send\\b`, 'i');
@@ -60,12 +67,18 @@ const ENV_PREFIX = /^(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)+/;
 const RUNNER_PREFIX = /^(?:npm\s+run|npx)\s+/i;
 // Shell wrappers that run their argument as a command line.
 const SHELLS = String.raw`(?:bash|sh|zsh|dash|cmd|powershell|pwsh)(?:\.exe)?`;
+// env with a path (/usr/bin/env, C:\Git\usr\bin\env.exe) and its options: -i, -u NAME, NAME=value (peel drops those too).
+const ENV_WRAPPER = String.raw`(?:\S*[\\/])?env(?:\.exe)?\s+(?:(?:-u\s+\S+|-\w+|[A-Za-z_][A-Za-z0-9_]*=\S*)\s+)*`;
+// xargs and its options; the ones that take a separate value are listed (-I x, -n 1, -P 4, -s n, -E x, -d x, -a f, -L n).
+const XARGS_WRAPPER = String.raw`(?:\S*[\\/])?xargs(?:\.exe)?\s+(?:(?:-[InPsEdaL]\s*\S+|--[\w-]+(?:=\S+)?|-\w+)\s+)*`;
 const WRAPPER_PREFIX = new RegExp(
-  String.raw`^(?:${SHELLS}(?:\s+(?:[-/][\w:-]+|\w+))*?\s+(?:-l?c|/c|/k|-command)\s+|call\s+|time\s+|exec\s+|env\s+(?:-\w+\s+)*|command\s+|nohup\s+)`,
+  String.raw`^(?:${SHELLS}(?:\s+(?:[-/][\w:-]+|\w+))*?\s+(?:-l?c|/c|/k|-command)\s+|call\s+|time\s+|exec\s+|${ENV_WRAPPER}|command\s+|nohup\s+)`,
   'i',
 );
 // The slot wrapper runs its command after `--`. A quoted path to heavy-slot.cjs is unquoted first (see segments); a quoted
 // label is blanked to "". Options: --label x, --label=x, --label "x y", --label (no value).
+// xargs is peeled only in an extra form: a pattern on xargs itself (^xargs) keeps matching the unpeeled segment.
+const XARGS_PREFIX = new RegExp(`^${XARGS_WRAPPER}`, 'i');
 const SLOT_WRAPPER_PREFIX = new RegExp(
   String.raw`^node(?:\.exe)?\s+(?:--?[\w-]+(?:=\S+)?\s+)*\S*heavy-slot\.cjs\s+run\s+(?:--[A-Za-z][\w-]*(?:=(?:""|\S*)|\s+(?!--(?:\s|$))(?:""|\S+))?\s+)*--\s+`,
   'i',
@@ -149,9 +162,27 @@ const cut = (text, ps) =>
     .map((s) => s.trim())
     .filter(Boolean);
 
+// A quoted path to a program the guard knows ("C:\Program Files\Git\usr\bin\env.exe" hc run, & "C:\x\hc.exe" run claude):
+// the quoted path is replaced by the program name, otherwise the quotes are blanked and the program is not seen.
+const QUOTED_PROGRAM = /(["'])(?:[^"'\n;|&]*[\\/])?((?:hc|herdr|env|xargs|bash|sh|zsh|dash|cmd|powershell|pwsh|claude)(?:\.exe)?)\1/gi;
+// PowerShell Start-Process <program> -ArgumentList "a b" / 'a','b' / a,b: the program and its arguments are also written out
+// as one command (the original stays). Options of Start-Process before the program are not read.
+const START_PROCESS = /(^|[\s;&|(\x60{"'])(?:Start-Process|saps)\b([^;|&\n]*)/gi;
+function startProcess(text) {
+  return text.replace(START_PROCESS, (m, pre, rest) => {
+    const file = /-FilePath\s+("[^"]*"|'[^']*'|[^\s"',]+)/i.exec(rest) || /^\s*(?!-)("[^"]*"|'[^']*'|[^\s"',]+)/.exec(rest);
+    if (!file) return m;
+    const al = /-(?:ArgumentList|Args)\s+(.*)$/i.exec(rest);
+    const args = al ? al[1].replace(/["',]/g, ' ') : '';
+    return `${pre}${file[1]} ${args};${m}`;
+  });
+}
+
 // opts.powershell: the command comes from the PowerShell tool.
 function segments(command, opts = {}) {
-  const raw = String(command).replace(QUOTED_SLOT_PATH, 'heavy-slot.cjs');
+  const raw = startProcess(String(command))
+    .replace(QUOTED_SLOT_PATH, 'heavy-slot.cjs')
+    .replace(QUOTED_PROGRAM, '$2');
   const out = cut(stripHeredocs(raw), false);
   if (opts.powershell || PS_WRAPPER.test(raw)) {
     const ps = raw.replace(PS_GREEDY, (_m, pre, head, body) => `${pre}${head}${body}`);
@@ -176,13 +207,15 @@ function peel(segment, wrappers, rounds) {
 // The forms of one segment a pattern is tried against: with the shell wrappers peeled off (v0.7.0), and with the slot
 // wrapper peeled off as well; each also without the npm run / npx runner.
 function variants(segment) {
-  const forms = [...new Set([peel(segment, [WRAPPER_PREFIX], 4), peel(segment, [WRAPPER_PREFIX, SLOT_WRAPPER_PREFIX], 8)])];
+  const forms = [
+    ...new Set([peel(segment, [WRAPPER_PREFIX], 4), peel(segment, [WRAPPER_PREFIX, SLOT_WRAPPER_PREFIX], 8), peel(segment, [WRAPPER_PREFIX, SLOT_WRAPPER_PREFIX, XARGS_PREFIX], 8)]),
+  ];
   const out = [];
   for (const f of forms) {
     const a = f.replace(NPM_OPTS, 'npm').replace(/^npm\s+run-script\b/i, 'npm run');
     for (const v of [a, a.replace(RUNNER_PREFIX, '')]) {
       if (!out.includes(v)) out.push(v);
-      const c = canonicalHc(v);
+      const c = canonical(v);
       if (c && !out.includes(c)) out.push(c);
     }
   }

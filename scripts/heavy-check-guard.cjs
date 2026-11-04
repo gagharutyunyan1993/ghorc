@@ -15,7 +15,7 @@ if (process.argv.includes('--help')) {
       'bash -c "..." / cmd /c / powershell -Command and substitutions in double quotes), anchored at the segment start after ' +
       'env assignments, shell wrappers, npm global options and npm run/npx. ' +
       'Built in for subagents and workers: claude -p/--print, herdr agent start/prompt/send-keys, herdr pane run/send-keys/send-text, hc run/exec/keys/interrupt (also with an invalid config; the lead may use them). ' +
-      '`hc send` is denied too, except for a worker (GHORC_ROLE=worker, not a subagent) sending to its own parent terminal (`hc get $HC_TERMINAL_ID` -> parent); no readable parent means deny. ' +
+      '`hc send` is denied too, except for a worker (GHORC_ROLE=worker, not a subagent) sending to its own parent terminal (`hc get $HC_TERMINAL_ID` -> parent) or to a live lead from `hc ls` (a live terminal without a parent, or named lead-*); nothing readable means deny. ' +
       'heavyGuard.requireLeadEnv=true: also denies without GHORC_ROLE=lead. ' +
       'heavySlots.slots > 0: the lead is also denied a heavy command while every slot holds a live claim of another session (the holder is named; scripts/heavy-slot.cjs is the real lock; read errors fail open). ' +
       'Every deny is appended to <tmp>/ghorc-<user>/denials.log. An invalid project config makes it deny the built-in default heavy commands, with the reason. No project config: nothing is denied.',
@@ -38,12 +38,13 @@ run((input) => {
     'subagents and workers may not start other agents (claude -p, herdr agent start/prompt/send-keys, herdr pane run/send-keys/send-text, hc run/exec/keys/interrupt/send): ask the lead.';
   if (sub && matches(command, BUILTIN_SUBAGENT_DENY, ps)) return deny(agentsMsg);
   if (sub) {
-    // hc send is a worker's way to report to its parent, so it is judged by its target; a subagent has no terminal of its own
+    // hc send is a worker's way to report to its parent or, after a lead handover, to the new lead; so it is judged by its
+    // target. A subagent has no terminal of its own.
     const targets = hcSendTargets(command, ps);
     if (targets.length) {
-      const parent = input.agent_id ? null : backend.hcParent();
-      if (!parent || !targets.every((t) => t === parent)) {
-        return deny(`${agentsMsg} A worker may hc send only to its own parent terminal${parent ? ` (${parent})` : ' (not readable here)'}.`);
+      const allowed = input.agent_id ? [] : backend.hcSendTargets();
+      if (!allowed.length || !targets.every((t) => allowed.includes(t))) {
+        return deny(`${agentsMsg} A worker may hc send only to its own parent terminal or a live lead${allowed.length ? ` (${allowed.join(', ')})` : ' (none readable here)'}.`);
       }
     }
   }

@@ -233,6 +233,81 @@ test('hcSendTargets reads the target of every hc send, null when unreadable', ()
   assert.equal(cmd.matches('hc --on laptop ls', cmd.AGENT_START), false);
 });
 
+// E408 fix1: the review's bypasses. String.raw keeps the backslashes of Windows paths.
+const DENY_FORMS = [
+  // P1-1: a Windows path to hc / herdr (backslashes), SH and PS
+  String.raw`C:\Users\Developer\AppData\herdr-core\hc.exe --on m run claude`,
+  String.raw`C:\x\hc.exe run claude`,
+  String.raw`C:\x\herdr.exe agent start x`,
+  // P1-2: env with a path, .exe, options
+  'env.exe hc run claude',
+  '/usr/bin/env hc run claude',
+  'env -u GHORC_ROLE hc run claude',
+  'env -i hc run claude',
+  'env -u A -u B X=1 hc run claude',
+  String.raw`C:\Git\usr\bin\env.exe GHORC_ROLE=lead hc run claude`,
+  '"C:\\Program Files\\Git\\usr\\bin\\env.exe" hc run claude',
+  "'C:/Program Files/Git/usr/bin/env.exe' hc run claude",
+  '"C:\\x\\hc.exe" run claude',
+  '& "C:\\x\\hc.exe" run claude',
+  "& 'C:\\x\\hc.exe' --on m run claude",
+  'env herdr agent start x',
+  '/usr/bin/env.exe -i herdr pane run p x',
+  // P2-5: a herdr option with a value
+  'herdr --session x agent start',
+  'herdr --session x --json agent prompt a hi',
+  String.raw`C:\x\herdr.exe --session x pane send-keys p enter`,
+  'herdr -s x pane run p y',
+  // P2-6: xargs, Start-Process
+  'echo x | xargs hc run claude',
+  'xargs -n 1 hc run claude',
+  'xargs -I {} hc run {} claude',
+  'xargs -0 -P 4 hc --on m run claude',
+  'xargs herdr agent start',
+  'Start-Process hc -ArgumentList "run claude"',
+  "Start-Process hc -ArgumentList 'run','claude'",
+  'Start-Process -FilePath "C:\\x\\hc.exe" -ArgumentList run,claude -NoNewWindow',
+  "Start-Process hc -NoNewWindow -ArgumentList 'run claude'",
+  'saps hc -ArgumentList "keys t5 enter"',
+  'powershell -Command "Start-Process hc -ArgumentList \'run claude\'"',
+];
+const OK_FORMS = [
+  String.raw`C:\x\hc.exe ls`,
+  String.raw`C:\x\hc.exe --on m get t5`,
+  '"C:\\x\\hc.exe" ls',
+  '& "C:\\x\\hc.exe" read t5',
+  'env hc ls',
+  'env -u A hc get t5',
+  'herdr --session x agent list',
+  'herdr --session x pane list',
+  'xargs echo hc run',
+  'xargs -n 1 echo',
+  'Start-Process notepad -ArgumentList "run claude"',
+  'Start-Process hc -ArgumentList "ls"',
+  'echo "C:\\x\\hc.exe run claude"',
+];
+
+test('E408 fix1: path, env, xargs, Start-Process and herdr option forms of the built-in deny', () => {
+  for (const c of DENY_FORMS) {
+    assert.equal(cmd.matches(c, cmd.BUILTIN_SUBAGENT_DENY), true, `sh: ${c}`);
+    assert.equal(cmd.matches(c, cmd.BUILTIN_SUBAGENT_DENY, { powershell: true }), true, `ps: ${c}`);
+  }
+  for (const c of OK_FORMS) {
+    assert.equal(cmd.matches(c, cmd.BUILTIN_SUBAGENT_DENY), false, `sh: ${c}`);
+    assert.equal(cmd.matches(c, cmd.BUILTIN_SUBAGENT_DENY, { powershell: true }), false, `ps: ${c}`);
+  }
+});
+
+test('E408 fix1: agent-start detection sees the same forms; hc send target through paths and env', () => {
+  for (const c of [String.raw`C:\x\hc.exe --on m run claude`, 'env.exe hc run claude', '& "C:\\x\\hc.exe" run claude', 'herdr --session x agent start', 'xargs hc run claude', 'Start-Process hc -ArgumentList "run claude"']) {
+    assert.equal(cmd.matches(c, cmd.AGENT_START, { powershell: true }), true, c);
+  }
+  assert.equal(cmd.matches('herdr --session x agent list', cmd.AGENT_START), false);
+  assert.deepEqual(cmd.hcSendTargets(String.raw`C:\x\hc.exe send t5 x`), ['t5']);
+  assert.deepEqual(cmd.hcSendTargets('env -u A /usr/bin/hc send t5 x'), ['t5']);
+  assert.deepEqual(cmd.hcSendTargets('& "C:\\x\\hc.exe" send t1f x', { powershell: true }), ['t1f']);
+});
+
 const hgInput = (cwd, command, extra = {}) => ({ hook_event_name: 'PreToolUse', session_id: sid(), cwd, tool_name: 'Bash', tool_input: { command }, ...extra });
 const hg = (input, env) => runScript('heavy-check-guard.cjs', input, { env: toEnv(env) });
 
@@ -261,11 +336,46 @@ test('hc send: a worker may report to its own parent, nobody else, no subagent, 
   const blind = envOf({ GHORC_ROLE: 'worker', HC_TERMINAL_ID: 't14', FAKE_DIR: none });
   const r = hg(hgInput(cwd, 'hc send t5 x'), blind);
   assert.equal(isDeny(r), true);
-  assert.match(JSON.parse(r.out).hookSpecificOutput.permissionDecisionReason, /not readable/);
+  assert.match(JSON.parse(r.out).hookSpecificOutput.permissionDecisionReason, /none readable/);
   // not in hc at all (no HC_TERMINAL_ID): no parent, so hc send is denied for a worker
   assert.equal(send('hc send t5 x', {}, envOf({ GHORC_ROLE: 'worker' })), true);
   // the old herdr forms stay denied
   for (const c of ['herdr pane run p x', 'herdr agent start x', 'claude -p x']) assert.equal(send(c), true, c);
+});
+
+test('hc send: after a lead handover a worker may also report to a live lead from hc ls, nobody else', () => {
+  const cwd = tmpProject({ heavyCommands: ['^never-matches-anything$'] });
+  const ls = JSON.stringify({
+    terminals: [
+      { address: 't5', agent: 'claude-code', state: 'finished' }, // the parent: gone after the handover
+      { address: 't1f', agent: 'claude-code', state: 'live', status: 'idle' }, // the new lead: top level
+      { address: 't9', agent: 'claude-code', name: 'lead-next', parent: 't1f', state: 'live', status: 'working' }, // lead by name
+      { address: 't13', agent: 'claude-code', name: 'impl', parent: 't1f', state: 'live', status: 'working' }, // a foreign worker
+      { address: 't14', agent: 'claude-code', name: 'me', parent: 't5', state: 'live', status: 'working' },
+      { address: 't20', agent: 'claude-code', name: 'old-lead', state: 'finished' }, // a dead top-level one
+    ],
+  });
+  const get = JSON.stringify({ address: 't14', parent: 't5', state: 'live' });
+  const send = (command, files, extra = {}) => {
+    const dir = fakeDir(files);
+    return isDeny(hg(hgInput(cwd, command, extra), envOf({ GHORC_ROLE: 'worker', HC_TERMINAL_ID: 't14', FAKE_DIR: dir })));
+  };
+  const both = { 'get_t14.out': get, 'ls_--json.out': ls };
+  assert.equal(send('hc send t1f "E408 DONE"', both), false, 'the new lead, parent dead');
+  assert.equal(send('hc send t9 x', both), false, 'a lead by name');
+  assert.equal(send('hc send t5 x', both), false, 'the (dead) parent stays allowed');
+  assert.equal(send('hc send t1f a && hc send t5 b', both), false);
+  assert.equal(send('hc send t13 x', both), true, 'a foreign worker');
+  assert.equal(send('hc send t20 x', both), true, 'a dead top-level terminal');
+  assert.equal(send('hc send t1f a && hc send t13 b', both), true, 'one of two is foreign');
+  assert.equal(send('hc send t1f x', both, { agent_id: 'ag1' }), true, 'a subagent');
+  assert.equal(send('hc send t1f x', { 'get_t14.out': get }), true, 'hc ls unreadable and t1f is not the parent');
+  assert.equal(send('hc send t1f x', { 'get_t14.code': '1', 'ls_--json.out': ls }), false, 'parent unreadable, lead from hc ls');
+  assert.equal(send('hc send t13 x', { 'get_t14.code': '1', 'ls_--json.out': ls }), true);
+  const { leadsFromHc } = backend;
+  assert.deepEqual(leadsFromHc(ls), ['t1f', 't9']);
+  assert.equal(leadsFromHc('not json'), null);
+  assert.equal(leadsFromHc('{"x":1}'), null);
 });
 
 test('the deny holds with an invalid config too', () => {

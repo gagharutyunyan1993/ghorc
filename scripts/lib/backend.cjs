@@ -119,4 +119,42 @@ function hcParent(env = process.env, run = execFileSync) {
   }
 }
 
-module.exports = { detect, runTool, binSpec, hcSpec, herdrSpec, workersFromHc, hcText, hcParent, LIVE_WORKER };
+// Live lead terminals from the text of `hc ls --json`: a live terminal with no parent (a session the owner started) or with a
+// name starting with the lead prefix. After a lead handover the workers of the old lead report to the new one, which is not
+// their parent. null when the text is not that JSON.
+function leadsFromHc(text, leadPrefix = 'lead-') {
+  let list;
+  try {
+    list = JSON.parse(text).terminals;
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(list)) return null;
+  const prefix = String(leadPrefix || '').toLowerCase();
+  return list
+    .filter((t) => {
+      if (!t || typeof t !== 'object' || typeof t.address !== 'string' || !t.address) return false;
+      if (String(t.state == null ? '' : t.state).toLowerCase() !== 'live') return false;
+      if (!t.parent) return true;
+      return Boolean(prefix) && String(t.name == null ? '' : t.name).toLowerCase().startsWith(prefix);
+    })
+    .map((t) => t.address);
+}
+
+// The terminals a worker may `hc send` to: its parent (`hc get`) and the live leads (`hc ls`). Empty when this terminal is
+// not an hc terminal or neither can be read.
+function hcSendTargets(env = process.env, run = execFileSync) {
+  if (!String(env.HC_TERMINAL_ID || '').trim()) return [];
+  const out = [];
+  const parent = hcParent(env, run);
+  if (parent) out.push(parent);
+  try {
+    const text = hcText(env, run);
+    for (const a of (text && leadsFromHc(text)) || []) if (!out.includes(a)) out.push(a);
+  } catch {
+    /* hc ls failed: the parent alone is what is known */
+  }
+  return out;
+}
+
+module.exports = { detect, runTool, binSpec, hcSpec, herdrSpec, workersFromHc, leadsFromHc, hcText, hcParent, hcSendTargets, LIVE_WORKER };
