@@ -12,8 +12,11 @@
   `GHORC_CAPACITY_HC_JSON`, `GHORC_HC_BIN`, `GHORC_HERDR_BIN`.
 - Heavy-check guard: subagents and workers may not run `hc run|exec|keys|interrupt` (as they may not run
   `herdr agent start|prompt|send-keys` and `herdr pane run|send-keys|send-text`). `hc send` is denied as well, except for
-  a worker (not a subagent) sending to its own parent terminal, which it reads with `hc get $HC_TERMINAL_ID`; a target or
-  parent that cannot be read means deny. `handoff.pushGuard` also covers `hc run ... claude`.
+  a worker (not a subagent) sending to its own parent terminal (`hc get $HC_TERMINAL_ID`) or to a live lead from
+  `hc ls --json` (a live terminal without a parent, or named `lead-*`; after a lead handover the new lead is not the
+  parent); a target that is neither, or nothing readable, means deny. The command forms are read through Windows paths
+  (`C:\x\hc.exe`), `env`/`env.exe` with a path and options (`-i`, `-u NAME`), quoted program paths (`& "C:\x\hc.exe"`),
+  `xargs`, PowerShell `Start-Process hc -ArgumentList ...` and herdr options with a value (`herdr --session x agent start`). `handoff.pushGuard` also covers `hc run ... claude`.
 - Skills `ghorc:lead` and `ghorc:handoff`: first determine the backend, then the command forms of both backends (start a
   worker with a role, wait, read, send, close, READY/ACTIVATE handoff).
 
