@@ -13,7 +13,7 @@
 - Heavy-check guard: subagents and workers may not run `hc run|exec|keys|interrupt` (as they may not run
   `herdr agent start|prompt|send-keys` and `herdr pane run|send-keys|send-text`). `hc send` is denied as well, except for
   a worker (not a subagent) sending to its own parent terminal (`hc get $HC_TERMINAL_ID`) or to a live lead from
-  `hc ls --json` (a live terminal without a parent, or named `lead-*`; after a lead handover the new lead is not the
+  `hc ls --json` (a live `claude-code` terminal without a parent, or named `lead-*`; a shell is never a lead; after a lead handover the new lead is not the
   parent); a target that is neither, or nothing readable, means deny. The command forms are read through Windows paths
   (`C:\x\hc.exe`), `env`/`env.exe` with a path and options (`-i`, `-u NAME`), quoted program paths (`& "C:\x\hc.exe"`),
   `xargs`, PowerShell `Start-Process hc -ArgumentList ...` and herdr options with a value (`herdr --session x agent start`). `handoff.pushGuard` also covers `hc run ... claude`.

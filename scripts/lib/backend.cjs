@@ -6,7 +6,8 @@
 // One module decides, so hooks, scripts and skills never assume a single backend. Nothing here reads a project file.
 const { execFileSync } = require('node:child_process');
 
-const TIMEOUT_MS = 3000;
+// GHORC_TOOL_TIMEOUT_MS: for tests on a loaded machine (a fake program started twice can exceed 3 s)
+const timeoutMs = () => Number(process.env.GHORC_TOOL_TIMEOUT_MS) || 3000;
 const LIVE_WORKER = new Set(['working', 'blocked']);
 
 // A program to run. An env override (tests, or a program outside PATH) is one path or a JSON array [program, ...args].
@@ -34,7 +35,7 @@ function runTool(spec, args, run = execFileSync) {
   try {
     const stdout = run(spec[0], [...spec.slice(1), ...args], {
       encoding: 'utf8',
-      timeout: TIMEOUT_MS,
+      timeout: timeoutMs(),
       windowsHide: true,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
@@ -119,7 +120,7 @@ function hcParent(env = process.env, run = execFileSync) {
   }
 }
 
-// Live lead terminals from the text of `hc ls --json`: a live terminal with no parent (a session the owner started) or with a
+// Live lead terminals from the text of `hc ls --json`: a live claude-code terminal with no parent (a session the owner started) or with a
 // name starting with the lead prefix. After a lead handover the workers of the old lead report to the new one, which is not
 // their parent. null when the text is not that JSON.
 function leadsFromHc(text, leadPrefix = 'lead-') {
@@ -134,6 +135,7 @@ function leadsFromHc(text, leadPrefix = 'lead-') {
   return list
     .filter((t) => {
       if (!t || typeof t !== 'object' || typeof t.address !== 'string' || !t.address) return false;
+      if (t.agent !== 'claude-code') return false; // a shell (cmd.exe, pwsh) is no lead: text sent there would be run
       if (String(t.state == null ? '' : t.state).toLowerCase() !== 'live') return false;
       if (!t.parent) return true;
       return Boolean(prefix) && String(t.name == null ? '' : t.name).toLowerCase().startsWith(prefix);
