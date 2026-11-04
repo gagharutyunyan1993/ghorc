@@ -33,7 +33,7 @@ function fakeDir(files) {
   return d;
 }
 // The environment of a session: none of the real backend variables leaks in from the machine running the tests.
-const envOf = (extra = {}) => ({ HC_TERMINAL_ID: '', HERDR_ENV: '', GHORC_HC_BIN: SPEC, GHORC_HERDR_BIN: SPEC, GHORC_CAPACITY_HC_JSON: undefined, GHORC_CAPACITY_HERDR_JSON: undefined, ...extra });
+const envOf = (extra = {}) => ({ GHORC_TOOL_TIMEOUT_MS: '30000', HC_TERMINAL_ID: '', HERDR_ENV: '', GHORC_HC_BIN: SPEC, GHORC_HERDR_BIN: SPEC, GHORC_CAPACITY_HC_JSON: undefined, GHORC_CAPACITY_HERDR_JSON: undefined, ...extra });
 const clean = (extra) => ({ ...process.env, ...envOf(extra) });
 // delete variables set to undefined (spawn would print them as the text "undefined")
 const toEnv = (e) => Object.fromEntries(Object.entries(e).filter(([, v]) => v !== undefined));
@@ -258,6 +258,13 @@ const DENY_FORMS = [
   'herdr --session x --json agent prompt a hi',
   String.raw`C:\x\herdr.exe --session x pane send-keys p enter`,
   'herdr -s x pane run p y',
+  // a shell wrapper with a path
+  '/bin/bash -c "hc run claude"',
+  '/usr/bin/sh -c "herdr agent start x"',
+  String.raw`C:\Git\bin\bash.exe -c "hc run claude"`,
+  'bash -lc "/usr/bin/env hc run claude"',
+  String.raw`C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -Command "hc run claude"`,
+  '/opt/pwsh/pwsh -c "hc run claude"',
   // P2-6: xargs, Start-Process
   'echo x | xargs hc run claude',
   'xargs -n 1 hc run claude',
@@ -272,6 +279,8 @@ const DENY_FORMS = [
   'powershell -Command "Start-Process hc -ArgumentList \'run claude\'"',
 ];
 const OK_FORMS = [
+  '/bin/bash -c "hc ls"',
+  '/usr/bin/sh -c "git status"',
   String.raw`C:\x\hc.exe ls`,
   String.raw`C:\x\hc.exe --on m get t5`,
   '"C:\\x\\hc.exe" ls',
@@ -353,6 +362,9 @@ test('hc send: after a lead handover a worker may also report to a live lead fro
       { address: 't13', agent: 'claude-code', name: 'impl', parent: 't1f', state: 'live', status: 'working' }, // a foreign worker
       { address: 't14', agent: 'claude-code', name: 'me', parent: 't5', state: 'live', status: 'working' },
       { address: 't20', agent: 'claude-code', name: 'old-lead', state: 'finished' }, // a dead top-level one
+      { address: 'tS', agent: 'cmd.exe', state: 'live' }, // the owner's shells: text sent there would be run
+      { address: 'tP', agent: 'pwsh', state: 'live' },
+      { address: 'tL', agent: 'cmd.exe', name: 'lead-fake', state: 'live' },
     ],
   });
   const get = JSON.stringify({ address: 't14', parent: 't5', state: 'live' });
@@ -367,6 +379,7 @@ test('hc send: after a lead handover a worker may also report to a live lead fro
   assert.equal(send('hc send t1f a && hc send t5 b', both), false);
   assert.equal(send('hc send t13 x', both), true, 'a foreign worker');
   assert.equal(send('hc send t20 x', both), true, 'a dead top-level terminal');
+  for (const t of ['tS', 'tP', 'tL']) assert.equal(send(`hc send ${t} "claude -p x"`, both), true, `a shell without parent: ${t}`);
   assert.equal(send('hc send t1f a && hc send t13 b', both), true, 'one of two is foreign');
   assert.equal(send('hc send t1f x', both, { agent_id: 'ag1' }), true, 'a subagent');
   assert.equal(send('hc send t1f x', { 'get_t14.out': get }), true, 'hc ls unreadable and t1f is not the parent');

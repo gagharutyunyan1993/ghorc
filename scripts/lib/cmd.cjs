@@ -66,7 +66,7 @@ const DEFAULT_HEAVY = [
 const ENV_PREFIX = /^(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)+/;
 const RUNNER_PREFIX = /^(?:npm\s+run|npx)\s+/i;
 // Shell wrappers that run their argument as a command line.
-const SHELLS = String.raw`(?:bash|sh|zsh|dash|cmd|powershell|pwsh)(?:\.exe)?`;
+const SHELLS = String.raw`(?:\S*[\\/])?(?:bash|sh|zsh|dash|cmd|powershell|pwsh)(?:\.exe)?`;
 // env with a path (/usr/bin/env, C:\Git\usr\bin\env.exe) and its options: -i, -u NAME, NAME=value (peel drops those too).
 const ENV_WRAPPER = String.raw`(?:\S*[\\/])?env(?:\.exe)?\s+(?:(?:-u\s+\S+|-\w+|[A-Za-z_][A-Za-z0-9_]*=\S*)\s+)*`;
 // xargs and its options; the ones that take a separate value are listed (-I x, -n 1, -P 4, -s n, -E x, -d x, -a f, -L n).
@@ -77,7 +77,7 @@ const WRAPPER_PREFIX = new RegExp(
 );
 // The slot wrapper runs its command after `--`. A quoted path to heavy-slot.cjs is unquoted first (see segments); a quoted
 // label is blanked to "". Options: --label x, --label=x, --label "x y", --label (no value).
-// xargs is peeled only in an extra form: a pattern on xargs itself (^xargs) keeps matching the unpeeled segment.
+// xargs is peeled only in an extra form: a pattern on xargs itself (^xargs) keeps matching the unpeeled segment.
 const XARGS_PREFIX = new RegExp(`^${XARGS_WRAPPER}`, 'i');
 const SLOT_WRAPPER_PREFIX = new RegExp(
   String.raw`^node(?:\.exe)?\s+(?:--?[\w-]+(?:=\S+)?\s+)*\S*heavy-slot\.cjs\s+run\s+(?:--[A-Za-z][\w-]*(?:=(?:""|\S*)|\s+(?!--(?:\s|$))(?:""|\S+))?\s+)*--\s+`,
@@ -91,9 +91,9 @@ const WRAP_HEAD = String.raw`(^|[\s;&|(\x60{])(${SHELLS}(?:\s+(?:[-/][\w:-]+|\w+
 // A shell wrapper followed (after its flags) by a quoted argument: the quotes are dropped so the argument is matched too.
 const WRAPPED_QUOTE = new RegExp(`${WRAP_HEAD}(${BASH_DQ}|${SQ})`, 'gi');
 const WRAPPED_QUOTE_PS = new RegExp(`${WRAP_HEAD}(${PS_DQ}|${SQ})`, 'gi');
-const PS_WRAPPER = /(^|[\s;&|(\x60{])(?:powershell|pwsh)(?:\.exe)?\s/i;
+const PS_WRAPPER = /(^|[\s;&|(\x60{])(?:\S*[\\/])?(?:powershell|pwsh)(?:\.exe)?\s/i;
 // powershell -Command "..." at the end of the command: everything between the first and the last quote is the script.
-const PS_GREEDY = /(^|[\s;&|(\x60{])((?:powershell|pwsh)(?:\.exe)?(?:\s+(?:[-/][\w:-]+|\w+))*?\s+)"([\s\S]*)"\s*$/i;
+const PS_GREEDY = /(^|[\s;&|(\x60{])((?:\S*[\\/])?(?:powershell|pwsh)(?:\.exe)?(?:\s+(?:[-/][\w:-]+|\w+))*?\s+)"([\s\S]*)"\s*$/i;
 // npm global options before the subcommand; the listed ones take a value.
 const NPM_OPTS = /^npm((?:\s+(?:(?:--prefix|-C|--workspace|-w)(?:=|\s+)\S+|-{1,2}[\w-]+(?:=\S+)?))+)(?=\s)/i;
 
