@@ -21,6 +21,19 @@ const BUILTIN_SUBAGENT_DENY = [
   new RegExp(`${HERDR}(?:agent\\s+(?:start|prompt|send-keys)|pane\\s+(?:run|send-keys|send-text))\\b`, 'i'),
   new RegExp(`${HC}(?:run|exec|keys|interrupt)\\b`, 'i'),
 ];
+// hc has global options that take a value (--on <machine>, --via ...), so a regex cannot tell where the subcommand starts.
+// canonicalHc() therefore reads the segment as words: the first dangerous verb anywhere after the program name (else the
+// first send) is moved right behind the program name, and the patterns above and below are tried against that form too.
+const HC_PROGRAM = /^(?:\S*[\/])?hc(?:\.exe)?$/i;
+const HC_DANGEROUS = new Set(['run', 'exec', 'keys', 'interrupt']);
+function canonicalHc(v) {
+  const words = v.trim().split(/\s+/);
+  if (!HC_PROGRAM.test(words[0])) return null;
+  const low = words.slice(1).map((w) => w.toLowerCase());
+  let i = low.findIndex((w) => HC_DANGEROUS.has(w));
+  if (i < 0) i = low.indexOf('send');
+  return i < 0 ? null : [words[0], ...words.slice(1 + i)].join(' ');
+}
 const HC_SEND = new RegExp(`${HC}send\\b`, 'i');
 // `hc send [--force|--json|--wait|--if S|--timeout N] <target> <text>`: the target is the first word that is not an option.
 const HC_SEND_TARGET = new RegExp(`${HC}send((?:\\s+(?:--(?:if|timeout)\\s+\\S+|--[\\w-]+))*)\\s+(\\S+)`, 'i');
@@ -167,7 +180,11 @@ function variants(segment) {
   const out = [];
   for (const f of forms) {
     const a = f.replace(NPM_OPTS, 'npm').replace(/^npm\s+run-script\b/i, 'npm run');
-    for (const v of [a, a.replace(RUNNER_PREFIX, '')]) if (!out.includes(v)) out.push(v);
+    for (const v of [a, a.replace(RUNNER_PREFIX, '')]) {
+      if (!out.includes(v)) out.push(v);
+      const c = canonicalHc(v);
+      if (c && !out.includes(c)) out.push(c);
+    }
   }
   return out;
 }

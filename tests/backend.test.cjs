@@ -202,6 +202,13 @@ test('subagents and workers may not run hc run, exec, keys or interrupt; read-on
     'nohup hc run x',
     '/usr/local/bin/hc run x',
     'hc --json run x',
+    // global options that take a value must not hide the subcommand
+    'hc --on laptop run claude.exe',
+    'hc --via ssh run x',
+    'hc --on laptop exec git status',
+    'hc -x y keys t5 enter',
+    'hc --on laptop --json interrupt t5',
+    'HC --ON laptop RUN x',
   ];
   const allowed = ['hc ls', 'hc get t5', 'hc read t5 --lines 40', 'hc wait t5', 'hc templates', 'git status', 'echo hc run'];
   for (const c of denied) assert.equal(cmd.matches(c, cmd.BUILTIN_SUBAGENT_DENY), true, c);
@@ -219,6 +226,11 @@ test('hcSendTargets reads the target of every hc send, null when unreadable', ()
   assert.deepEqual(cmd.hcSendTargets('hc send'), [null]);
   assert.deepEqual(cmd.hcSendTargets('hc ls'), []);
   assert.deepEqual(cmd.hcSendTargets('echo hc send t5'), []);
+  assert.deepEqual(cmd.hcSendTargets('hc --on laptop send t5 x'), ['t5']);
+  assert.deepEqual(cmd.hcSendTargets('hc --via ssh --json send --force t5 x'), ['t5']);
+  assert.equal(cmd.matches('hc --on laptop send t5 x', cmd.BUILTIN_SUBAGENT_DENY), false);
+  assert.equal(cmd.matches('hc --on laptop run claude.exe', cmd.AGENT_START), true);
+  assert.equal(cmd.matches('hc --on laptop ls', cmd.AGENT_START), false);
 });
 
 const hgInput = (cwd, command, extra = {}) => ({ hook_event_name: 'PreToolUse', session_id: sid(), cwd, tool_name: 'Bash', tool_input: { command }, ...extra });
