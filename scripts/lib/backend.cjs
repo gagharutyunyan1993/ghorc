@@ -123,7 +123,24 @@ function hcParent(env = process.env, run = execFileSync) {
 // Live lead terminals from the text of `hc ls --json`: a live claude-code terminal with no parent (a session the owner started) or with a
 // name starting with the lead prefix. After a lead handover the workers of the old lead report to the new one, which is not
 // their parent. null when the text is not that JSON.
-function leadsFromHc(text, leadPrefix = 'lead-') {
+//
+// roots (optional): project directories. A lead then counts only when its cwd is one of them or inside one (a worktree under
+// <root>/.claude/worktrees counts as <root>): the lead of another project is not a channel for a worker's text.
+function projectKey(dir) {
+  return String(dir || '')
+    .replace(/\\/g, '/')
+    .replace(/\/+$/, '')
+    .replace(/\/\.claude\/worktrees\/.*$/i, '')
+    .toLowerCase();
+}
+function inProject(cwd, roots) {
+  const c = projectKey(cwd);
+  return Boolean(c) && roots.some((r) => {
+    const k = projectKey(r);
+    return Boolean(k) && (c === k || c.startsWith(`${k}/`));
+  });
+}
+function leadsFromHc(text, leadPrefix = 'lead-', roots = null) {
   let list;
   try {
     list = JSON.parse(text).terminals;
@@ -137,6 +154,7 @@ function leadsFromHc(text, leadPrefix = 'lead-') {
       if (!t || typeof t !== 'object' || typeof t.address !== 'string' || !t.address) return false;
       if (t.agent !== 'claude-code') return false; // a shell (cmd.exe, pwsh) is no lead: text sent there would be run
       if (String(t.state == null ? '' : t.state).toLowerCase() !== 'live') return false;
+      if (roots && !inProject(t.cwd, roots)) return false;
       if (!t.parent) return true;
       return Boolean(prefix) && String(t.name == null ? '' : t.name).toLowerCase().startsWith(prefix);
     })
@@ -145,14 +163,25 @@ function leadsFromHc(text, leadPrefix = 'lead-') {
 
 // The terminals a worker may `hc send` to: its parent (`hc get`) and the live leads (`hc ls`). Empty when this terminal is
 // not an hc terminal or neither can be read.
-function hcSendTargets(env = process.env, run = execFileSync) {
+// projectDirs: the directories of this project (the hook passes its project root); the cwd of the parent terminal is added.
+function hcSendTargets(env = process.env, run = execFileSync, projectDirs = null) {
   if (!String(env.HC_TERMINAL_ID || '').trim()) return [];
   const out = [];
   const parent = hcParent(env, run);
   if (parent) out.push(parent);
   try {
     const text = hcText(env, run);
-    for (const a of (text && leadsFromHc(text)) || []) if (!out.includes(a)) out.push(a);
+    let roots = null;
+    if (projectDirs) {
+      roots = [...projectDirs];
+      try {
+        const p = JSON.parse(text).terminals.find((t) => t && t.address === parent);
+        if (p && p.cwd) roots.push(p.cwd);
+      } catch {
+        /* no parent entry: the project dirs alone */
+      }
+    }
+    for (const a of (text && leadsFromHc(text, 'lead-', roots)) || []) if (!out.includes(a)) out.push(a);
   } catch {
     /* hc ls failed: the parent alone is what is known */
   }
