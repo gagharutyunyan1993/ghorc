@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.9.0 - 2026-11-05
+
+### Added
+- Two terminal backends. `scripts/lib/backend.cjs` and the CLI `node scripts/backend.cjs [--name]` decide which one is
+  active: `hc` (herdr-app) when `HC_TERMINAL_ID` is set, `herdr` (the older CLI) when `HERDR_ENV=1` and
+  `herdr agent list` answers, otherwise `none`; `hc` wins when both are present. The hooks and the skills use the same
+  detection, and no skill claims that only one backend works.
+- Capacity guard: workers are counted on the active backend (`hc ls --json`: live, `working` or `blocked`, has a
+  `parent`, name not starting with `leadNamePrefix`, not this terminal; or `herdr agent list` as before). Test seams
+  `GHORC_CAPACITY_HC_JSON`, `GHORC_HC_BIN`, `GHORC_HERDR_BIN`.
+- Heavy-check guard: subagents and workers may not run `hc run|exec|keys|interrupt` (as they may not run
+  `herdr agent start|prompt|send-keys` and `herdr pane run|send-keys|send-text`). `hc send` is denied as well, except for
+  a worker (not a subagent) sending to its own parent terminal, which it reads with `hc get $HC_TERMINAL_ID`; a target or
+  parent that cannot be read means deny. `handoff.pushGuard` also covers `hc run ... claude`.
+- Skills `ghorc:lead` and `ghorc:handoff`: first determine the backend, then the command forms of both backends (start a
+  worker with a role, wait, read, send, close, READY/ACTIVATE handoff).
+
+### Changed
+- Outside a backend (neither `HC_TERMINAL_ID` nor `HERDR_ENV=1`) no herdr process is asked and workers count as 0 (before:
+  `herdr agent list` was asked whenever herdr was installed). The capacity line reads `(workers N)` instead of
+  `(herdr workers N)`.
+
 ## 0.8.0 - 2026-11-02
 
 ### Added

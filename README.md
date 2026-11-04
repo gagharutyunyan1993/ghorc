@@ -82,7 +82,8 @@ Compare the worker's report with [expected-report.md](examples/demo/expected-rep
 | A PDF without `pages`; media outside the media role; media budgets | Context thresholds: 120K, 150K |
 | Any heavy command while `.claude/ghorc.json` is invalid | The lead runs the full check once, in the background |
 
-Denied for subagents: `claude -p`, `herdr agent start|prompt|send-keys`, `herdr pane run|send-keys|send-text`.
+Denied for subagents: `claude -p`, `herdr agent start|prompt|send-keys`, `herdr pane run|send-keys|send-text`,
+`hc run|exec|keys|interrupt` (and `hc send`, except a worker to its own parent).
 
 Details: [docs/hooks.md](docs/hooks.md) and [docs/workflow.md](docs/workflow.md).
 
@@ -94,7 +95,7 @@ Details: [docs/hooks.md](docs/hooks.md) and [docs/workflow.md](docs/workflow.md)
 | `/ghorc:lead` | loads the lead rules: routing, effort, thresholds, acceptance (`/ghorc:orc` is a 0.5 alias) |
 | `/ghorc:status` | one block: role, active guards, heavy patterns, watchdog, context, recent denials |
 | `/ghorc:brief` | the brief structure (7 tags) and three templates |
-| `/ghorc:handoff` | hands the lead shift to a fresh session via STATE.md; with herdr, into a new tab |
+| `/ghorc:handoff` | hands the lead shift to a fresh session via STATE.md; with hc or herdr, into a new tab |
 
 ## Roles
 
@@ -146,7 +147,7 @@ claude plugin marketplace remove ghorc
 - [docs/hooks.md](docs/hooks.md): each hook, the status line, the watchdog and the scripts
 - [docs/configuration.md](docs/configuration.md): every key of `.claude/ghorc.json`
 - [docs/handoff.md](docs/handoff.md): handing the lead shift to a fresh session
-- [docs/with-herdr.md](docs/with-herdr.md): optional terminal integration
+- [docs/with-herdr.md](docs/with-herdr.md): optional terminal integration (hc and herdr backends)
 - [docs/troubleshooting.md](docs/troubleshooting.md): denials, status line, watchdog, updating
 - [docs/evidence.md](docs/evidence.md): what to measure and how
 - [CHANGELOG.md](CHANGELOG.md), [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md)

@@ -1,0 +1,263 @@
+'use strict';
+// Two terminal backends (hc of herdr-app and the older herdr CLI): detection, worker counts, the command forms that
+// subagents and workers may not run. The tools are replaced by a fake program, nothing here starts a real hc or herdr.
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const { spawnSync } = require('node:child_process');
+const { runScript, isDeny, tmpProject, sid, TEST_TMP } = require('./helpers.cjs');
+const backend = require('../scripts/lib/backend.cjs');
+const cap = require('../scripts/lib/capacity.cjs');
+const cmd = require('../scripts/lib/cmd.cjs');
+
+// ---- a fake hc / herdr --------------------------------------------------------------------------------------------
+// FAKE_DIR holds one file per call: "<args joined by _>.out" is printed on stdout, ".err" on stderr, ".code" is the exit code.
+// A call without a file exits 3 and prints "unscripted: <args>" on stderr.
+const FAKE = path.join(TEST_TMP, 'fake-tool.cjs');
+fs.writeFileSync(
+  FAKE,
+  `const fs=require('fs'),path=require('path');
+const key=process.argv.slice(2).join('_');
+const f=(e)=>path.join(process.env.FAKE_DIR,key+'.'+e);
+if(!fs.existsSync(f('out'))&&!fs.existsSync(f('err'))&&!fs.existsSync(f('code'))){console.error('unscripted: '+key);process.exit(3);}
+if(fs.existsSync(f('out')))process.stdout.write(fs.readFileSync(f('out'),'utf8'));
+if(fs.existsSync(f('err')))process.stderr.write(fs.readFileSync(f('err'),'utf8'));
+process.exit(fs.existsSync(f('code'))?Number(fs.readFileSync(f('code'),'utf8')):0);
+`,
+);
+const SPEC = JSON.stringify([process.execPath, FAKE]);
+function fakeDir(files) {
+  const d = fs.mkdtempSync(path.join(TEST_TMP, 'fake-'));
+  for (const [name, body] of Object.entries(files)) fs.writeFileSync(path.join(d, name), body);
+  return d;
+}
+// The environment of a session: none of the real backend variables leaks in from the machine running the tests.
+const envOf = (extra = {}) => ({ HC_TERMINAL_ID: '', HERDR_ENV: '', GHORC_HC_BIN: SPEC, GHORC_HERDR_BIN: SPEC, GHORC_CAPACITY_HC_JSON: undefined, GHORC_CAPACITY_HERDR_JSON: undefined, ...extra });
+const clean = (extra) => ({ ...process.env, ...envOf(extra) });
+// delete variables set to undefined (spawn would print them as the text "undefined")
+const toEnv = (e) => Object.fromEntries(Object.entries(e).filter(([, v]) => v !== undefined));
+
+const HC_LS = JSON.stringify({
+  hidden_finished: 1,
+  terminals: [
+    { address: 't5', agent: 'claude-code', state: 'live', status: 'done', where: 'p / lead' }, // the lead: top level
+    { address: 't7', agent: 'claude-code', name: 'lead-next', parent: 't5', state: 'live', status: 'working' }, // lead by name
+    { address: 't8', agent: 'cmd.exe', name: 'chain', parent: 't7', state: 'live' }, // a plain program: no status
+    { address: 't13', agent: 'claude-code', name: 'impl', parent: 't5', state: 'live', status: 'working' }, // worker
+    { address: 't14', agent: 'claude-code', name: 'me', parent: 't5', state: 'live', status: 'working' }, // this terminal
+    { address: 't15', agent: 'claude-code', name: 'rev', parent: 't5', state: 'live', status: 'blocked' }, // worker
+    { address: 't16', agent: 'claude-code', name: 'idle', parent: 't5', state: 'live', status: 'idle' },
+    { address: 't17', agent: 'claude-code', name: 'gone', parent: 't5', state: 'finished', status: 'working' },
+  ],
+});
+const HERDR_LIST = (n) => JSON.stringify({ result: { agents: Array.from({ length: n }, (_, i) => ({ name: `w${i}`, agent_status: 'working', agent_session: { value: `x${i}` } })) } });
+const SERVER_DOWN = '{"id":"cli:agent:list","error":{"code":"server_not_running","message":"no herdr server is running"}}';
+
+// ---- detection ----------------------------------------------------------------------------------------------------
+test('detect: HC_TERMINAL_ID selects hc, even when HERDR_ENV=1 as well; no tool is asked', () => {
+  const calls = [];
+  const d = backend.detect({ env: { HC_TERMINAL_ID: 't9', HERDR_ENV: '1' }, exec: (...a) => calls.push(a) });
+  assert.deepEqual([d.backend, d.terminal], ['hc', 't9']);
+  assert.equal(calls.length, 0);
+});
+
+test('detect: nothing set, or HERDR_ENV not 1, is none without asking herdr', () => {
+  const calls = [];
+  const exec = (...a) => calls.push(a);
+  for (const env of [{}, { HERDR_ENV: '' }, { HERDR_ENV: '0' }, { HC_TERMINAL_ID: '  ' }]) {
+    assert.equal(backend.detect({ env, exec }).backend, 'none', JSON.stringify(env));
+  }
+  assert.equal(calls.length, 0);
+});
+
+test('detect: HERDR_ENV=1 needs a herdr server that answers', () => {
+  const env = { HERDR_ENV: '1' };
+  const ok = backend.detect({ env, exec: () => HERDR_LIST(2) });
+  assert.equal(ok.backend, 'herdr');
+  assert.equal(ok.raw, HERDR_LIST(2), 'the probe output is handed on');
+  const err = (props) => () => {
+    throw Object.assign(new Error('boom'), props);
+  };
+  // the real herdr 0.9.5 shape: exit 1, empty stdout, the JSON on stderr
+  const down = backend.detect({ env, exec: err({ status: 1, stdout: '', stderr: SERVER_DOWN }) });
+  assert.equal(down.backend, 'none');
+  assert.match(down.reason, /server_not_running/);
+  assert.ok(!down.failed, 'a stopped server is an answer, not a failure');
+  const missing = backend.detect({ env, exec: err({ code: 'ENOENT' }) });
+  assert.equal(missing.backend, 'none');
+  assert.match(missing.reason, /not installed/);
+  const odd = backend.detect({ env, exec: err({ status: 2, stdout: '', stderr: 'weird' }) });
+  assert.deepEqual([odd.backend, odd.failed], ['none', true]);
+  const slow = backend.detect({ env, exec: err({ code: 'ETIMEDOUT' }) });
+  assert.deepEqual([slow.backend, slow.failed], ['none', true]);
+});
+
+test('scripts/backend.cjs prints the backend as JSON and as a word', () => {
+  const run = (extra, args = []) => spawnSync(process.execPath, [path.join(__dirname, '..', 'scripts', 'backend.cjs'), ...args], { encoding: 'utf8', env: toEnv(clean(extra)) });
+  const hc = run({ HC_TERMINAL_ID: 't3' });
+  assert.deepEqual(JSON.parse(hc.stdout), { backend: 'hc', reason: 'HC_TERMINAL_ID=t3', terminal: 't3' });
+  assert.equal(run({}, ['--name']).stdout.trim(), 'none');
+  const none = JSON.parse(run({}).stdout);
+  assert.equal(none.backend, 'none');
+  assert.equal('raw' in none, false);
+  const dir = fakeDir({ 'agent_list.out': HERDR_LIST(0) });
+  const herdr = JSON.parse(run({ HERDR_ENV: '1', FAKE_DIR: dir }).stdout);
+  assert.equal(herdr.backend, 'herdr');
+  assert.equal('raw' in herdr, false, 'the probe text is for the hooks');
+  const down = fakeDir({ 'agent_list.err': SERVER_DOWN, 'agent_list.code': '1' });
+  assert.equal(run({ HERDR_ENV: '1', FAKE_DIR: down }, ['--name']).stdout.trim(), 'none');
+});
+
+// ---- workers ------------------------------------------------------------------------------------------------------
+test('workersFromHc: live, working or blocked, has a parent, not lead-named, not this terminal', () => {
+  assert.equal(backend.workersFromHc(HC_LS, 't14'), 2, 't13 and t15');
+  assert.equal(backend.workersFromHc(HC_LS, 't5'), 3, 'the lead itself is no worker (no parent); t14 counts for t5');
+  assert.equal(backend.workersFromHc(HC_LS, 't14', 'impl'), 2, 'another prefix moves the lead name rule: t7 now counts, t13 does not');
+  assert.equal(backend.workersFromHc(HC_LS, ''), 3, 'without an own address nothing is excluded by it');
+  for (const bad of ['', 'nope', '{}', '[]', '{"terminals":1}']) assert.equal(backend.workersFromHc(bad, 't14'), null, bad);
+  assert.equal(backend.workersFromHc('{"terminals":[]}', 't14'), 0);
+});
+
+test('liveWorkers: seams force a backend, hc first', () => {
+  const env = { HC_TERMINAL_ID: 't14', GHORC_CAPACITY_HC_JSON: HC_LS, GHORC_CAPACITY_HERDR_JSON: HERDR_LIST(5) };
+  assert.equal(cap.liveWorkers('s', 'lead-', () => {}, { env }), 2);
+  delete env.GHORC_CAPACITY_HC_JSON;
+  assert.equal(cap.liveWorkers('s', 'lead-', () => {}, { env }), 5);
+  const logs = [];
+  assert.equal(cap.liveWorkers('s', 'lead-', (m) => logs.push(m), { env: { GHORC_CAPACITY_HC_JSON: 'junk' } }), null);
+  assert.match(logs.join(), /hc ls/);
+});
+
+test('liveWorkers: none counts 0 and never asks a tool; hc and herdr ask their own', () => {
+  const asked = [];
+  const exec = (prog, args) => {
+    asked.push(`${prog} ${args.join(' ')}`);
+    return args[0] === 'ls' ? HC_LS : HERDR_LIST(4);
+  };
+  const log = () => {};
+  assert.equal(cap.liveWorkers('s', 'lead-', log, { env: {}, exec }), 0);
+  assert.equal(cap.liveWorkers('s', 'lead-', log, { env: { HERDR_ENV: '0' }, exec }), 0);
+  assert.deepEqual(asked, []);
+  // hc must be asked by `hc ls --json`; its terminal is excluded
+  assert.equal(cap.liveWorkers('s', 'lead-', log, { env: { HC_TERMINAL_ID: 't14', GHORC_HC_BIN: '' }, exec }), 2);
+  assert.deepEqual(asked, ['hc ls --json']);
+  // herdr: HERDR_ENV=1; the probe output is the list, it is asked once
+  asked.length = 0;
+  assert.equal(cap.liveWorkers('s', 'lead-', log, { env: { HERDR_ENV: '1', GHORC_HERDR_BIN: '' }, exec }), 4);
+  assert.deepEqual(asked, ['herdr agent list']);
+  // HERDR_ENV=1 but the server is down: 0; an unknown failure: null with the cause logged
+  const down = () => {
+    throw Object.assign(new Error('x'), { status: 1, stdout: '', stderr: SERVER_DOWN });
+  };
+  assert.equal(cap.liveWorkers('s', 'lead-', log, { env: { HERDR_ENV: '1' }, exec: down }), 0);
+  const logs = [];
+  const slow = () => {
+    throw Object.assign(new Error('timed out'), { code: 'ETIMEDOUT' });
+  };
+  assert.equal(cap.liveWorkers('s', 'lead-', (m) => logs.push(m), { env: { HERDR_ENV: '1' }, exec: slow }), null);
+  assert.match(logs.join(), /timed out/);
+  // hc failing is unknown, not zero; hc missing from PATH is zero
+  const hcFail = () => {
+    throw Object.assign(new Error('hc down'), { status: 1, stdout: '', stderr: 'no core' });
+  };
+  assert.equal(cap.liveWorkers('s', 'lead-', log, { env: { HC_TERMINAL_ID: 't1' }, exec: hcFail }), null);
+  const gone = () => {
+    throw Object.assign(new Error('x'), { code: 'ENOENT' });
+  };
+  assert.equal(cap.liveWorkers('s', 'lead-', log, { env: { HC_TERMINAL_ID: 't1' }, exec: gone }), 0);
+});
+
+// The Stop hook end to end: the machine measurements are fixed, the backend is a fake program.
+function capacityStop(extraEnv) {
+  const cwd = tmpProject({ capacity: { enabled: true } });
+  const s = sid();
+  const env = toEnv({ ...envOf(extraEnv), GHORC_CAPACITY_CPU_PCT: '20', GHORC_CAPACITY_FREE_GB: '16', GHORC_CAPACITY_LEDGER: path.join(cwd, 'ledger.jsonl') });
+  const r = runScript('capacity-guard.cjs', { hook_event_name: 'Stop', session_id: s, cwd, last_assistant_message: 'Waiting.' }, { env });
+  return r.out.trim() ? JSON.parse(r.out).reason : '';
+}
+
+test('capacity-guard Stop counts the workers of the active backend', () => {
+  const hcDir = fakeDir({ 'ls_--json.out': HC_LS });
+  assert.match(capacityStop({ HC_TERMINAL_ID: 't14', FAKE_DIR: hcDir }), /agents 2 \(workers 2\) of 3/, 'hc');
+  const hrDir = fakeDir({ 'agent_list.out': HERDR_LIST(1) });
+  assert.match(capacityStop({ HERDR_ENV: '1', FAKE_DIR: hrDir }), /agents 1 \(workers 1\) of 3/, 'herdr');
+  // none: a herdr that WOULD list workers is not asked
+  assert.match(capacityStop({ FAKE_DIR: hrDir }), /agents 0 of 3/, 'none');
+  assert.doesNotMatch(capacityStop({ FAKE_DIR: hrDir }), /workers/);
+});
+
+// ---- the forbidden forms --------------------------------------------------------------------------------------------
+test('subagents and workers may not run hc run, exec, keys or interrupt; read-only hc commands stay', () => {
+  const denied = [
+    'hc run --bg --name x claude "do it"',
+    'hc run cargo test',
+    'hc.exe run --bg --name x -- claude.exe',
+    'hc exec git status',
+    'hc keys t5 down enter',
+    'hc interrupt t5',
+    'cd /tmp && hc run x',
+    'env GHORC_ROLE=lead hc run x',
+    'bash -c "hc run x"',
+    'nohup hc run x',
+    '/usr/local/bin/hc run x',
+    'hc --json run x',
+  ];
+  const allowed = ['hc ls', 'hc get t5', 'hc read t5 --lines 40', 'hc wait t5', 'hc templates', 'git status', 'echo hc run'];
+  for (const c of denied) assert.equal(cmd.matches(c, cmd.BUILTIN_SUBAGENT_DENY), true, c);
+  for (const c of allowed) assert.equal(cmd.matches(c, cmd.BUILTIN_SUBAGENT_DENY), false, c);
+});
+
+test('hcSendTargets reads the target of every hc send, null when unreadable', () => {
+  assert.deepEqual(cmd.hcSendTargets('hc send t5 "done"'), ['t5']);
+  assert.deepEqual(cmd.hcSendTargets('hc send --force t5 x'), ['t5']);
+  assert.deepEqual(cmd.hcSendTargets('hc send --wait --timeout 30 t5 x'), ['t5']);
+  assert.deepEqual(cmd.hcSendTargets('hc send --if idle t5 x'), ['t5']);
+  assert.deepEqual(cmd.hcSendTargets('hc.exe --json send t5 x'), ['t5']);
+  assert.deepEqual(cmd.hcSendTargets('hc send t5 a && hc send t6 b'), ['t5', 't6']);
+  assert.deepEqual(cmd.hcSendTargets('hc send $HC_TERMINAL_ID x'), ['$HC_TERMINAL_ID']);
+  assert.deepEqual(cmd.hcSendTargets('hc send'), [null]);
+  assert.deepEqual(cmd.hcSendTargets('hc ls'), []);
+  assert.deepEqual(cmd.hcSendTargets('echo hc send t5'), []);
+});
+
+const hgInput = (cwd, command, extra = {}) => ({ hook_event_name: 'PreToolUse', session_id: sid(), cwd, tool_name: 'Bash', tool_input: { command }, ...extra });
+const hg = (input, env) => runScript('heavy-check-guard.cjs', input, { env: toEnv(env) });
+
+test('hc send: a worker may report to its own parent, nobody else, no subagent, no unreadable parent', () => {
+  const cwd = tmpProject({ heavyCommands: ['^never-matches-anything$'] });
+  const dir = fakeDir({ 'get_t14.out': JSON.stringify({ address: 't14', parent: 't5', state: 'live' }) });
+  const worker = envOf({ GHORC_ROLE: 'worker', HC_TERMINAL_ID: 't14', FAKE_DIR: dir });
+  const send = (command, extra = {}, env = worker) => isDeny(hg(hgInput(cwd, command, extra), env));
+  assert.equal(send('hc send t5 "E408: DONE"'), false, 'the parent');
+  assert.equal(send('hc send --force t5 x'), false);
+  assert.equal(send('hc send t6 x'), true, 'another terminal');
+  assert.equal(send('hc send t5 a && hc send t6 b'), true, 'one of two is foreign');
+  assert.equal(send('hc send $HC_TERMINAL_ID x'), true, 'a target the hook cannot read');
+  assert.equal(send('hc send t5 x', { agent_id: 'ag1' }), true, 'a subagent');
+  assert.equal(send('hc run --bg claude'), true);
+  assert.equal(send('hc keys t5 enter'), true);
+  assert.equal(send('hc interrupt t5'), true);
+  assert.equal(send('hc exec ls'), true);
+  assert.equal(send('hc ls'), false);
+  assert.equal(send('hc read t5'), false);
+  // the lead sends and runs freely
+  const lead = envOf({ GHORC_ROLE: 'lead', HC_TERMINAL_ID: 't5', FAKE_DIR: dir });
+  for (const c of ['hc send t14 "go"', 'hc run --bg claude', 'hc keys t14 enter']) assert.equal(send(c, {}, lead), false, c);
+  // a worker whose parent cannot be read is denied: the reason says so
+  const none = fakeDir({ 'get_t14.code': '1' });
+  const blind = envOf({ GHORC_ROLE: 'worker', HC_TERMINAL_ID: 't14', FAKE_DIR: none });
+  const r = hg(hgInput(cwd, 'hc send t5 x'), blind);
+  assert.equal(isDeny(r), true);
+  assert.match(JSON.parse(r.out).hookSpecificOutput.permissionDecisionReason, /not readable/);
+  // not in hc at all (no HC_TERMINAL_ID): no parent, so hc send is denied for a worker
+  assert.equal(send('hc send t5 x', {}, envOf({ GHORC_ROLE: 'worker' })), true);
+  // the old herdr forms stay denied
+  for (const c of ['herdr pane run p x', 'herdr agent start x', 'claude -p x']) assert.equal(send(c), true, c);
+});
+
+test('the deny holds with an invalid config too', () => {
+  const cwd = tmpProject({ heavyCommands: 'not a list' });
+  const e = envOf({ GHORC_ROLE: 'worker' });
+  assert.equal(isDeny(hg(hgInput(cwd, 'hc run x'), e)), true);
+});

@@ -8,7 +8,7 @@ tools: Read, Edit, Write, Grep, Glob, Bash
 ---
 You are an integrator. You work alone and spawn no subagents. The lead runs `full` and the pipeline, not you.
 
-You may run as a herdr tab; then write your result to the report file named in the brief.
+You may run as a terminal tab (hc or herdr); then write your result to the report file named in the brief.
 
 ## Start
 - Read `<project>/CLAUDE.md` and `<project>/.claude/ghorc.json`: the check commands, branch rules, `criticalPaths`.

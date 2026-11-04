@@ -300,8 +300,14 @@ test('handoff.pushGuard: off by default; on, it denies herdr agent start while a
   assert.equal(isDeny(bashPre(cwd, s, start, 'PowerShell')), true, 'the PowerShell tool too');
   assert.equal(isDeny(bashPre(cwd, s, 'git status')), false, 'other commands are not touched');
   assert.equal(isDeny(bashPre(cwd, s, 'herdr agent list')), false);
+  // the hc form of the same launch (a candidate lead is `hc run` of claude)
+  const hcStart = 'hc run --bg --name lead-next --cwd D:/p "C:/Program Files/Git/usr/bin/env.exe" GHORC_ROLE=lead claude.exe --model opus "Read HANDOFF.md"';
+  assert.equal(isDeny(bashPre(cwd, s, hcStart)), true, 'hc run of claude is denied like herdr agent start');
+  assert.equal(isDeny(bashPre(cwd, s, 'hc run cargo build')), false, 'hc run of something else is not a launch');
+  assert.equal(isDeny(bashPre(cwd, s, 'hc ls')), false);
   git(cwd, 'push', '-q', 'origin', 'feat/x');
   assert.equal(isDeny(bashPre(cwd, s, start)), false, 'pushed: allowed');
+  assert.equal(isDeny(bashPre(cwd, s, hcStart)), false, 'pushed: the hc form is allowed too');
 
   // fail open: no in_flight field, none listed, branch unknown locally
   const open = repo({ handoff: { pushGuard: true } });

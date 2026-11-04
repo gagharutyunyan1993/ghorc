@@ -9,7 +9,7 @@ state_path: <path to STATE.md>
 - Queue: <ID> (brief <path>).
 
 ## 2. Background processes
-- In-flight agents: <none; details in STATE `in_flight`>. Background full: <none>. herdr workers: <none / pane id and task>.
+- In-flight agents: <none; details in STATE `in_flight`>. Background full: <none>. Terminal workers (hc or herdr): <none / pane id or terminal address and task>.
 
 ## 3. Decisions of this shift (not yet in memory)
 - <owner decision and link>

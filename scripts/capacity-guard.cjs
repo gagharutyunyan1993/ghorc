@@ -14,11 +14,12 @@ if (process.argv.includes('--help')) {
       'capacity.enabled is true in .claude/ghorc.json. Stop (lead only; never on stop_hook_active, agent_id or ' +
       'GHORC_ROLE=worker) blocks once when agents < capacity.agents AND CPU < cpuStartPct AND free RAM >= minFreeRamGb ' +
       'AND the last answer has no line starting with capacity.idleMarker and a real reason. Agents = background_tasks of ' +
-      'the Stop input (fallback: the SubagentStart/Stop ledger .claude/ghorc-out/capacity-ledger.jsonl) + herdr workers ' +
-      '(`herdr agent list`: working/blocked, name not starting with capacity.leadNamePrefix, not this session). ' +
+      'the Stop input (fallback: the SubagentStart/Stop ledger .claude/ghorc-out/capacity-ledger.jsonl) + workers of ' +
+      'the active terminal backend (scripts/lib/backend.cjs: hc -> `hc ls`, herdr -> `herdr agent list`, none -> 0; working/blocked, ' +
+      'name not starting with capacity.leadNamePrefix, not this session; for hc also only terminals that have a parent). ' +
       'UserPromptSubmit adds "agents N/M, CPU X%, free Y GB". capacity.weeklyCapPct / agentsOverPace read ' +
       'rate_limits.seven_day from the status line ctx files. Errors go to .claude/ghorc-out/capacity-guard.log; the hook ' +
-      'fails open. Test seams: GHORC_CAPACITY_CPU_PCT, _FREE_GB, _HERDR_JSON, _LEDGER, _SAMPLE_MS.',
+      'fails open. Test seams: GHORC_CAPACITY_CPU_PCT, _FREE_GB, _HERDR_JSON, _HC_JSON, _LEDGER, _SAMPLE_MS.',
   );
   process.exit(0);
 }
@@ -82,7 +83,7 @@ run((input) => {
       let own = fromTasks;
       if (fromTasks === null) own = mine;
       else if (cap.otherAgentTaskInFlight(input.background_tasks)) own = Math.max(fromTasks, mine);
-      const workers = cap.herdrWorkers(session, s.leadNamePrefix, log);
+      const workers = cap.liveWorkers(session, s.leadNamePrefix, log);
       const reason = cap.stopDecision(input, s, {
         agents: workers === null ? null : own + workers,
         workers: workers || 0,
@@ -96,7 +97,7 @@ run((input) => {
 
     // UserPromptSubmit
     const own = cap.readLedger(ledgerFile).filter((e) => e.session === session).length;
-    const workers = cap.herdrWorkers(session, s.leadNamePrefix, log);
+    const workers = cap.liveWorkers(session, s.leadNamePrefix, log);
     const line = cap.promptLine(s, {
       agents: workers === null ? null : own + workers,
       workers: workers || 0,

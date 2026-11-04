@@ -1,6 +1,15 @@
-# With and without herdr
+# With and without a terminal backend (hc, herdr)
 
-herdr is a terminal multiplexer for coding agents, installed separately. ghorc does not need it.
+ghorc supports two terminal backends, either or both installed separately, and works without both:
+`hc` (herdr-app, `HC_TERMINAL_ID` set in its terminals) and the older `herdr` CLI (`HERDR_ENV=1`). Before any tab or agent
+command run `node scripts/backend.cjs`: it prints `hc`, `herdr` or `none` (`hc` wins if both are set; `herdr` counts only
+while `herdr agent list` answers). The hooks and the skills use the same detection. The rest of this page describes the
+`herdr` forms; the `hc` forms are in skills/lead/SKILL.md ("Terminal backend") and skills/handoff/SKILL.md.
+
+| | `hc` | `herdr` |
+|---|---|---|
+| worker with a role | `hc run --bg --name n --cwd d "<path>\env.exe" GHORC_ROLE=worker claude.exe ... "<task>"` | `herdr tab create --env GHORC_ROLE=worker` + `herdr agent start` |
+| wait / read / send / close | `hc wait n` / `hc read n` / `hc send n "..."` / `hc kill n; hc rm n` | `herdr agent wait` / `read` / `herdr pane run` / close tab |
 
 **Without herdr** everything except the handoff tab works through the Agent tool: roles, hooks, status line,
 watchdog, `/ghorc:lead`, `/ghorc:brief`, `/ghorc:status`, `/ghorc:setup`. `/ghorc:handoff` writes STATE.md and prints

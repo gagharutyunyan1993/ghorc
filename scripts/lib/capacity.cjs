@@ -1,11 +1,12 @@
 'use strict';
 // Capacity guard logic, shared by scripts/capacity-guard.cjs and the tests: the idle line, the agent count
-// (Stop input, ledger, herdr), the CPU and RAM measurements, the weekly cap and the Stop decision.
+// (Stop input, ledger, workers of the active terminal backend), the CPU and RAM measurements, the weekly cap and the Stop decision.
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { safeId } = require('./ctxguard.cjs');
+const backend = require('./backend.cjs');
 
 const LEDGER_STALE_MS = 3 * 3600 * 1000; // a start older than this is an agent killed without SubagentStop
 const COMPACT_BYTES = 256 * 1024;
@@ -148,6 +149,39 @@ function herdrWorkers(session, leadPrefix, log = () => {}, text = herdrText) {
     return n;
   } catch (e) {
     log(`herdr agent list: ${e && e.message ? e.message : e}`);
+    return null;
+  }
+}
+
+// Live workers on whichever backend this session runs on (lib/backend.cjs): 0 on 'none', hc -> `hc ls`, herdr ->
+// `herdr agent list`. null (unknown, the cause is logged) when the active backend fails or answers with something else.
+// Test seams: GHORC_CAPACITY_HC_JSON (the text of `hc ls`) and GHORC_CAPACITY_HERDR_JSON (the text of `herdr agent list`)
+// force that backend without asking the machine; hc is checked first.
+function liveWorkers(session, leadPrefix, log = () => {}, opts = {}) {
+  const env = opts.env || process.env;
+  try {
+    if (env.GHORC_CAPACITY_HC_JSON !== undefined) {
+      const n = backend.workersFromHc(env.GHORC_CAPACITY_HC_JSON, env.HC_TERMINAL_ID, leadPrefix);
+      if (n === null) log('hc ls: not the expected JSON');
+      return n;
+    }
+    if (env.GHORC_CAPACITY_HERDR_JSON !== undefined) return herdrWorkers(session, leadPrefix, log, () => env.GHORC_CAPACITY_HERDR_JSON);
+    const d = backend.detect({ env, exec: opts.exec });
+    if (d.backend === 'hc') {
+      const raw = backend.hcText(env, opts.exec);
+      if (raw === null) return 0; // hc vanished from PATH: nothing to count
+      const n = backend.workersFromHc(raw, d.terminal, leadPrefix);
+      if (n === null) log('hc ls: not the expected JSON');
+      return n;
+    }
+    if (d.backend === 'herdr') return herdrWorkers(session, leadPrefix, log, () => d.raw);
+    if (d.failed) {
+      log(d.reason);
+      return null;
+    }
+    return 0;
+  } catch (e) {
+    log(`workers: ${e && e.message ? e.message : e}`);
     return null;
   }
 }
@@ -387,7 +421,7 @@ function stopDecision(input, s, ctx) {
   if (freeGb === null || freeGb < s.minFreeRamGb) return null;
   const cpu = ctx.cpu();
   if (cpu === null || cpu >= s.cpuStartPct) return null;
-  const wn = workers ? ` (herdr workers ${workers})` : '';
+  const wn = workers ? ` (workers ${workers})` : '';
   const note = weekNote(week, s);
   return (
     `Machine underloaded: agents ${agents}${wn} of ${cap}, CPU ${fmt(cpu)}%, free ${freeGb.toFixed(1)} GB. ` +
@@ -402,7 +436,7 @@ function promptLine(s, ctx) {
   let note = '';
   if (week === null) note = ' Week: no rate_limits in any ctx file, the weekly brake is off.';
   else if (week) note = weekNote(week, s) ? ` ${weekNote(week, s)}` : '';
-  const wn = workers ? ` (herdr workers ${workers})` : '';
+  const wn = workers ? ` (workers ${workers})` : '';
   return `agents ${agents === null ? '?' : agents}${wn}/${s.agents}, CPU ${fmt(cpu)}%, free ${freeGb === null ? '?' : freeGb.toFixed(1)} GB.${note}`;
 }
 
@@ -418,6 +452,7 @@ module.exports = {
   workersFromHerdr,
   herdrText,
   herdrWorkers,
+  liveWorkers,
   measureCpu,
   measureFreeGb,
   foldLedger,

@@ -12,13 +12,23 @@
 // Subagent-only denies, built in (not from config).
 // herdr: starting an agent, and every way to put text or keys into another pane (the lead's prompt channel).
 const HERDR = String.raw`^\s*(?:\S*[\\/])?herdr(?:\.exe)?(?:\s+--?[\w-]+(?:=\S+)?)*\s+`;
+// hc (herdr-app): run and exec start programs and agents, keys and interrupt drive another terminal. `hc send` is not in
+// the list: it is the report channel of a worker to its parent, so heavy-check-guard.cjs judges it by its target
+// (hcSendTargets below).
+const HC = String.raw`^\s*(?:\S*[\\/])?hc(?:\.exe)?(?:\s+--?[\w-]+(?:=\S+)?)*\s+`;
 const BUILTIN_SUBAGENT_DENY = [
   /^\s*claude\b.*\s(?:-p|--print)\b/i,
   new RegExp(`${HERDR}(?:agent\\s+(?:start|prompt|send-keys)|pane\\s+(?:run|send-keys|send-text))\\b`, 'i'),
+  new RegExp(`${HC}(?:run|exec|keys|interrupt)\\b`, 'i'),
 ];
+const HC_SEND = new RegExp(`${HC}send\\b`, 'i');
+// `hc send [--force|--json|--wait|--if S|--timeout N] <target> <text>`: the target is the first word that is not an option.
+const HC_SEND_TARGET = new RegExp(`${HC}send((?:\\s+(?:--(?:if|timeout)\\s+\\S+|--[\\w-]+))*)\\s+(\\S+)`, 'i');
 
 // `herdr agent start` alone: launching a candidate lead or a worker (handoff.pushGuard).
 const HERDR_AGENT_START = new RegExp(`${HERDR}agent\\s+start\\b`, 'i');
+// The hc form: `hc run` of claude (a quoted prompt is blanked before matching, so only the program name counts).
+const HC_AGENT_START = new RegExp(`${HC}run\\b.*\\bclaude(?:\\.exe)?\\b`, 'i');
 
 // Used only while the project config is invalid (the owner's heavyCommands cannot be trusted or read).
 const DEFAULT_HEAVY = [
@@ -189,4 +199,33 @@ function compile(patterns) {
   return out;
 }
 
-module.exports = { BUILTIN_SUBAGENT_DENY, HERDR_AGENT_START, DEFAULT_HEAVY, segments, stripQuotes, matches, compile };
+// Targets of every `hc send` in a command: an array of strings, null for a send whose target could not be read.
+function hcSendTargets(command, opts = {}) {
+  const out = [];
+  for (const seg of segments(command, opts)) {
+    let found = false;
+    for (const v of variants(seg)) {
+      const m = HC_SEND_TARGET.exec(v);
+      if (m && m.index === 0) {
+        out.push(m[2]);
+        found = true;
+        break;
+      }
+    }
+    if (!found && variants(seg).some((v) => HC_SEND.test(v))) out.push(null);
+  }
+  return out;
+}
+
+module.exports = {
+  BUILTIN_SUBAGENT_DENY,
+  HERDR_AGENT_START,
+  HC_AGENT_START,
+  AGENT_START: [HERDR_AGENT_START, HC_AGENT_START],
+  DEFAULT_HEAVY,
+  segments,
+  stripQuotes,
+  matches,
+  compile,
+  hcSendTargets,
+};

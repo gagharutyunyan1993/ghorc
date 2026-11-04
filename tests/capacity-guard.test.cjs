@@ -173,14 +173,14 @@ test('herdr workers: working and blocked count, own session and lead-* do not', 
   const p = setup(base(), { herdr });
   p.s = p0.s;
   assert.ok(blocks(stop(p)), '2 workers of 3');
-  assert.match(reason(stop(p)), /agents 2 \(herdr workers 2\) of 3/);
+  assert.match(reason(stop(p)), /agents 2 \((workers 2)\) of 3/);
   const three = list([w('w1', 'working'), w('w2', 'blocked'), w('w3', 'working')]);
   assert.equal(stop(p, {}, { GHORC_CAPACITY_HERDR_JSON: three }).out, '');
   // a worker plus tasks add up
   assert.equal(stop(p, { background_tasks: tasks('running') }).out, '', '2 workers + 1 task');
   const q = setup(base({ leadNamePrefix: 'boss-' }), { herdr: list([w('lead-1', 'working'), w('lead-2', 'working'), w('boss-1', 'working')]) });
-  assert.match(reason(stop(q)), /agents 2 \(herdr workers 2\) of 3/, 'lead-* counts when the prefix is boss-; boss-1 does not');
-  assert.match(line(prompt(q)), /^agents 2 \(herdr workers 2\)\/3,/);
+  assert.match(reason(stop(q)), /agents 2 \((workers 2)\) of 3/, 'lead-* counts when the prefix is boss-; boss-1 does not');
+  assert.match(line(prompt(q)), /^agents 2 \((workers 2)\)\/3,/);
 });
 
 test('herdr failure: the count is unknown, the hook stays silent and logs', () => {
