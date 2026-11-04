@@ -70,7 +70,7 @@ const SHELLS = String.raw`(?:\S*[\\/])?(?:bash|sh|zsh|dash|cmd|powershell|pwsh)(
 // env with a path (/usr/bin/env, C:\Git\usr\bin\env.exe) and its options: -i, -u NAME, NAME=value (peel drops those too).
 const ENV_WRAPPER = String.raw`(?:\S*[\\/])?env(?:\.exe)?\s+(?:(?:-u\s+\S+|-\w+|[A-Za-z_][A-Za-z0-9_]*=\S*)\s+)*`;
 // xargs and its options; the ones that take a separate value are listed (-I x, -n 1, -P 4, -s n, -E x, -d x, -a f, -L n).
-const XARGS_WRAPPER = String.raw`(?:\S*[\\/])?xargs(?:\.exe)?\s+(?:(?:-[InPsEdaL]\s*\S+|--[\w-]+(?:=\S+)?|-\w+)\s+)*`;
+const XARGS_WRAPPER = String.raw`(?:\S*[\\/])?xargs(?:\.exe)?\s+(?:(?:-[InPsEdaLJ]\s*\S+|--[\w-]+(?:=\S+)?|-\w+)\s+)*`;
 const WRAPPER_PREFIX = new RegExp(
   String.raw`^(?:${SHELLS}(?:\s+(?:[-/][\w:-]+|\w+))*?\s+(?:-l?c|/c|/k|-command)\s+|call\s+|time\s+|exec\s+|${ENV_WRAPPER}|command\s+|nohup\s+)`,
   'i',
@@ -166,11 +166,21 @@ const cut = (text, ps) =>
 // the quoted path is replaced by the program name, otherwise the quotes are blanked and the program is not seen.
 const QUOTED_PROGRAM = /(["'])(?:[^"'\n;|&]*[\\/])?((?:hc|herdr|env|xargs|bash|sh|zsh|dash|cmd|powershell|pwsh|claude)(?:\.exe)?)\1/gi;
 // PowerShell Start-Process <program> -ArgumentList "a b" / 'a','b' / a,b: the program and its arguments are also written out
-// as one command (the original stays). Options of Start-Process before the program are not read.
+// as one command (the original stays). Options of Start-Process before the program are skipped (switches such as
+// -NoNewWindow, and options with a value such as -WindowStyle Hidden).
+const SP_VALUE_OPT = /^-(?:windowstyle|workingdirectory|redirectstandard(?:output|error|input)|credential|verb|argumentlist|args)$/i;
 const START_PROCESS = /(^|[\s;&|(\x60{"'])(?:Start-Process|saps)\b([^;|&\n]*)/gi;
 function startProcess(text) {
   return text.replace(START_PROCESS, (m, pre, rest) => {
-    const file = /-FilePath\s+("[^"]*"|'[^']*'|[^\s"',]+)/i.exec(rest) || /^\s*(?!-)("[^"]*"|'[^']*'|[^\s"',]+)/.exec(rest);
+    // the program: -FilePath's value, else the first word that is not an option or an option's value
+    let file = null;
+    const toks = rest.match(/"[^"]*"|'[^']*'|[^\s"',]+/g) || [];
+    for (let i = 0; i < toks.length && !file; i++) {
+      const t = toks[i];
+      if (/^-filepath$/i.test(t)) file = toks[i + 1] ? [null, toks[i + 1]] : null;
+      else if (SP_VALUE_OPT.test(t)) i++;
+      else if (!t.startsWith('-')) file = [null, t];
+    }
     if (!file) return m;
     const al = /-(?:ArgumentList|Args)\s+(.*)$/i.exec(rest);
     const args = al ? al[1].replace(/["',]/g, ' ') : '';
@@ -178,9 +188,19 @@ function startProcess(text) {
   });
 }
 
+// A quoted subcommand right after hc / herdr and their options (hc "run" claude, herdr "agent" "start"): quotes dropped, as
+// they are blanked otherwise. Only the words that can start the subcommand are touched, so `hc send t5 "run"` is left alone.
+const CLI_OPTS = String.raw`(?:\s+-{1,2}[\w-]+(?:=\S+)?(?:\s+[^\s"'-]\S*)?)*`;
+const WORD = String.raw`(?:"[\w-]+"|'[\w-]+'|[\w-]+)`;
+const QUOTED_HC_VERB = new RegExp(String.raw`((?:^|[\s;&|(\x60{])(?:\S*[\\/])?hc(?:\.exe)?${CLI_OPTS}\s+)(${WORD})`, 'gi');
+const QUOTED_HERDR_VERB = new RegExp(String.raw`((?:^|[\s;&|(\x60{])(?:\S*[\\/])?herdr(?:\.exe)?${CLI_OPTS}\s+)(${WORD}(?:\s+${WORD})?)`, 'gi');
+const unquoteVerb = (_m, head, words) => `${head}${words.replace(/["']/g, '')}`;
+
 // opts.powershell: the command comes from the PowerShell tool.
 function segments(command, opts = {}) {
   const raw = startProcess(String(command))
+    .replace(QUOTED_HC_VERB, unquoteVerb)
+    .replace(QUOTED_HERDR_VERB, unquoteVerb)
     .replace(QUOTED_SLOT_PATH, 'heavy-slot.cjs')
     .replace(QUOTED_PROGRAM, '$2');
   const out = cut(stripHeredocs(raw), false);

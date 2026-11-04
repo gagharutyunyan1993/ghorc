@@ -265,6 +265,18 @@ const DENY_FORMS = [
   'bash -lc "/usr/bin/env hc run claude"',
   String.raw`C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -Command "hc run claude"`,
   '/opt/pwsh/pwsh -c "hc run claude"',
+  // Start-Process options before the program, xargs -J, a quoted subcommand
+  'Start-Process -NoNewWindow hc -ArgumentList "run claude"',
+  'Start-Process -WindowStyle Hidden -FilePath hc -ArgumentList run,claude',
+  'saps -Wait -PassThru hc -ArgumentList "run claude"',
+  "Start-Process -WindowStyle Hidden 'C:/x/hc.exe' -ArgumentList 'run claude'",
+  'xargs -J % hc run claude',
+  'hc "run" claude',
+  "hc 'exec' ls",
+  'hc --on m "run" claude',
+  'hc "keys" t5 enter',
+  'herdr "agent" "start"',
+  "herdr --session x 'pane' 'run' p y",
   // P2-6: xargs, Start-Process
   'echo x | xargs hc run claude',
   'xargs -n 1 hc run claude',
@@ -279,6 +291,12 @@ const DENY_FORMS = [
   'powershell -Command "Start-Process hc -ArgumentList \'run claude\'"',
 ];
 const OK_FORMS = [
+  'hc send t5 "run"',
+  'hc "ls"',
+  'Start-Process -NoNewWindow notepad -ArgumentList "run claude"',
+  'Start-Process -WindowStyle Hidden hc -ArgumentList "ls"',
+  'xargs -J % echo hc',
+  'herdr "agent" "list"',
   '/bin/bash -c "hc ls"',
   '/usr/bin/sh -c "git status"',
   String.raw`C:\x\hc.exe ls`,
@@ -357,11 +375,13 @@ test('hc send: after a lead handover a worker may also report to a live lead fro
   const ls = JSON.stringify({
     terminals: [
       { address: 't5', agent: 'claude-code', state: 'finished' }, // the parent: gone after the handover
-      { address: 't1f', agent: 'claude-code', state: 'live', status: 'idle' }, // the new lead: top level
-      { address: 't9', agent: 'claude-code', name: 'lead-next', parent: 't1f', state: 'live', status: 'working' }, // lead by name
+      { address: 't1f', agent: 'claude-code', cwd, state: 'live', status: 'idle' }, // the new lead: top level
+      { address: 't9', agent: 'claude-code', cwd: path.join(cwd, '.claude', 'worktrees', 'w'), name: 'lead-next', parent: 't1f', state: 'live', status: 'working' }, // lead by name
       { address: 't13', agent: 'claude-code', name: 'impl', parent: 't1f', state: 'live', status: 'working' }, // a foreign worker
       { address: 't14', agent: 'claude-code', name: 'me', parent: 't5', state: 'live', status: 'working' },
       { address: 't20', agent: 'claude-code', name: 'old-lead', state: 'finished' }, // a dead top-level one
+      { address: 'tOther', agent: 'claude-code', cwd: path.join(path.dirname(cwd), 'other-project'), state: 'live' }, // a lead of another project
+      { address: 'tNoCwd', agent: 'claude-code', name: 'lead-x', state: 'live' }, // no cwd: unknown project
       { address: 'tS', agent: 'cmd.exe', state: 'live' }, // the owner's shells: text sent there would be run
       { address: 'tP', agent: 'pwsh', state: 'live' },
       { address: 'tL', agent: 'cmd.exe', name: 'lead-fake', state: 'live' },
@@ -379,6 +399,7 @@ test('hc send: after a lead handover a worker may also report to a live lead fro
   assert.equal(send('hc send t1f a && hc send t5 b', both), false);
   assert.equal(send('hc send t13 x', both), true, 'a foreign worker');
   assert.equal(send('hc send t20 x', both), true, 'a dead top-level terminal');
+  for (const t of ['tOther', 'tNoCwd']) assert.equal(send(`hc send ${t} x`, both), true, `a lead of another project: ${t}`);
   for (const t of ['tS', 'tP', 'tL']) assert.equal(send(`hc send ${t} "claude -p x"`, both), true, `a shell without parent: ${t}`);
   assert.equal(send('hc send t1f a && hc send t13 b', both), true, 'one of two is foreign');
   assert.equal(send('hc send t1f x', both, { agent_id: 'ag1' }), true, 'a subagent');
@@ -386,9 +407,28 @@ test('hc send: after a lead handover a worker may also report to a live lead fro
   assert.equal(send('hc send t1f x', { 'get_t14.code': '1', 'ls_--json.out': ls }), false, 'parent unreadable, lead from hc ls');
   assert.equal(send('hc send t13 x', { 'get_t14.code': '1', 'ls_--json.out': ls }), true);
   const { leadsFromHc } = backend;
-  assert.deepEqual(leadsFromHc(ls), ['t1f', 't9']);
+  assert.deepEqual(leadsFromHc(ls), ['t1f', 't9', 'tOther', 'tNoCwd'], 'without roots: no project filter');
+  assert.deepEqual(leadsFromHc(ls, 'lead-', [cwd]), ['t1f', 't9'], 'with the project root');
+  assert.deepEqual(leadsFromHc(ls, 'lead-', [cwd.toUpperCase().split(path.sep).join('/')]), ['t1f', 't9'], 'case and slashes do not matter');
   assert.equal(leadsFromHc('not json'), null);
   assert.equal(leadsFromHc('{"x":1}'), null);
+});
+
+test('hc send: the cwd of the parent terminal also marks the project (a lead in another directory of the same repository)', () => {
+  const cwd = tmpProject({ heavyCommands: ['^never-matches-anything$'] });
+  const repo = path.join(path.dirname(cwd), 'elsewhere-repo');
+  const ls = JSON.stringify({
+    terminals: [
+      { address: 't5', agent: 'claude-code', cwd: repo, state: 'live', status: 'done' },
+      { address: 'tE', agent: 'claude-code', cwd: path.join(repo, 'app'), state: 'live' },
+      { address: 'tF', agent: 'claude-code', cwd: `${repo}-2`, state: 'live' }, // a sibling directory, not inside
+      { address: 't14', agent: 'claude-code', parent: 't5', state: 'live', status: 'working' },
+    ],
+  });
+  const dir = fakeDir({ 'get_t14.out': JSON.stringify({ address: 't14', parent: 't5' }), 'ls_--json.out': ls });
+  const send = (c) => isDeny(hg(hgInput(cwd, c), envOf({ GHORC_ROLE: 'worker', HC_TERMINAL_ID: 't14', FAKE_DIR: dir })));
+  assert.equal(send('hc send tE x'), false);
+  assert.equal(send('hc send tF x'), true);
 });
 
 test('the deny holds with an invalid config too', () => {
