@@ -47,6 +47,12 @@ const DENY = [
   'cmd /c start "t" hc run claude',
   'cmd /c start "t" /b hc run claude',
   'sudo -H nice -n 5 timeout 5 hc run claude',
+  'SUDO.EXE hc run claude',
+  'sudo.Exe -H hc run claude',
+  'Sudo -u root hc run claude',
+  'powershell -Command start "hc run claude"',
+  'pwsh -c start "herdr pane run p x"',
+  'bash -c start "hc run claude"',
 ];
 const OK = [
   'timeout 5 hc send t1f',

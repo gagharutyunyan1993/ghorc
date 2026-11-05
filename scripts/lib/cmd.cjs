@@ -87,7 +87,7 @@ const NICE_WRAPPER = String.raw`${WRAPPER_PATH}nice(?:\.exe)?\s+(?:(?:-n\s*\S+|-
 const STDBUF_WRAPPER = String.raw`${WRAPPER_PATH}stdbuf(?:\.exe)?\s+(?:(?:-[ioe]\s*\S+|--(?:input|output|error)(?:=|\s+)\S+)\s+)+`;
 // sudo's options are case-sensitive (-H and -P take no value, -h and -p do), so it is peeled by its own regex without the i flag.
 const SUDO_PREFIX = new RegExp(
-  String.raw`^${WRAPPER_PATH}[Ss][Uu][Dd][Oo](?:\.exe)?\s+(?:(?:-[A-Za-z]*[ughpCDRrTU]\s+\S+|--(?:user|group|host|prompt|chdir|role|type|other-user|close-from)(?:=|\s+)\S+|--?[A-Za-z][\w-]*)\s+)*`,
+  String.raw`^${WRAPPER_PATH}[Ss][Uu][Dd][Oo](?:\.[Ee][Xx][Ee])?\s+(?:(?:-[A-Za-z]*[ughpCDRrTU]\s+\S+|--(?:user|group|host|prompt|chdir|role|type|other-user|close-from)(?:=|\s+)\S+|--?[A-Za-z][\w-]*)\s+)*`,
 );
 const DOAS_WRAPPER = String.raw`${WRAPPER_PATH}doas(?:\.exe)?\s+(?:(?:-[uC]\s*\S+|-\w+)\s+)*`;
 const CHROOT_WRAPPER = String.raw`${WRAPPER_PATH}chroot(?:\.exe)?\s+(?:(?:--(?:userspec|groups)(?:=|\s+)\S+|--[\w-]+)\s+)*\S+\s+`;
@@ -120,7 +120,10 @@ const BASH_DQ = String.raw`"(?:[^"\\]|\\.)*"`;
 const PS_DQ = String.raw`"(?:[^"\x60]|\x60[\s\S])*"`;
 const SQ = "'[^']*'";
 // `start` is not a flag word of cmd: in `cmd /c start "title" hc run claude` the quoted title is blanked, not inlined.
-const WRAP_HEAD = String.raw`(^|[\s;&|(\x60{])(${SHELLS}(?:\s+(?:[-/][\w:-]+|(?!start\b)\w+))*?\s+|${SCRIPT_HEAD}|${FLOCK_BASE}-c\s+|${IEX_HEAD})`;
+// Only for cmd: for bash/powershell the word `start` stays an ordinary flag word, so their quoted argument is still inlined.
+const SHELLS_OTHER = String.raw`(?:\S*[\\/])?(?:bash|sh|zsh|dash|powershell|pwsh)(?:\.exe)?`;
+const SHELL_CMD = String.raw`(?:\S*[\\/])?cmd(?:\.exe)?`;
+const WRAP_HEAD = String.raw`(^|[\s;&|(\x60{])(${SHELLS_OTHER}(?:\s+(?:[-/][\w:-]+|\w+))*?\s+|${SHELL_CMD}(?:\s+(?:[-/][\w:-]+|(?!start\b)\w+))*?\s+|${SCRIPT_HEAD}|${FLOCK_BASE}-c\s+|${IEX_HEAD})`;
 // A shell wrapper followed (after its flags) by a quoted argument: the quotes are dropped so the argument is matched too.
 const WRAPPED_QUOTE = new RegExp(`${WRAP_HEAD}(${BASH_DQ}|${SQ})`, 'gi');
 const WRAPPED_QUOTE_PS = new RegExp(`${WRAP_HEAD}(${PS_DQ}|${SQ})`, 'gi');
