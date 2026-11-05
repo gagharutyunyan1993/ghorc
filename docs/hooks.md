@@ -92,9 +92,13 @@ not stop a subagent that wants to get around it. Forms that stay open:
 - another binary or alias for herdr or hc (herdr options with a value, `--session x`, `-s x`, are seen since 0.9.0);
 - a command built at run time: a variable (`$H pane run`), `eval`, `base64 -d | sh`, a script file or `node -e` that
   runs herdr or `claude -p` inside, `python -c`, `ssh host herdr ...`;
-- other wrappers: `chroot`, `script -c`, `find -exec`, `watch`, `parallel`, PowerShell `Invoke-Expression`, `& $path`
-  (`timeout` with its options, `nice`, `stdbuf`, `sudo`, `setsid`, `xargs`, `env`, `cmd /c start` and PowerShell
-  `Start-Process` are looked through since 0.9.0, for `heavyCommands` as well);
+- the path of a program in a variable (`& $path`, `$H pane run`) and any wrapper not listed below. Looked through since
+  0.9.0, for `heavyCommands` as well: `timeout` (with its options, also combined such as `-vk 1`, and `inf`), `nice`
+  (`-n N`, `-N`, `--N`), `stdbuf`, `sudo` (options are case-sensitive: `-H` and `-P` take no value, `-u U`, `-D dir` do),
+  `doas`, `setsid`, `xargs`, `env`, `chroot DIR`, `watch [-n N]`, `parallel [-j N]`, `ionice -c N`, `chrt N`,
+  `taskset MASK`, `flock FILE` (also `flock FILE -c "cmd"`), `script -c "cmd"`, `find ... -exec|-execdir|-ok cmd`,
+  `cmd /c start ["title"]`, PowerShell `Start-Process` and `Invoke-Expression`/`iex "cmd"` (a quoted command only; `iex $x`
+  is a run-time built command);
 - `node` options that take a separate value before `heavy-slot.cjs` (`node -r x heavy-slot.cjs`; bare options such as
   `--no-warnings` and `--opt=value` are looked through), and the names of the wrappers in a path or an alias;
 - writing into the herdr socket or the pane input by any means other than the herdr CLI.
@@ -164,7 +168,7 @@ Each string is a JavaScript regex compiled with flag `i` (case-insensitive). A c
 of a shell wrapper (`bash -c "..."`, `cmd /c "..."`, `powershell -Command "..."`) and `$(...)` or backticks inside
 double quotes. The regex must match at the START of a segment, after optional env assignments (`FOO=1 `) and wrappers
 (`cmd /c`, `bash -c`, `powershell -Command`, `call`, `time`, `exec`, `env`, `command`, `nohup`, and the command
-after `--` of `heavy-slot.cjs run`; and, since 0.9.0, `timeout` with its options, `nice`, `stdbuf`, `sudo`, `setsid`, `xargs`, `cmd /c start`, which are also tried peeled while a pattern on the wrapper itself (`^timeout`) keeps matching). npm global options (`--prefix app`, `-C app`, `-w x`,
+after `--` of `heavy-slot.cjs run`; and, since 0.9.0, `timeout` with its options, `nice`, `stdbuf`, `sudo`, `doas`, `setsid`, `xargs`, `chroot`, `watch`, `parallel`, `ionice`, `chrt`, `taskset`, `flock`, `script -c`, `find -exec`, `iex`, `cmd /c start`, which are also tried peeled while a pattern on the wrapper itself (`^timeout`) keeps matching). npm global options (`--prefix app`, `-C app`, `-w x`,
 `--silent`) are dropped, `run-script` reads as `run`, and a leading `npm run ` or `npx ` is also tried off, so
 `^vitest` matches `npx vitest`. Hence `git commit -m "run npm test"` and `echo npm test` are ordinary, while
 `cd app && npm test` is heavy. Write patterns for the segment start (`^npm\s+test\b`); backslashes are doubled in

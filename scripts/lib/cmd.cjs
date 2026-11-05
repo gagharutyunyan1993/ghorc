@@ -82,14 +82,33 @@ const WRAPPER_PREFIX = new RegExp(
 // options, the ones with a separate value listed: timeout [-k D] [-s SIG] DURATION, nice [-n N], stdbuf -oL, sudo [-u U],
 // setsid [-w], cmd /c start ["title"] [/b]. `timeout -k 1 5 herdr pane run ...` is peeled down to the herdr command.
 const WRAPPER_PATH = String.raw`(?:\S*[\\/])?`;
-const TIMEOUT_WRAPPER = String.raw`${WRAPPER_PATH}timeout(?:\.exe)?\s+(?:(?:-[ks]\s*\S+|--(?:kill-after|signal)(?:=|\s+)\S+|--[\w-]+|-\w+)\s+)*[\d.]+[smhd]?\s+`;
-const NICE_WRAPPER = String.raw`${WRAPPER_PATH}nice(?:\.exe)?\s+(?:(?:-n\s*\S+|--adjustment(?:=|\s+)\S+|-\d+|--?[A-Za-z][\w-]*)\s+)*`;
+const TIMEOUT_WRAPPER = String.raw`${WRAPPER_PATH}timeout(?:\.exe)?\s+(?:(?:-[A-Za-z]*[ks]\s*\S+|--(?:kill-after|signal)(?:=|\s+)\S+|--[\w-]+|-\w+)\s+)*(?:inf(?:inity)?|[\d.]+[smhd]?)\s+`;
+const NICE_WRAPPER = String.raw`${WRAPPER_PATH}nice(?:\.exe)?\s+(?:(?:-n\s*\S+|--adjustment(?:=|\s+)\S+|--?\d+|--?[A-Za-z][\w-]*)\s+)*`;
 const STDBUF_WRAPPER = String.raw`${WRAPPER_PATH}stdbuf(?:\.exe)?\s+(?:(?:-[ioe]\s*\S+|--(?:input|output|error)(?:=|\s+)\S+)\s+)+`;
-const SUDO_WRAPPER = String.raw`${WRAPPER_PATH}sudo(?:\.exe)?\s+(?:(?:-[A-Za-z]*[ughpCRrTU]\s+\S+|--(?:user|group|host|prompt|chdir|role|type)(?:=|\s+)\S+|--?[A-Za-z][\w-]*)\s+)*`;
+// sudo's options are case-sensitive (-H and -P take no value, -h and -p do), so it is peeled by its own regex without the i flag.
+const SUDO_PREFIX = new RegExp(
+  String.raw`^${WRAPPER_PATH}[Ss][Uu][Dd][Oo](?:\.exe)?\s+(?:(?:-[A-Za-z]*[ughpCDRrTU]\s+\S+|--(?:user|group|host|prompt|chdir|role|type|other-user|close-from)(?:=|\s+)\S+|--?[A-Za-z][\w-]*)\s+)*`,
+);
+const DOAS_WRAPPER = String.raw`${WRAPPER_PATH}doas(?:\.exe)?\s+(?:(?:-[uC]\s*\S+|-\w+)\s+)*`;
+const CHROOT_WRAPPER = String.raw`${WRAPPER_PATH}chroot(?:\.exe)?\s+(?:(?:--(?:userspec|groups)(?:=|\s+)\S+|--[\w-]+)\s+)*\S+\s+`;
+const WATCH_WRAPPER = String.raw`${WRAPPER_PATH}watch(?:\.exe)?\s+(?:(?:-[ni]\s*\S+|--interval(?:=|\s+)\S+|--?[A-Za-z][\w-]*)\s+)*`;
+const PARALLEL_WRAPPER = String.raw`${WRAPPER_PATH}parallel(?:\.exe)?\s+(?:(?:-[jnNSalLsmXC]\s+\S+|--(?:jobs|max-args|max-procs|sshlogin|arg-file|delimiter)(?:=|\s+)\S+|--?[A-Za-z][\w-]*(?:=\S+)?)\s+)*`;
+const IONICE_WRAPPER = String.raw`${WRAPPER_PATH}ionice(?:\.exe)?\s+(?:(?:-[cn]\s*\S+|--(?:class|classdata)(?:=|\s+)\S+|--?[A-Za-z][\w-]*)\s+)*`;
+const CHRT_WRAPPER = String.raw`${WRAPPER_PATH}chrt(?:\.exe)?\s+(?:--?[A-Za-z][\w-]*\s+)*\d+\s+`;
+const TASKSET_WRAPPER = String.raw`${WRAPPER_PATH}taskset(?:\.exe)?\s+(?:-[A-Za-z]+\s+)*(?:(?:-c|--cpu-list)\s+\S+|0x[0-9a-f]+|\d[0-9a-f]*)\s+`;
+// flock [-n] [-w S] FILE cmd, and flock FILE -c "cmd" (the quoted command is inlined, see WRAP_HEAD).
+const FLOCK_BASE = String.raw`${WRAPPER_PATH}flock(?:\.exe)?\s+(?:(?:-[wE]\s*\S+|--(?:timeout|wait|conflict-exit-code)(?:=|\s+)\S+|--?[A-Za-z][\w-]*)\s+)*\S+\s+`;
+const FLOCK_WRAPPER = String.raw`${FLOCK_BASE}(?:-c\s+)?`;
+// script [-q] -c "cmd" [file]
+const SCRIPT_HEAD = String.raw`${WRAPPER_PATH}script(?:\.exe)?\s+(?:(?:-[IOTEmo]\s+\S+|-[A-Za-z]+|--[\w-]+(?:=\S+)?)\s+)*?-[A-Za-z]*c\s+`;
+// find ... -exec cmd {} \;  (the braces and ; cut the segment after cmd's arguments)
+const FIND_WRAPPER = String.raw`${WRAPPER_PATH}find(?:\.exe)?\s+(?:\S+\s+)*?-(?:exec|execdir|ok|okdir)\s+`;
+// PowerShell Invoke-Expression "cmd" / iex "cmd" (the quoted command is inlined, see WRAP_HEAD).
+const IEX_HEAD = String.raw`(?:Invoke-Expression|iex)\s+(?:-Command\s+)?`;
 const SETSID_WRAPPER = String.raw`${WRAPPER_PATH}setsid(?:\.exe)?\s+(?:(?:-[wcf]+|--(?:wait|ctty|fork))\s+)*`;
 const START_WRAPPER = String.raw`start\s+(?:""\s+|"[^"]*"\s+)?(?:\/[A-Za-z]+\s+)*`;
 const EXTRA_PREFIX = new RegExp(
-  `^(?:${XARGS_WRAPPER}|${TIMEOUT_WRAPPER}|${NICE_WRAPPER}|${STDBUF_WRAPPER}|${SUDO_WRAPPER}|${SETSID_WRAPPER}|${START_WRAPPER})`,
+  `^(?:${XARGS_WRAPPER}|${TIMEOUT_WRAPPER}|${NICE_WRAPPER}|${STDBUF_WRAPPER}|${SETSID_WRAPPER}|${START_WRAPPER}|${DOAS_WRAPPER}|${CHROOT_WRAPPER}|${WATCH_WRAPPER}|${PARALLEL_WRAPPER}|${IONICE_WRAPPER}|${CHRT_WRAPPER}|${TASKSET_WRAPPER}|${FLOCK_WRAPPER}|${SCRIPT_HEAD}|${FIND_WRAPPER}|${IEX_HEAD})`,
   'i',
 );
 const SLOT_WRAPPER_PREFIX = new RegExp(
@@ -100,7 +119,8 @@ const QUOTED_SLOT_PATH = /(["'])(?:[^"']*[\\/])?heavy-slot\.cjs\1/g;
 const BASH_DQ = String.raw`"(?:[^"\\]|\\.)*"`;
 const PS_DQ = String.raw`"(?:[^"\x60]|\x60[\s\S])*"`;
 const SQ = "'[^']*'";
-const WRAP_HEAD = String.raw`(^|[\s;&|(\x60{])(${SHELLS}(?:\s+(?:[-/][\w:-]+|\w+))*?\s+)`;
+// `start` is not a flag word of cmd: in `cmd /c start "title" hc run claude` the quoted title is blanked, not inlined.
+const WRAP_HEAD = String.raw`(^|[\s;&|(\x60{])(${SHELLS}(?:\s+(?:[-/][\w:-]+|(?!start\b)\w+))*?\s+|${SCRIPT_HEAD}|${FLOCK_BASE}-c\s+|${IEX_HEAD})`;
 // A shell wrapper followed (after its flags) by a quoted argument: the quotes are dropped so the argument is matched too.
 const WRAPPED_QUOTE = new RegExp(`${WRAP_HEAD}(${BASH_DQ}|${SQ})`, 'gi');
 const WRAPPED_QUOTE_PS = new RegExp(`${WRAP_HEAD}(${PS_DQ}|${SQ})`, 'gi');
@@ -241,7 +261,7 @@ function peel(segment, wrappers, rounds) {
 // wrapper peeled off as well; each also without the npm run / npx runner.
 function variants(segment) {
   const forms = [
-    ...new Set([peel(segment, [WRAPPER_PREFIX], 4), peel(segment, [WRAPPER_PREFIX, SLOT_WRAPPER_PREFIX], 8), peel(segment, [WRAPPER_PREFIX, SLOT_WRAPPER_PREFIX, EXTRA_PREFIX], 8)]),
+    ...new Set([peel(segment, [WRAPPER_PREFIX], 4), peel(segment, [WRAPPER_PREFIX, SLOT_WRAPPER_PREFIX], 8), peel(segment, [WRAPPER_PREFIX, SLOT_WRAPPER_PREFIX, EXTRA_PREFIX, SUDO_PREFIX], 8)]),
   ];
   const out = [];
   for (const f of forms) {

@@ -17,13 +17,17 @@
   parent); a target that is neither, or nothing readable, means deny. The command forms are read through Windows paths
   (`C:\x\hc.exe`), `env`/`env.exe` with a path and options (`-i`, `-u NAME`), quoted program paths (`& "C:\x\hc.exe"`),
   `xargs`, PowerShell `Start-Process hc -ArgumentList ...` and herdr options with a value (`herdr --session x agent start`). `handoff.pushGuard` also covers `hc run ... claude`.
-- The built-in agent-start deny and the agent-start detection look through `timeout` (with `-k D`, `-s SIG`, the long
-  forms and the duration), `nice` (`-n N`, `-N`, `--adjustment`), `stdbuf`, `sudo`, `setsid` and `cmd /c start`, as they
-  already did through `xargs`, `env` and the shells (`scripts/lib/cmd.cjs`, `EXTRA_PREFIX`; tests `tests/wrappers.test.cjs`).
-  This closes the wrapper forms listed as open in 0.8.0 (E402#1); `heavyCommands` patterns are tried on the peeled command
-  too (`timeout 5 npm test` is heavy), a pattern on the wrapper itself still matches. Still open, a seat belt and not a
-  sandbox (`docs/hooks.md`): `chroot`, `script -c`, `find -exec`, `watch`, `parallel`, `Invoke-Expression`, run-time
-  built commands, `node -e`.
+- The built-in agent-start deny and the agent-start detection look through `timeout` (with `-k D`, `-s SIG`, combined
+  options such as `-vk 1`, the long forms, the duration, `inf`), `nice` (`-n N`, `-N`, `--N`, `--adjustment`), `stdbuf`,
+  `sudo` (case-sensitive options: `-H` and `-P` without a value, `-u U`, `-D dir`), `doas`, `setsid`, `chroot DIR`,
+  `watch [-n N]`, `parallel [-j N]`, `ionice -c N`, `chrt N`, `taskset MASK`, `flock FILE` (and `flock FILE -c "cmd"`),
+  `script -c "cmd"`, `find -exec|-execdir|-ok`, `Invoke-Expression`/`iex "cmd"` and `cmd /c start ["title"]`, as they
+  already did through `xargs`, `env` and the shells (`scripts/lib/cmd.cjs`, `EXTRA_PREFIX`, `SUDO_PREFIX`; tests
+  `tests/wrappers.test.cjs`, `tests/wrappers-fix1.test.cjs`, with the commands that must stay allowed). This closes the
+  wrapper forms listed as open in 0.8.0 (E402#1); `heavyCommands` patterns are tried on the peeled command too
+  (`timeout 5 npm test` is heavy), a pattern on the wrapper itself still matches. Still open, a seat belt and not a
+  sandbox (`docs/hooks.md`): another binary or alias, a program path in a variable (`& $path`), run-time built commands
+  (`eval`, `iex $x`, `node -e`).
 - Skills `ghorc:lead` and `ghorc:handoff`: first determine the backend, then the command forms of both backends (start a
   worker with a role, wait, read, send, close, READY/ACTIVATE handoff).
 
