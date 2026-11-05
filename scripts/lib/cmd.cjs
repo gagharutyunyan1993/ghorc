@@ -77,8 +77,21 @@ const WRAPPER_PREFIX = new RegExp(
 );
 // The slot wrapper runs its command after `--`. A quoted path to heavy-slot.cjs is unquoted first (see segments); a quoted
 // label is blanked to "". Options: --label x, --label=x, --label "x y", --label (no value).
-// xargs is peeled only in an extra form: a pattern on xargs itself (^xargs) keeps matching the unpeeled segment.
-const XARGS_PREFIX = new RegExp(`^${XARGS_WRAPPER}`, 'i');
+// xargs and the wrappers below are peeled only in an extra form: a pattern on xargs itself (^xargs) keeps matching the unpeeled segment.
+// The same for the other wrappers that only run their argument (E408, closes the open forms of E402#1). Each takes its own
+// options, the ones with a separate value listed: timeout [-k D] [-s SIG] DURATION, nice [-n N], stdbuf -oL, sudo [-u U],
+// setsid [-w], cmd /c start ["title"] [/b]. `timeout -k 1 5 herdr pane run ...` is peeled down to the herdr command.
+const WRAPPER_PATH = String.raw`(?:\S*[\\/])?`;
+const TIMEOUT_WRAPPER = String.raw`${WRAPPER_PATH}timeout(?:\.exe)?\s+(?:(?:-[ks]\s*\S+|--(?:kill-after|signal)(?:=|\s+)\S+|--[\w-]+|-\w+)\s+)*[\d.]+[smhd]?\s+`;
+const NICE_WRAPPER = String.raw`${WRAPPER_PATH}nice(?:\.exe)?\s+(?:(?:-n\s*\S+|--adjustment(?:=|\s+)\S+|-\d+|--?[A-Za-z][\w-]*)\s+)*`;
+const STDBUF_WRAPPER = String.raw`${WRAPPER_PATH}stdbuf(?:\.exe)?\s+(?:(?:-[ioe]\s*\S+|--(?:input|output|error)(?:=|\s+)\S+)\s+)+`;
+const SUDO_WRAPPER = String.raw`${WRAPPER_PATH}sudo(?:\.exe)?\s+(?:(?:-[A-Za-z]*[ughpCRrTU]\s+\S+|--(?:user|group|host|prompt|chdir|role|type)(?:=|\s+)\S+|--?[A-Za-z][\w-]*)\s+)*`;
+const SETSID_WRAPPER = String.raw`${WRAPPER_PATH}setsid(?:\.exe)?\s+(?:(?:-[wcf]+|--(?:wait|ctty|fork))\s+)*`;
+const START_WRAPPER = String.raw`start\s+(?:""\s+|"[^"]*"\s+)?(?:\/[A-Za-z]+\s+)*`;
+const EXTRA_PREFIX = new RegExp(
+  `^(?:${XARGS_WRAPPER}|${TIMEOUT_WRAPPER}|${NICE_WRAPPER}|${STDBUF_WRAPPER}|${SUDO_WRAPPER}|${SETSID_WRAPPER}|${START_WRAPPER})`,
+  'i',
+);
 const SLOT_WRAPPER_PREFIX = new RegExp(
   String.raw`^node(?:\.exe)?\s+(?:--?[\w-]+(?:=\S+)?\s+)*\S*heavy-slot\.cjs\s+run\s+(?:--[A-Za-z][\w-]*(?:=(?:""|\S*)|\s+(?!--(?:\s|$))(?:""|\S+))?\s+)*--\s+`,
   'i',
@@ -228,7 +241,7 @@ function peel(segment, wrappers, rounds) {
 // wrapper peeled off as well; each also without the npm run / npx runner.
 function variants(segment) {
   const forms = [
-    ...new Set([peel(segment, [WRAPPER_PREFIX], 4), peel(segment, [WRAPPER_PREFIX, SLOT_WRAPPER_PREFIX], 8), peel(segment, [WRAPPER_PREFIX, SLOT_WRAPPER_PREFIX, XARGS_PREFIX], 8)]),
+    ...new Set([peel(segment, [WRAPPER_PREFIX], 4), peel(segment, [WRAPPER_PREFIX, SLOT_WRAPPER_PREFIX], 8), peel(segment, [WRAPPER_PREFIX, SLOT_WRAPPER_PREFIX, EXTRA_PREFIX], 8)]),
   ];
   const out = [];
   for (const f of forms) {

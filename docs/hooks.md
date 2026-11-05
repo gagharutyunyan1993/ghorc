@@ -89,13 +89,12 @@ the fix is seen at once.
 The built-in deny reads the command text. It stops honest mistakes and the usual ways of writing the command; it does
 not stop a subagent that wants to get around it. Forms that stay open:
 
-- another binary or alias for herdr, and herdr global options that take a separate value (`herdr --session x pane run
-  ...`, `--machine x`, `--remote x`, `herdr -s x pane run ...`); the `=` form (`--session=x`) is seen;
+- another binary or alias for herdr or hc (herdr options with a value, `--session x`, `-s x`, are seen since 0.9.0);
 - a command built at run time: a variable (`$H pane run`), `eval`, `base64 -d | sh`, a script file or `node -e` that
   runs herdr or `claude -p` inside, `python -c`, `ssh host herdr ...`;
-- other wrappers: `timeout`, `nice`, `stdbuf`, `xargs` (`timeout 5 herdr pane run ...`, `echo p | xargs herdr pane
-  run`; these are not looked through for `heavyCommands` either), `sudo`, `setsid`, `chroot`, `script -c`,
-  `find -exec`, `watch`, `parallel`, `cmd /c start`, PowerShell `Start-Process`, `Invoke-Expression`, `& $path`;
+- other wrappers: `chroot`, `script -c`, `find -exec`, `watch`, `parallel`, PowerShell `Invoke-Expression`, `& $path`
+  (`timeout` with its options, `nice`, `stdbuf`, `sudo`, `setsid`, `xargs`, `env`, `cmd /c start` and PowerShell
+  `Start-Process` are looked through since 0.9.0, for `heavyCommands` as well);
 - `node` options that take a separate value before `heavy-slot.cjs` (`node -r x heavy-slot.cjs`; bare options such as
   `--no-warnings` and `--opt=value` are looked through), and the names of the wrappers in a path or an alias;
 - writing into the herdr socket or the pane input by any means other than the herdr CLI.
@@ -126,7 +125,7 @@ node "<plugin>/scripts/heavy-slot.cjs" release --session <id>
   argument list whose first word ends in `.cmd` or `.bat` (case does not matter) is refused: exit 2, nothing runs, no
   slot taken, and the message says to give the whole command as one string (`run -- "npm test"`). That includes
   `npm.cmd` and `.\x.cmd`; a bare `npm` in an argument list is not found on Windows (exit 127, with the same hint).
-  Running a `.cmd`/`.bat` with separate arguments is deferred to 0.8.1. A command that cannot start ends with a message
+  Running a `.cmd`/`.bat` with separate arguments is not done (not in 0.9.0 either). A command that cannot start ends with a message
   and a non-zero exit, and the slot is released. The hook blanks quoted text before it matches, so it does not read
   inside a quoted one-string command; the wrapper still takes the lock.
 - The session of the claim is `--session`, else `$GHORC_SESSION`, else `$CLAUDE_CODE_SESSION_ID` (Claude Code sets it
@@ -165,7 +164,7 @@ Each string is a JavaScript regex compiled with flag `i` (case-insensitive). A c
 of a shell wrapper (`bash -c "..."`, `cmd /c "..."`, `powershell -Command "..."`) and `$(...)` or backticks inside
 double quotes. The regex must match at the START of a segment, after optional env assignments (`FOO=1 `) and wrappers
 (`cmd /c`, `bash -c`, `powershell -Command`, `call`, `time`, `exec`, `env`, `command`, `nohup`, and the command
-after `--` of `heavy-slot.cjs run`; not `timeout`, `nice`, `stdbuf` or `xargs`). npm global options (`--prefix app`, `-C app`, `-w x`,
+after `--` of `heavy-slot.cjs run`; and, since 0.9.0, `timeout` with its options, `nice`, `stdbuf`, `sudo`, `setsid`, `xargs`, `cmd /c start`, which are also tried peeled while a pattern on the wrapper itself (`^timeout`) keeps matching). npm global options (`--prefix app`, `-C app`, `-w x`,
 `--silent`) are dropped, `run-script` reads as `run`, and a leading `npm run ` or `npx ` is also tried off, so
 `^vitest` matches `npx vitest`. Hence `git commit -m "run npm test"` and `echo npm test` are ordinary, while
 `cd app && npm test` is heavy. Write patterns for the segment start (`^npm\s+test\b`); backslashes are doubled in

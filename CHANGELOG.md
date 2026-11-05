@@ -17,6 +17,13 @@
   parent); a target that is neither, or nothing readable, means deny. The command forms are read through Windows paths
   (`C:\x\hc.exe`), `env`/`env.exe` with a path and options (`-i`, `-u NAME`), quoted program paths (`& "C:\x\hc.exe"`),
   `xargs`, PowerShell `Start-Process hc -ArgumentList ...` and herdr options with a value (`herdr --session x agent start`). `handoff.pushGuard` also covers `hc run ... claude`.
+- The built-in agent-start deny and the agent-start detection look through `timeout` (with `-k D`, `-s SIG`, the long
+  forms and the duration), `nice` (`-n N`, `-N`, `--adjustment`), `stdbuf`, `sudo`, `setsid` and `cmd /c start`, as they
+  already did through `xargs`, `env` and the shells (`scripts/lib/cmd.cjs`, `EXTRA_PREFIX`; tests `tests/wrappers.test.cjs`).
+  This closes the wrapper forms listed as open in 0.8.0 (E402#1); `heavyCommands` patterns are tried on the peeled command
+  too (`timeout 5 npm test` is heavy), a pattern on the wrapper itself still matches. Still open, a seat belt and not a
+  sandbox (`docs/hooks.md`): `chroot`, `script -c`, `find -exec`, `watch`, `parallel`, `Invoke-Expression`, run-time
+  built commands, `node -e`.
 - Skills `ghorc:lead` and `ghorc:handoff`: first determine the backend, then the command forms of both backends (start a
   worker with a role, wait, read, send, close, READY/ACTIVATE handoff).
 
@@ -24,6 +31,11 @@
 - Outside a backend (neither `HC_TERMINAL_ID` nor `HERDR_ENV=1`) no herdr process is asked and workers count as 0 (before:
   `herdr agent list` was asked whenever herdr was installed). The capacity line reads `(workers N)` instead of
   `(herdr workers N)`.
+
+### Known
+- The `.cmd`/`.bat` wrapper of `heavy-slot.cjs run` (`scripts/lib/runcmd.cjs`) listed as deferred to 0.8.1 in 0.8.0 is not
+  done in 0.9.0: a `.cmd`/`.bat` first word in an argument list on Windows is still refused (exit 2), give the command as
+  one string.
 
 ## 0.8.0 - 2026-11-02
 
