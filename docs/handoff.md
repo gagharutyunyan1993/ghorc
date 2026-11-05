@@ -1,7 +1,7 @@
 # Handoff: a fresh session takes over the lead
 
 `/ghorc:handoff` hands the lead shift to a new session before the context gets too large. It always works: without
-herdr it writes STATE.md and you run `/clear`; inside herdr it also starts a candidate lead in a new tab and hands
+a terminal backend it writes STATE.md and you run `/clear`; inside `hc` or `herdr` it also starts a candidate lead in a new tab and hands
 over with a READY/STOP protocol. Parameters come from `.claude/ghorc.json`: `lead.model`, `lead.effort`,
 `thresholds.*` and `handoff.*` ([configuration.md](configuration.md#handoff)).
 
@@ -38,7 +38,7 @@ file, so the status line must be set up for the token stages (the compaction mod
   A flag from crossing `ctxHandoff` keeps its v0.7.0 reach: every main session that is not a worker.
 - The reminder reaches the model through the `additionalContext` of UserPromptSubmit (a Stop `systemMessage` reaches
   only the user). After a compaction it has no token numbers.
-- `handoff.pushGuard` (default false): in handoff mode `herdr agent start` from the lead is denied while a branch named
+- `handoff.pushGuard` (default false): in handoff mode `herdr agent start` (or `hc run ... claude`) from the lead is denied while a branch named
   in STATE `in_flight` (`branch: <name>` fields) is ahead of or missing on `origin`. Without such a field nothing is
   checked and the hook adds a reminder instead. No `origin` remote, or a fetch refspec that does not cover the branch
   (a `--single-branch` clone), counts as nothing to check; the default branch is never required.
@@ -46,9 +46,9 @@ file, so the status line must be set up for the token stages (the compaction mod
   valid JSON is reported as "found, bad JSON".
 
 
-## Without herdr
+## Without a terminal backend
 
-When `HERDR_ENV` is not `1`, the skill runs no herdr command and prints the fallback:
+The skill first runs `node scripts/backend.cjs --name` (`hc`, `herdr` or `none`). On `none` (no `HC_TERMINAL_ID`, and no `HERDR_ENV=1` with a herdr server that answers) it runs no tab command and prints the fallback:
 
 1. Write STATE.md (template `templates/STATE.md`) at `handoff.statePath`; it is the source of truth.
 2. Write the HANDOFF header with `status: SENT` and `old_session_id: <this session>` so the Stop block lifts.
@@ -57,9 +57,11 @@ When `HERDR_ENV` is not `1`, the skill runs no herdr command and prints the fall
 
 Cheaper, but it does not free process memory.
 
-## With herdr
+## With a backend
 
-**Preconditions:** `HERDR_ENV=1` (the lead runs inside herdr); no background agents or commands of the lead
+The sequence below is the `herdr` form. On `hc` the skill uses the `hc` forms (`hc run --bg --name lead-next --outlive-parent ... env GHORC_ROLE=lead claude.exe ... "<task>"`, `hc wait`, `hc read`, `hc send lead-next "ACTIVATE <id>"`, `hc kill`; see skills/handoff/SKILL.md); the READY/ACTIVATE protocol is the same.
+
+**Preconditions:** backend `hc` or `herdr` (the lead runs inside one); no background agents or commands of the lead
 (otherwise a notification wakes the old lead after STOP); herdr workers listed in HANDOFF with pane ids; new owner
 messages written to STATE before the candidate starts. STATE.md is written first with the mandatory sections
 `in_flight`, `unanswered_owner_messages` (verbatim, with time), `head` (git HEAD) and `seq` (+1 on every write), and

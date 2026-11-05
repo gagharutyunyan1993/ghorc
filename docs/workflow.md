@@ -1,7 +1,7 @@
 # Workflow: the lead and its workers
 
 One lead session plans, writes briefs, accepts reports and merges. The work runs in subagents (Agent tool calls) or,
-optionally, in herdr worker sessions ([with-herdr.md](with-herdr.md)). Hooks enforce a few limits
+optionally, in terminal worker sessions (hc or herdr) ([with-herdr.md](with-herdr.md)). Hooks enforce a few limits
 ([hooks.md](hooks.md)); everything on this page is instructions that the lead and the roles follow, not code.
 The same rules are in skill `ghorc:lead` (`/ghorc:lead`) and in the `CLAUDE.md` section from
 `templates/CLAUDE-section.md`.
@@ -12,8 +12,8 @@ The same rules are in skill `ghorc:lead` (`/ghorc:lead`) and in the `CLAUDE.md` 
 SessionStart prints `role=lead` and `lead: load skill ghorc:lead`. A subagent is recognized by `agent_id` and
 prints `role=agent`. Set `GHORC_ROLE` only in two cases:
 
-- `GHORC_ROLE=worker` for a herdr worker session: no lead reminder, no watchdog, heavy commands denied, no handoff
-  block. Set it on the tab: `herdr tab create --env GHORC_ROLE=worker` (see [with-herdr.md](with-herdr.md)).
+- `GHORC_ROLE=worker` for a terminal worker session (hc or herdr): no lead reminder, no watchdog, heavy commands denied, no handoff
+  block. Set it on the tab (`herdr tab create --env GHORC_ROLE=worker`) or in front of the program (`hc run ... env GHORC_ROLE=worker claude.exe`; see [with-herdr.md](with-herdr.md)).
 - `GHORC_ROLE=lead` for the optional strict mode: `readGuard.leadNoMedia` (the lead may not read PDFs and images)
   and `heavyGuard.requireLeadEnv` (heavy commands need this marker) apply only then.
 
@@ -51,9 +51,9 @@ The first three are the core set; the others are for projects that need them. Br
 `mcp__chrome-devtools__*`, `mcp__claude-in-chrome__*`. `ghorc:media` needs poppler (`pdftotext`, `pdftoppm`) for PDFs.
 Project roles: when the project defines its own roles in `.claude/agents/`, they take precedence over the `ghorc:*`
 roles for the same purpose; the lead launches them by name with explicit `model` and `effort` and keeps the same effort
-table. Inside herdr (`HERDR_ENV=1`) every package, review and the integrator run as a separate herdr tab with a report
+table. Inside a terminal backend (`hc` or `herdr`; `node scripts/backend.cjs` tells which) every package, review and the integrator run as a separate tab with a report
 file, because background agents inside the lead are invisible to the owner; an Agent call is only for scouting of up to
-about 5 minutes and for writing memory. Tab workers do not reach the ledger. Outside herdr use Agent calls.
+about 5 minutes and for writing memory. Tab workers do not reach the ledger. With backend `none` use Agent calls.
 
 No role spawns subagents; every role reads `<project>/CLAUDE.md` and `.claude/ghorc.json` itself. Plugin skills and
 agents are namespaced by Claude Code, so they cannot collide with your own.
@@ -66,7 +66,7 @@ agents are namespaced by Claude Code, so they cannot collide with your own.
 | `/ghorc:orc` | alias of `/ghorc:lead`, kept for 0.5 only |
 | `/ghorc:brief` | brief structure (7 tags), content by effort, 3 templates, antipatterns, report limits |
 | `/ghorc:status` | role, guards, heavy patterns, watchdog, context numbers and recent denials in one block |
-| `/ghorc:handoff` | writes STATE.md and hands the shift over; with herdr, into a new tab ([handoff.md](handoff.md)) |
+| `/ghorc:handoff` | writes STATE.md and hands the shift over; with hc or herdr, into a new tab ([handoff.md](handoff.md)) |
 | `/ghorc:setup` | runs `setup.cjs --check`, shows the table, applies confirmed items |
 
 ## Rules on one page
@@ -103,9 +103,9 @@ agents are namespaced by Claude Code, so they cannot collide with your own.
     evidence per finding plus a scan of the fix diff for new P0/P1 (Sonnet/low, a critical package Opus/high). A full
     re-review only when the fixes went beyond the findings and changed behaviour. P0/P1 open after round 2: blocked,
     the lead narrows the task. A second `CHANGES_REQUIRED` means the lead rewrites the task instead of resending it.
-18. There is no sub-lead. Inside herdr every package, review and the integrator run as a herdr tab with a report file;
+18. There is no sub-lead. Inside a terminal backend (hc or herdr) every package, review and the integrator run as a tab with a report file;
     an Agent call only for scouting up to about 5 minutes and for memory (background agents inside the lead are
-    invisible to the owner). Tab workers do not reach the ledger. Outside herdr: direct Agent calls.
+    invisible to the owner). Tab workers do not reach the ledger. Backend `none`: direct Agent calls.
 19. At most `capacity.agents` when the capacity guard is enabled, else the lead plus 2 workers in total; one heavy
     check per machine.
 20. A consultation is "significant" on any of: money/data/recovery, an external contract or migration, a
@@ -129,7 +129,7 @@ agents are namespaced by Claude Code, so they cannot collide with your own.
 | Dispute, arbiter | Fable | medium-high |
 | Merge conflict, red pipeline | `ghorc:integrator` | medium |
 | Release (owner's word only) | `ghorc:release` | medium |
-| Inside herdr: any package, review or integrator; outside: waits >~15 min or owner watches/answers | herdr worker (tab) with a report file, `--effort` explicit | - |
+| Backend hc or herdr: any package, review or integrator; none: waits >~15 min or owner watches/answers | terminal worker (tab) with a report file, `--effort` explicit | - |
 
 | Effort | Use for |
 |---|---|
@@ -255,7 +255,7 @@ What the plugin cannot do, so you do:
   `criticalPaths` are yours.
 - **Lead launch** with explicit `--model`/`--effort`; keep `CLAUDE_CODE_EFFORT_LEVEL` unset.
 - **Global model, effort and cache TTL** are owner decisions; setup sets model/effort only when named, cache TTL never.
-- **herdr** (for handoff in a tab) and **poppler** (for `ghorc:media`) are installed separately.
+- **hc** or **herdr** (for handoff in a tab; either, or none) and **poppler** (for `ghorc:media`) are installed separately.
 
 `<plugin>` is the plugin directory: your clone (local path or `--plugin-dir`), otherwise the `installPath` in
 `~/.claude/plugins/installed_plugins.json`. Inside skills it is `${CLAUDE_PLUGIN_ROOT}`.

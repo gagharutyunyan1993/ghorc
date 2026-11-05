@@ -54,9 +54,11 @@ plugin (`claude plugin disable ghorc@ghorc`).
 
 **What it checks.**
 
-- Always, for subagents and workers: `claude -p`, `herdr agent start|prompt|send-keys` and
-  `herdr pane run|send-keys|send-text` are denied. The lead may use them (it sends prompts and the handoff ACTIVATE with
-  `herdr pane run`). An env prefix, `env`, `bash -c`, a path to the binary and herdr's bare or `=` global options
+- Always, for subagents and workers: `claude -p`, `herdr agent start|prompt|send-keys`,
+  `herdr pane run|send-keys|send-text` and `hc run|exec|keys|interrupt` are denied. `hc send` is denied too, except for
+  a worker (not a subagent) sending to its own parent terminal (`hc get $HC_TERMINAL_ID`, field `parent`): that is how a
+  worker reports; an unreadable parent or target means deny. The lead may use all of them (it sends prompts and the
+  handoff ACTIVATE with `herdr pane run` or `hc send`). An env prefix, `env`, `bash -c`, a path to the binary and herdr's bare or `=` global options
   (`--no-color`, `--session=x`) do not get around the deny. For `heavyCommands` the same shell wrappers are looked
   through, and so is the command after `--` of `heavy-slot.cjs run`.
 - With `heavySlots.slots` above 0 ([configuration.md](configuration.md#heavyslots)): the lead too is denied a command
@@ -74,7 +76,7 @@ plugin (`claude plugin disable ghorc@ghorc`).
 ```
 only the lead runs heavy checks.
 only the lead runs heavy checks (GHORC_ROLE=lead is not set).
-subagents and workers may not start other agents (claude -p, herdr agent start/prompt/send-keys, herdr pane run/send-keys/send-text): ask the lead.
+subagents and workers may not start other agents (claude -p, herdr agent start/prompt/send-keys, herdr pane run/send-keys/send-text, hc run/exec/keys/interrupt/send): ask the lead.
 config invalid: <reason>. Heavy-command rules cannot be trusted: fix .claude/ghorc.json (node scripts/check-config.cjs).
 no free heavy-check slot (1 configured): slot 1: session 5f3a91c2, "full", 214s ago. Wait for a slot (node scripts/heavy-slot.cjs status).
 ```
@@ -87,13 +89,16 @@ the fix is seen at once.
 The built-in deny reads the command text. It stops honest mistakes and the usual ways of writing the command; it does
 not stop a subagent that wants to get around it. Forms that stay open:
 
-- another binary or alias for herdr, and herdr global options that take a separate value (`herdr --session x pane run
-  ...`, `--machine x`, `--remote x`, `herdr -s x pane run ...`); the `=` form (`--session=x`) is seen;
+- another binary or alias for herdr or hc (herdr options with a value, `--session x`, `-s x`, are seen since 0.9.0);
 - a command built at run time: a variable (`$H pane run`), `eval`, `base64 -d | sh`, a script file or `node -e` that
   runs herdr or `claude -p` inside, `python -c`, `ssh host herdr ...`;
-- other wrappers: `timeout`, `nice`, `stdbuf`, `xargs` (`timeout 5 herdr pane run ...`, `echo p | xargs herdr pane
-  run`; these are not looked through for `heavyCommands` either), `sudo`, `setsid`, `chroot`, `script -c`,
-  `find -exec`, `watch`, `parallel`, `cmd /c start`, PowerShell `Start-Process`, `Invoke-Expression`, `& $path`;
+- the path of a program in a variable (`& $path`, `$H pane run`) and any wrapper not listed below. Looked through since
+  0.9.0, for `heavyCommands` as well: `timeout` (with its options, also combined such as `-vk 1`, and `inf`), `nice`
+  (`-n N`, `-N`, `--N`), `stdbuf`, `sudo` (options are case-sensitive: `-H` and `-P` take no value, `-u U`, `-D dir` do),
+  `doas`, `setsid`, `xargs`, `env`, `chroot DIR`, `watch [-n N]`, `parallel [-j N]`, `ionice -c N`, `chrt N`,
+  `taskset MASK`, `flock FILE` (also `flock FILE -c "cmd"`), `script -c "cmd"`, `find ... -exec|-execdir|-ok cmd`,
+  `cmd /c start ["title"]`, PowerShell `Start-Process` and `Invoke-Expression`/`iex "cmd"` (a quoted command only; `iex $x`
+  is a run-time built command);
 - `node` options that take a separate value before `heavy-slot.cjs` (`node -r x heavy-slot.cjs`; bare options such as
   `--no-warnings` and `--opt=value` are looked through), and the names of the wrappers in a path or an alias;
 - writing into the herdr socket or the pane input by any means other than the herdr CLI.
@@ -124,7 +129,7 @@ node "<plugin>/scripts/heavy-slot.cjs" release --session <id>
   argument list whose first word ends in `.cmd` or `.bat` (case does not matter) is refused: exit 2, nothing runs, no
   slot taken, and the message says to give the whole command as one string (`run -- "npm test"`). That includes
   `npm.cmd` and `.\x.cmd`; a bare `npm` in an argument list is not found on Windows (exit 127, with the same hint).
-  Running a `.cmd`/`.bat` with separate arguments is deferred to 0.8.1. A command that cannot start ends with a message
+  Running a `.cmd`/`.bat` with separate arguments is not done (not in 0.9.0 either). A command that cannot start ends with a message
   and a non-zero exit, and the slot is released. The hook blanks quoted text before it matches, so it does not read
   inside a quoted one-string command; the wrapper still takes the lock.
 - The session of the claim is `--session`, else `$GHORC_SESSION`, else `$CLAUDE_CODE_SESSION_ID` (Claude Code sets it
@@ -163,7 +168,7 @@ Each string is a JavaScript regex compiled with flag `i` (case-insensitive). A c
 of a shell wrapper (`bash -c "..."`, `cmd /c "..."`, `powershell -Command "..."`) and `$(...)` or backticks inside
 double quotes. The regex must match at the START of a segment, after optional env assignments (`FOO=1 `) and wrappers
 (`cmd /c`, `bash -c`, `powershell -Command`, `call`, `time`, `exec`, `env`, `command`, `nohup`, and the command
-after `--` of `heavy-slot.cjs run`; not `timeout`, `nice`, `stdbuf` or `xargs`). npm global options (`--prefix app`, `-C app`, `-w x`,
+after `--` of `heavy-slot.cjs run`; and, since 0.9.0, `timeout` with its options, `nice`, `stdbuf`, `sudo`, `doas`, `setsid`, `xargs`, `chroot`, `watch`, `parallel`, `ionice`, `chrt`, `taskset`, `flock`, `script -c`, `find -exec`, `iex`, `cmd /c start`, which are also tried peeled while a pattern on the wrapper itself (`^timeout`) keeps matching). npm global options (`--prefix app`, `-C app`, `-w x`,
 `--silent`) are dropped, `run-script` reads as `run`, and a leading `npm run ` or `npx ` is also tried off, so
 `^vitest` matches `npx vitest`. Hence `git commit -m "run npm test"` and `echo npm test` are ordinary, while
 `cd app && npm test` is heavy. Write patterns for the segment start (`^npm\s+test\b`); backslashes are doubled in
@@ -194,7 +199,7 @@ unless `handoff.stickyOnCompact` is true.
 at `ctxHandoff` (flag; denies a new Agent and edits outside STATE/HANDOFF; Stop blocks until STATE is newer, at most 2
 times). With `handoff.stickyOnCompact` also after any compaction (the flag is cleared only by HANDOFF `status: SENT`
 of this session; Stop blocks once per turn until SENT; only a session with `GHORC_ROLE=lead` is denied or blocked for
-a compaction, others get a reminder). With `handoff.pushGuard` also `herdr agent start` while in-flight branches are
+a compaction, others get a reminder). With `handoff.pushGuard` also `herdr agent start` and `hc run ... claude` while in-flight branches are
 unpushed. Secondary signals that never block: transcript size against `watchdog.warnMiB` and unread watchdog
 alerts (PreToolUse at most every 5 minutes). Without a fresh ctx file (younger than 10 minutes) and without a flag it
 only warns. The flag and its throttle state live in `<tmp>/ghorc-<user>`; a deny is logged to `denials.log`.
@@ -220,11 +225,15 @@ Stop is silent when the last answer has no text (the field is missing or not a s
   3 hours is stale). The session's entries are cleared only when no in-flight task of any agent-bearing type is listed
   (a `workflow` or cloud session keeps them; `shell` and `monitor` carry no agent). While such a task runs, its agents
   are not listed in `background_tasks`, so the count is the larger of the listed subagents and teammates and the
-  session's ledger entries. To that it adds the herdr workers
-  of `herdr agent list`: status `working` or `blocked`, name not starting with `leadNamePrefix`, session not this one.
-  herdr not installed, or its server not running (error code `server_not_running`), means 0 workers; any other herdr
-  failure makes the count unknown and the hook silent (logged).
-- The herdr count is machine-wide on purpose: the limit protects the machine, not one project. Workers of other
+  session's ledger entries. To that it adds the workers
+  of the active terminal backend (`node scripts/backend.cjs`): with `hc` (`HC_TERMINAL_ID` set), the live terminals of
+  `hc ls --json` with status `working` or `blocked`, a `parent` (a terminal started by the owner has none), a name not
+  starting with `leadNamePrefix`, not this terminal; with `herdr` (`HERDR_ENV=1` and a server that answers), the
+  entries of `herdr agent list` with status `working` or `blocked`, name not starting with `leadNamePrefix`, session
+  not this one. Backend `none` (neither variable, herdr not installed or its server not running, error code
+  `server_not_running`, hc not installed) means 0 workers; any other failure of the active backend makes the count
+  unknown and the hook silent (logged). If both variables are set, `hc` wins.
+- The worker count is machine-wide on purpose: the limit protects the machine, not one project. Workers of other
   projects and other leads whose name does not start with `leadNamePrefix` count as workers while they are `working`
   or `blocked`, so a busy neighbour keeps this lead silent. Name your leads with the prefix to keep them out.
 - UserPromptSubmit adds the line `agents N/M, CPU X%, free Y GB` to the context (CPU: one 400 ms sample).
@@ -246,8 +255,8 @@ lost during a compaction stays a phantom agent for at most 3 hours; phantoms are
 (about 25 in 15000 start/stop pairs from 10 processes) and rare in normal use.
 
 **How to disable or loosen.** `capacity.enabled: false`, a lower `agents`, a higher `cpuStartPct`. Test seams, env:
-`GHORC_CAPACITY_CPU_PCT`, `GHORC_CAPACITY_FREE_GB` (instead of measuring), `GHORC_CAPACITY_HERDR_JSON` (the output of
-`herdr agent list`), `GHORC_CAPACITY_LEDGER` (ledger path), `GHORC_CAPACITY_SAMPLE_MS` (one CPU interval).
+`GHORC_CAPACITY_CPU_PCT`, `GHORC_CAPACITY_FREE_GB` (instead of measuring), `GHORC_CAPACITY_HC_JSON` (the output of `hc ls --json`), `GHORC_CAPACITY_HERDR_JSON` (the output of
+`herdr agent list`), `GHORC_HC_BIN` / `GHORC_HERDR_BIN` (a program path or a JSON array `[program, ...args]` replacing `hc` / `herdr`), `GHORC_CAPACITY_LEDGER` (ledger path), `GHORC_CAPACITY_SAMPLE_MS` (one CPU interval).
 
 ## ledger.cjs
 

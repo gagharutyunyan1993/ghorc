@@ -39,11 +39,11 @@ optional: a plain main session is the lead.
   (review at most 30), large output to a file.
 - Review: at most 2 fix rounds, then a cheap closure check; a second CHANGES_REQUIRED means the lead changes the task
   statement.
-- Inside herdr every package, review and the integrator run as a herdr tab with a report file; an Agent call only for
+- Inside a terminal backend (hc or herdr; `node scripts/backend.cjs` tells which) every package, review and the integrator run as a tab with a report file; an Agent call only for
   scouting up to about 5 minutes and for memory. Tab workers do not reach the ledger.
 - Limit: `capacity.agents` when the capacity guard is enabled, else the lead plus 2 workers in total; one heavy check
   per machine. The heavy guard also applies to `GHORC_ROLE=worker`; subagents may not run `claude -p`,
-  `herdr agent start|prompt|send-keys` or `herdr pane run|send-keys|send-text`.
+  `herdr agent start|prompt|send-keys`, `herdr pane run|send-keys|send-text` or `hc run|exec|keys|interrupt`.
 - Reports, scratch and large output go to `.claude/ghorc-out/` (git-excluded by setup).
 - State lives in `STATE.md` (40-80 lines); it is the source of truth, not the conversation.
 

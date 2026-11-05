@@ -153,21 +153,22 @@ the project's own role at opus / high. Without `.claude/agents/` nothing changes
 ### capacity
 The capacity guard (`scripts/capacity-guard.cjs`, [hooks.md](hooks.md#capacity-guardcjs)) keeps an idle lead working.
 Off by default. `enabled` (false): switch the hook on. `agents` (3): the ceiling; Stop demands more work while the
-lead has fewer running agents (subagents, teammates and herdr workers). `cpuStartPct` (60): demand work only while
+lead has fewer running agents (subagents, teammates and terminal workers of `hc` or `herdr`). `cpuStartPct` (60): demand work only while
 the average CPU is below it. `minFreeRamGb` (4): and free RAM is at least this. `weeklyCapPct` (0 = off): at this
 share of the weekly limit no new agents are demanded. `agentsOverPace` (0 = off): while the weekly use is above
 `weeklyCapPct` times the elapsed share of the week, demand work only below this many agents. `idleMarker` (`Idle:`):
-a line starting with it and a reason lets the turn end. `leadNamePrefix` (`lead-`): herdr panes with this name
+a line starting with it and a reason lets the turn end. `leadNamePrefix` (`lead-`): herdr panes and hc terminals with this name
 prefix are lead sessions and are not counted as workers (empty: none excluded).
 
 ## Environment variables
-- `GHORC_ROLE`: optional. Empty on a main session means `lead`. `worker` marks a herdr worker (no lead reminder, heavy
+- `GHORC_ROLE`: optional. Empty on a main session means `lead`. `worker` marks a terminal worker (no lead reminder, heavy
   commands denied, reminder-only context guard). For a herdr tab set it with `herdr tab create --env GHORC_ROLE=worker`,
-  not before `herdr agent start` (it would not reach the session). `lead` switches on the strict mode (`leadNoMedia`, `heavyGuard.requireLeadEnv`) and is required for
+  not before `herdr agent start` (it would not reach the session); with `hc run` (no `--env`) put `env GHORC_ROLE=worker`
+  in front of the program. `lead` switches on the strict mode (`leadNoMedia`, `heavyGuard.requireLeadEnv`) and is required for
   `handoff.stickyOnCompact`. The value is trimmed and lowercased (`Worker` is `worker`).
 - `GHORC_TMP`: overrides the state directory `<tmp>/ghorc-<user>`.
 - `GHORC_NO_AUTOSTART=1`: SessionStart never starts the watchdog.
-- `GHORC_CAPACITY_CPU_PCT`, `GHORC_CAPACITY_FREE_GB`, `GHORC_CAPACITY_HERDR_JSON`, `GHORC_CAPACITY_LEDGER`,
+- `GHORC_CAPACITY_CPU_PCT`, `GHORC_CAPACITY_FREE_GB`, `GHORC_CAPACITY_HERDR_JSON`, `GHORC_CAPACITY_HC_JSON`, `GHORC_HC_BIN`, `GHORC_HERDR_BIN`, `GHORC_CAPACITY_LEDGER`,
   `GHORC_CAPACITY_SAMPLE_MS`: test seams of the capacity guard ([hooks.md](hooks.md#capacity-guardcjs)).
 - `GHORC_SESSION`: the session id `heavy-slot.cjs run` writes into its claim (also read by `ctx.cjs`); without it
   `CLAUDE_CODE_SESSION_ID` is used.

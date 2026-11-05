@@ -9,7 +9,7 @@ ghorc installs Claude Code hooks, so here is exactly what they do and do not do.
   denies a tool call when a read budget is exceeded (repeated reads, PDF pages, image bytes, screenshots).
 - `heavy-check-guard.cjs` (PreToolUse on `Bash|PowerShell`): denies commands that match `heavyCommands` patterns, and
   a few built-in ones for subagents (`claude -p`, `herdr agent start|prompt|send-keys`,
-  `herdr pane run|send-keys|send-text`).
+  `herdr pane run|send-keys|send-text`, `hc run|exec|keys|interrupt`, `hc send` except to the own parent).
 - `session-start.cjs` (SessionStart): prints a short reminder and may start the transcript watchdog in the background.
 - Deny decisions are rule-based and carry a reason; the hooks never rewrite a command or a file.
 

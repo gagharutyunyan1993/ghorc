@@ -7,7 +7,7 @@ const { load, projectRoot } = require('./lib/config.cjs');
 const tmp = require('./lib/tmp.cjs');
 const cg = require('./lib/ctxguard.cjs');
 const { isWorker, isLead } = require('./lib/role.cjs');
-const { matches, HERDR_AGENT_START } = require('./lib/cmd.cjs');
+const { matches, AGENT_START } = require('./lib/cmd.cjs');
 const { unpushed, pending, originDefaultBranch } = require('./lib/unpushed.cjs');
 
 if (process.argv.includes('--help')) {
@@ -19,8 +19,8 @@ if (process.argv.includes('--help')) {
       'packages"; ctxHandoff - handoff mode. Handoff mode is kept by a flag file ' +
       '<tmp>/ghorc-<user>/handoff-<session_id>.json written at the first crossing of ctxHandoff. In handoff mode ' +
       'PreToolUse denies Agent/Task and Edit/Write/NotebookEdit outside handoff.statePath and handoff.handoffPath ' +
-      '(Bash, Read, SendMessage, MCP tools stay allowed); with handoff.pushGuard true it also denies `herdr agent ' +
-      'start` while a branch named in STATE in_flight is ahead of or missing on origin. Stop blocks the lead until ' +
+      '(Bash, Read, SendMessage, MCP tools stay allowed); with handoff.pushGuard true it also denies `herdr agent start` and `hc run ... claude` ' +
+      'while a branch named in STATE in_flight is ahead of or missing on origin. Stop blocks the lead until ' +
       'handoff.statePath is newer than the flag, at most 2 times, never when stop_hook_active. ' +
       'handoff.stickyOnCompact (default false) switches on the sticky mode: any compaction (SessionStart with source ' +
       'compact) also writes the flag, the flag is cleared only when HANDOFF.md (handoff.handoffPath) has ' +
@@ -70,7 +70,7 @@ function pushGuardCheck(input, cwd, statePath) {
   try {
     const command = input.tool_input && input.tool_input.command;
     if (typeof command !== 'string') return null;
-    if (!matches(command, [HERDR_AGENT_START], { powershell: input.tool_name === 'PowerShell' })) return null;
+    if (!matches(command, AGENT_START, { powershell: input.tool_name === 'PowerShell' })) return null;
     const branches = cg.inFlightBranches(statePath);
     if (!branches || !branches.length) {
       return {
