@@ -217,6 +217,19 @@ file mtime and size in `<tmp>/ghorc-<user>/config-valid.json`.
 only (no `agent_id`, not `GHORC_ROLE=worker`). A worker session gets a reminder only. The compaction entry is inert
 unless `handoff.stickyOnCompact` is true.
 
+**Proven lead.** "The lead" for a block is the proven lead (`provenLead` in `scripts/lib/role.cjs`): `GHORC_ROLE=lead`
+is yes and `GHORC_ROLE=worker` is never (neither asks anything). With no role the terminal must prove it: on hc `hc get <id>`
+shows a terminal named with `capacity.leadNamePrefix` (default `lead-`) or one without a parent; on herdr this session's agent
+name starts with the prefix without its dash. The backend is chosen by `backend.prefer` when both are present. The lookup is
+asked lazily, only where the answer matters (a compaction, a compaction-only flag, Stop with a flag), takes at most 1.5 s
+(`GHORC_TOOL_TIMEOUT_MS`) and never throws; a missing tool, a timeout or an answer that does not look like this
+terminal means "not proven", i.e. not blocked. A roleless lead on hc/herdr is therefore blocked in sticky mode now.
+
+**Session root.** `STATE.md` and `HANDOFF.md` (`handoff.statePath` / `handoffPath`) are resolved against the root of the
+session's own work tree (`sessionRoot` in `scripts/lib/root.cjs`): inside a linked git worktree that is the worktree's top
+level, so a lead branch hands over from its own worktree; in a plain checkout, without git, or with `CLAUDE_PROJECT_DIR`
+it is the project root as before. The ctx files, flags and watchdog alerts stay under the project root.
+
 **What it does.** See [handoff.md](handoff.md#the-context-guard): stage lines at `ctxPrepare` / `ctxWarn`; handoff mode
 at `ctxHandoff` (flag; denies a new Agent and edits outside STATE/HANDOFF; Stop blocks until STATE is newer, at most 2
 times). With `handoff.stickyOnCompact` also after any compaction (the flag is cleared only by HANDOFF `status: SENT`
@@ -234,7 +247,9 @@ only warns. The flag and its throttle state live in `<tmp>/ghorc-<user>`; a deny
 `capacity.enabled: true` ([configuration.md](configuration.md#capacity)) it prints nothing and writes nothing.
 It acts for the lead only (no `agent_id`, not `GHORC_ROLE=worker`); SubagentStart/Stop only feed the ledger.
 Stop is silent when the last answer has no text (the field is missing or not a string), when `HANDOFF.md` says
-`status: SENT` for this session (the old lead goes idle) and while the handoff flag of the context guard is set.
+`status: SENT` for this session (the old lead goes idle) and while the handoff flag of the context guard is set. A compaction-only flag
+(`handoff.stickyOnCompact`) silences Stop for the proven lead only (see context-guard.cjs); a flag set by the token
+numbers silences it for every session.
 
 **What it does.**
 - Stop returns the turn once (never when `stop_hook_active`) when agents < `capacity.agents` AND average CPU <
