@@ -15,9 +15,9 @@ const cg = require('./lib/ctxguard.cjs');
 const { load } = require('./lib/config.cjs');
 
 // Autocompact must fire ABOVE ctxHandoff, or a compaction drops the counter before the context guard reacts.
-// Recommended: ctxHandoff + 20K tokens as a share of the window, rounded up (1M window: 17). A value that
+// Recommended: ctxHandoff + 35K tokens as a share of the window, rounded up (1M window: 19). A value that
 // compacts at or below ctxHandoff is wrong; one that compacts more than 50K above it is too late.
-const PCT_MARGIN = 20000;
+const PCT_MARGIN = 35000;
 const PCT_MAX_OVER = 50000;
 const WINDOW_DEFAULT = 1000000;
 

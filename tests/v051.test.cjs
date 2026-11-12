@@ -103,7 +103,7 @@ test('R13: setup --project works with a broken global settings.json (warning onl
     const ap = setupOut(['--apply', 'pct', '--project', '--cwd', proj], env);
     assert.doesNotMatch(ap, /ERROR/);
     const local = JSON.parse(fs.readFileSync(path.join(proj, '.claude', 'settings.local.json'), 'utf8'));
-    assert.equal(local.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE, '17');
+    assert.equal(local.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE, '19');
     assert.equal(fs.readFileSync(path.join(home, '.claude', 'settings.json'), 'utf8'), '{ not json', 'the global file is untouched');
     const glob = setupOut(['--apply', 'pct', '--cwd', proj], env);
     assert.match(glob, /ERROR: .*not valid JSON/);

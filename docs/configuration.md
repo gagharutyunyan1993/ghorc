@@ -106,8 +106,9 @@ Lead context in tokens, enforced by the context guard hook (`scripts/context-gua
 handoff, take no new packages". `ctxHandoff` (150000): handoff mode - no new agent, edits only to `handoff.statePath`
 and `handoff.handoffPath`, Stop blocks until STATE is newer than the flag (at most 2 times; skill `ghorc:handoff`).
 With `handoff.stickyOnCompact` a compaction starts the same mode too, whatever the token numbers say. Set
-autocompact above `ctxHandoff` (`/ghorc:setup` item `pct`), otherwise a compaction resets the counter before the
-guard reacts.
+autocompact at `ctxHandoff` + 35K or a little above, never at or below `ctxHandoff` (`/ghorc:setup` item `pct`
+recommends `ctxHandoff` + 35K as a share of the window, rounded up; 1M window: 19%), otherwise a compaction
+resets the counter before the guard reacts.
 
 ### lead
 `model` (`opus`) and `effort` (`medium`): used by `/ghorc:handoff` for the candidate and by `/ghorc:setup`. Effort precedence: env `CLAUDE_CODE_EFFORT_LEVEL` > per-call `effort` > role frontmatter > session; keep the variable unset and pass `effort` on every Agent call. Global advice: no top-level `effortLevel` in `~/.claude/settings.json`; per-model medium for sonnet-5.5 and opus-5.5.
