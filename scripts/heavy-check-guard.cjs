@@ -58,7 +58,29 @@ run((input) => {
   }
   if (!matches(command, configured, ps)) return;
 
-  if (sub) return deny('only the lead runs heavy checks.');
+  if (sub) {
+    // heavyGuard.agentsWhenFree (default false = only the lead): with slots on, an agent may start a heavy check while a slot is
+    // free and is denied only when all are taken. A claim of the parent session is not "its own" for an agent. Any read problem
+    // lets the command through, like the lead's hint (heavy-slot.cjs still holds the lock).
+    if (cfg.heavyGuard && cfg.heavyGuard.agentsWhenFree === true) {
+      let sc = null;
+      try {
+        sc = slots.slotConfig(cfg);
+      } catch {
+        /* falls to the plain deny below */
+      }
+      if (sc && sc.slots > 0) {
+        try {
+          const p = slots.plan(sc, '\0agent');
+          if (!p.ok) return deny(`heavy-check slots are full (heavyGuard.agentsWhenFree): ${p.message}. Wait for a slot (node scripts/heavy-slot.cjs status).${sc.warning ? ` Note: ${sc.warning}.` : ''}`);
+        } catch {
+          /* fail open */
+        }
+        return;
+      }
+    }
+    return deny('only the lead runs heavy checks.');
+  }
   if (cfg.heavyGuard && cfg.heavyGuard.requireLeadEnv && !isLead()) {
     return deny('only the lead runs heavy checks (GHORC_ROLE=lead is not set).');
   }
