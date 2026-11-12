@@ -136,7 +136,7 @@ on `origin` (`node scripts/unpushed.cjs [--branches a,b]` lists them: local refs
 turn until then (a repeat block within 60 s passes). A flag caused by a compaction denies and blocks only a session
 with `GHORC_ROLE=lead`, or a session without `GHORC_ROLE` whose terminal proves it is a lead: on `hc`
 (`hc get <own id>`) the terminal name starts with `capacity.leadNamePrefix` or the terminal has no parent; on `herdr`
-(`herdr agent list`) the tab label starts with that prefix without its trailing dash (`lead`). `GHORC_ROLE=worker` is
+(`herdr agent list`) the tab label starts with that prefix as configured (`lead-` matches `lead-next45`, not `leaderboard-ui`). `GHORC_ROLE=worker` is
 never a lead, whatever the tab is called. A lookup that fails, is slow (about 1.5 s at most) or finds no backend proves
 nothing and the session gets the reminder only; the lookup runs only when `GHORC_ROLE` does not answer. Every other
 session (a worker, or one that is not proven) gets a reminder only. Leads started by the owner should still run with

@@ -721,7 +721,7 @@ test('N6: a compaction after a crossing, or of a 0.7.0 flag, keeps the flag enfo
 
 test('N7: SKILL.md states the sticky qualifier, exit 2 / cannot tell and the lead role; session-start warns about a roleless sticky session', () => {
   const skill = fs.readFileSync(path.join(__dirname, '..', 'skills', 'handoff', 'SKILL.md'), 'utf8');
-  assert.match(skill, /With `handoff\.stickyOnCompact` and `GHORC_ROLE=lead`, Stop blocks you until/);
+  assert.match(skill, /With `handoff\.stickyOnCompact` and a proven lead, Stop blocks you until/);
   assert.match(skill, /at most 2 blocks, released once STATE is newer/);
   assert.match(skill, /Exit 2 .*"cannot tell"/);
   assert.doesNotMatch(skill, /optional, a plain main session is the lead\)/);

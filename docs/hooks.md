@@ -220,15 +220,21 @@ unless `handoff.stickyOnCompact` is true.
 **Proven lead.** "The lead" for a block is the proven lead (`provenLead` in `scripts/lib/role.cjs`): `GHORC_ROLE=lead`
 is yes and `GHORC_ROLE=worker` is never (neither asks anything). With no role the terminal must prove it: on hc `hc get <id>`
 shows a terminal named with `capacity.leadNamePrefix` (default `lead-`) or one without a parent; on herdr this session's agent
-name starts with the prefix without its dash. The backend is chosen by `backend.prefer` when both are present. The lookup is
+name starts with the prefix as configured (`lead-` matches `lead-next45`, not `leaderboard-ui`, `leads-export` or `leadtime`; a prefix configured without a dash matches `lead1`). The backend is chosen by `backend.prefer` when both are present. The lookup is
 asked lazily, only where the answer matters (a compaction, a compaction-only flag, Stop with a flag), takes at most 1.5 s
 (`GHORC_TOOL_TIMEOUT_MS`) and never throws; a missing tool, a timeout or an answer that does not look like this
 terminal means "not proven", i.e. not blocked. A roleless lead on hc/herdr is therefore blocked in sticky mode now.
+Known limits: on `hc` a terminal without a parent counts as a proven lead (an owner-opened helper session, or a `claude`
+started inside the lead's terminal, is blocked as the lead), and the `hc get` output shape was not verified against a live
+herdr-app. With both backends present and a dead preferred backend the lookup may exceed the hook timeout; then the guard
+fails open (no block).
 
 **Session root.** `STATE.md` and `HANDOFF.md` (`handoff.statePath` / `handoffPath`) are resolved against the root of the
 session's own work tree (`sessionRoot` in `scripts/lib/root.cjs`): inside a linked git worktree that is the worktree's top
-level, so a lead branch hands over from its own worktree; in a plain checkout, without git, or with `CLAUDE_PROJECT_DIR`
-it is the project root as before. The ctx files, flags and watchdog alerts stay under the project root.
+level, so a lead branch hands over from its own worktree. When `CLAUDE_PROJECT_DIR` is set it is that directory, whatever
+the cwd has drifted into (a lead started in the main checkout that `cd`s into a linked worktree still edits and releases
+`<main>/HANDOFF.md`); in a plain checkout or without git it is the project root. `capacity-guard.cjs` reads HANDOFF.md
+through the same helper. The ctx files, flags and watchdog alerts stay under the project root.
 
 **What it does.** See [handoff.md](handoff.md#the-context-guard): stage lines at `ctxPrepare` / `ctxWarn`; handoff mode
 at `ctxHandoff` (flag; denies a new Agent and edits outside STATE/HANDOFF; Stop blocks until STATE is newer, at most 2

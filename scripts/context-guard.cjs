@@ -30,7 +30,7 @@ if (process.argv.includes('--help')) {
       'per turn until then (never when stop_hook_active, and a repeat block within 60 s for the session passes), with a ' +
       'reason that has no token numbers. A flag caused by a compaction denies and blocks only a session with ' +
       'GHORC_ROLE=lead, or a roleless session whose terminal proves it is a lead (hc: the terminal name starts with ' +
-      'capacity.leadNamePrefix or it has no parent; herdr: the tab label starts with the prefix without its dash; a failed ' +
+      'capacity.leadNamePrefix or it has no parent; herdr: the tab label starts with the prefix as configured; a failed ' +
       'or slow lookup proves nothing); GHORC_ROLE=worker never; any other session gets a reminder only; a flag from crossing ctxHandoff ' +
       'reaches every main session that is not a worker. The reminder also goes to the model through the ' +
       'additionalContext of UserPromptSubmit. Without a ctx file, or with one older than 10 minutes, and without a ' +
