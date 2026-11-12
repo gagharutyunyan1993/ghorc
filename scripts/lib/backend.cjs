@@ -234,9 +234,9 @@ function hcIsLead(env, run, leadPrefix, ms) {
 }
 
 // herdr: the agent of this session in the text of `herdr agent list` has a name (the tab label) that starts with the lead
-// prefix without its trailing dash (`lead-` -> `lead`).
+// prefix as configured (`lead-` does not match `leaderboard-ui`; a prefix without a dash, `lead`, matches `lead1`).
 function herdrIsLead(raw, session, leadPrefix) {
-  const prefix = String(leadPrefix == null ? 'lead-' : leadPrefix).toLowerCase().replace(/-+$/, '');
+  const prefix = String(leadPrefix == null ? 'lead-' : leadPrefix).toLowerCase();
   if (!prefix || !session) return false;
   const list = JSON.parse(raw).result.agents;
   return (

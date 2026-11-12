@@ -164,18 +164,20 @@ test('provenLead on hc: name with the lead prefix or no parent; everything else,
   assert.equal(ask(execHc(hcGet({ address: 't5', name: 'lead-x' })), {}), false, 'no backend at all');
 });
 
-test('provenLead on herdr: the tab label of this session starts with the prefix without its dash', () => {
+test('provenLead on herdr: the tab label of this session starts with the configured prefix, dash included', () => {
   const env = { HERDR_ENV: '1' };
   const mk = (agents) => () => HERDR_LIST(agents);
   const lead = (agents, extra = {}) => role.provenLead({ env, exec: mk(agents), session: 's1', ...extra });
   assert.equal(lead([agent('lead-h12', 's1')]), true);
-  assert.equal(lead([agent('lead', 's1')]), true, 'the bare prefix without dash');
-  assert.equal(lead([agent('leader-x', 's1')]), true, 'starts with lead');
+  assert.equal(lead([agent('lead-next45', 's1')], { leadPrefix: 'lead-' }), true, 'next45');
+  for (const name of ['leaderboard-ui', 'leads-export', 'leadtime', 'lead']) assert.equal(lead([agent(name, 's1')], { leadPrefix: 'lead-' }), false, `${name} is not a lead with the prefix lead-`);
+  for (const name of ['lead1', 'leadtime', 'lead-x']) assert.equal(lead([agent(name, 's1')], { leadPrefix: 'lead' }), true, `${name} with the dashless prefix lead`);
+  assert.equal(lead([agent('Lead-X', 's1')]), true, 'case-insensitive');
   assert.equal(lead([agent('impl', 's1'), agent('lead-x', 's2')]), false, 'another session is the lead');
   assert.equal(lead([agent('impl', 's1')]), false);
   assert.equal(lead([agent('lead-x', 's1')], { session: '' }), false, 'no session id: nothing to match');
   assert.equal(lead([agent('lead-x', 's1')], { leadPrefix: '' }), false);
-  assert.equal(lead([agent('lead-x', 's1')], { leadPrefix: '-' }), false, 'a prefix that is only a dash');
+  assert.equal(lead([agent('lead-x', 's1')], { leadPrefix: '-' }), false, 'a prefix that is only a dash matches no tab name');
   assert.equal(role.provenLead({ env, exec: () => 'not json', session: 's1' }), false);
   assert.equal(role.provenLead({ env, exec: () => { throw Object.assign(new Error('x'), { code: 'ETIMEDOUT' }); }, session: 's1' }), false);
   assert.equal(role.provenLead({ env: { ...env, GHORC_ROLE: 'worker' }, exec: mk([agent('lead-x', 's1')]), session: 's1' }), false);
