@@ -9,6 +9,7 @@
 const fs = require('node:fs');
 const { spawn, spawnSync } = require('node:child_process');
 const slots = require('./lib/slots.cjs');
+const runcmd = require('./lib/runcmd.cjs');
 const { load } = require('./lib/config.cjs');
 const { gitTimedOut, GIT_TIMEOUT_MS } = require('./lib/root.cjs');
 
@@ -24,7 +25,8 @@ if (ownArgs.includes('--help') || ownArgs.includes('-h') || !cmdName) {
     'heavy-slot.cjs run [--label <text>] [--session <id>] [--minutes <n>] -- <command...>\n' +
       '  Takes a heavy-check slot (heavySlots in .claude/ghorc.json), runs the command, passes its exit code, releases the\n' +
       '  slot. Exit 75: no free slot (the message names the holder, its label and age). slots = 0: runs the command as is.\n' +
-      '  The command is an argument list (no shell) or one string with spaces (run by the shell).\n' +
+      '  The command is an argument list (no shell) or one string with spaces (run by the shell). On Windows a .cmd/.bat\n' +
+      '  first word (npm.cmd) runs through cmd.exe with each argument quoted; one that cannot be quoted safely (a " or %) is refused.\n' +
       '  The session defaults to --session, $GHORC_SESSION, $CLAUDE_CODE_SESSION_ID, else pid-<parent pid>.\n' +
       '  --minutes <n>: how long the check should take; status reports a claim past it (it is not removed).\n' +
       'heavy-slot.cjs status                    slots, holders, free RAM\n' +
@@ -58,13 +60,12 @@ function status(sc) {
 }
 
 // One string with whitespace that is not an existing file: a shell line. Anything else: the argument list, no shell. A
-// .cmd/.bat argument list on Windows is refused (deferred to 0.8.1): the caller gets a throw before any slot is taken.
+// .cmd/.bat argument list on Windows runs through cmd.exe with every argument quoted by lib/runcmd.cjs; an argument that cannot
+// be quoted safely makes launchPlan throw, before any slot is taken.
 function launchPlan(command, win = process.platform === 'win32') {
   const [word, ...rest] = command;
   if (command.length === 1 && /\s/.test(word) && !fs.existsSync(word)) return { file: word, args: [], options: { shell: true } };
-  if (win && /\.(?:cmd|bat)$/i.test(word)) {
-    throw new Error(`a .cmd/.bat in an argument list is deferred to 0.8.1: give the whole command as one string (run -- "${command.join(' ')}")`);
-  }
+  if (win && runcmd.isBatch(word)) return runcmd.plan(command);
   return { file: word, args: rest, options: {} };
 }
 
@@ -146,7 +147,7 @@ function run(sc) {
     free();
     const hint =
       win && e.code === 'ENOENT'
-        ? ` (on Windows a .cmd/.bat such as npm is not found in an argument list: give the whole command as one string, run -- "${command.join(' ')}")`
+        ? ` (on Windows a bare npm is not found in an argument list: write npm.cmd, or give the whole command as one string, run -- "${command.join(' ')}")`
         : '';
     console.error(`heavy-slot.cjs: cannot run "${command[0]}": ${e.message}${hint}`);
     process.exit(127);

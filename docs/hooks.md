@@ -67,6 +67,11 @@ plugin (`claude plugin disable ghorc@ghorc`).
   early hint; the lock itself is `scripts/heavy-slot.cjs` (below).
 - A command matching `heavyCommands` is denied when a subagent or a `GHORC_ROLE=worker` session runs it. The lead
   runs it freely, unless `heavyGuard.requireLeadEnv` is true and the session lacks `GHORC_ROLE=lead`.
+- `heavyGuard.agentsWhenFree` (default false): with `true` and `heavySlots.slots` above 0, a subagent or worker may start
+  a heavy command while a slot is free, and is denied only when every slot holds a live claim (the text says
+  "heavy-check slots are full" and names the holders). Unlike the lead, an agent is never exempted by a claim of its own
+  parent session. With slots off the key does nothing: agents stay denied. `requireLeadEnv` does not apply to agents then.
+  The lock is still `heavy-slot.cjs`: an agent should start its check through it.
 - If `.claude/ghorc.json` is invalid (JSON error, wrong type, bad regex), it denies every heavy command for everyone,
   the lead too, using the valid configured patterns plus a built-in default list, and says why.
 - With no project config, or an empty `heavyCommands` (the default), it denies nothing except the agent starts above.
@@ -126,11 +131,15 @@ node "<plugin>/scripts/heavy-slot.cjs" release --session <id>
 - The command is one of two things. An argument list (no shell: `--` `git` `status` reaches `git` as written, `&&` is
   an argument), or one string with spaces (`-- "npm run a && npm run b"`), which the shell runs (`sh -c`, `cmd /c`). A
   single word that is an existing file (`"/opt/my dir/tool"`) is a program path, not a shell line. On Windows an
-  argument list whose first word ends in `.cmd` or `.bat` (case does not matter) is refused: exit 2, nothing runs, no
-  slot taken, and the message says to give the whole command as one string (`run -- "npm test"`). That includes
-  `npm.cmd` and `.\x.cmd`; a bare `npm` in an argument list is not found on Windows (exit 127, with the same hint).
-  Running a `.cmd`/`.bat` with separate arguments is not done (not in 0.9.0 either). A command that cannot start ends with a message
-  and a non-zero exit, and the slot is released. The hook blanks quoted text before it matches, so it does not read
+  argument list whose first word ends in `.cmd` or `.bat` (case does not matter) runs through
+  `cmd.exe /d /s /v:off /c` with the arguments still separate: `run -- npm.cmd run test`, `run -- .\x.cmd "a b"`. Each
+  argument made of `A-Z a-z 0-9 _ - . : \ / + @` is written as it is; any other argument is wrapped in double quotes, so
+  `& | < > ^ ( ) ; , = !` and spaces are plain text and arrive as one argument, never as a second command. An argument
+  that cannot be quoted safely is refused: exit 2, nothing runs, no slot taken, and the message names the argument and
+  says to give the whole command as one string. Refused: a double quote and a percent sign (cmd.exe expands `%NAME%`
+  inside quotes and has no escape for `"`), a line break, and an argument that needs quotes and ends in a backslash. A
+  bare `npm` in an argument list is not found on Windows (exit 127): write `npm.cmd`. A command that cannot start ends
+  with a message and a non-zero exit, and the slot is released. The hook blanks quoted text before it matches, so it does not read
   inside a quoted one-string command; the wrapper still takes the lock.
 - The session of the claim is `--session`, else `$GHORC_SESSION`, else `$CLAUDE_CODE_SESSION_ID` (Claude Code sets it
   in the environment of the shell tools, and it equals the `session_id` the hook receives), else `pid-<parent pid>`.
@@ -183,6 +192,19 @@ that opens the heredoc and everything after the terminator are matched as usual,
 nothing. For the PowerShell tool and `powershell`/`pwsh` wrappers the command is also read with PowerShell quoting
 (a backtick escapes, a backslash is plain text, so `cd "D:\a\"; npm test` still exposes `npm test`); a segment found
 either way counts.
+
+Since this version the matcher also reads forms that the plain cut missed (ported from a project classifier; each only
+adds matches). Text sent to a shell on stdin is a script: `bash <<EOF ... EOF`, `cat <<EOF | bash`, `echo 'npm test' | sh`;
+`echo test | xargs npm` runs `npm test`. A program is read without its directory and `.cmd`/`.exe`/`.bat`/`.ps1`/`.com`
+(`C:\x\npm.cmd test`, `./node_modules/.bin/vitest run`), also in quotes (`& "C:\Program Files\nodejs\npm.cmd" test`,
+`"npm" test`) and with glued quotes or escapes (`np""m`, `npm "test"`, `n\pm`). A backslash or backtick at the end of a
+line continues the command. Also peeled: shell keywords (`if`, `then`, `do`, `while`, `!`), a PowerShell assignment
+(`$x = npm test`), a redirection in front (`> out npm test`), `@`, `wsl`, `corepack`, `cross-env`, `eval "..."`,
+`env -S "..."`, `gtimeout`, `cmd /r`, `sh -ec`, `ksh`, a bare `powershell "npm test"` and `-EncodedCommand`;
+`Start-Process`/`saps` with a quoted path or positional arguments; `npm t`/`tst`, `npm exec|x`, `npx -y|-p x|-c "..."`
+and `node .../node_modules/vitest/vitest.mjs`. A command text that cannot be read is matched as before: this never
+throws and never denies more because of a parse failure. Still open: a program in a variable (`& $npm test`), `iex $x`,
+a script file or `node -e` that runs the check inside.
 
 It prints `config: <path>`, any `ERROR:` lines (invalid JSON, unknown key, wrong type, bad regex) and, per sample,
 `HEAVY (<pattern>)` or `ordinary`. On a config error SessionStart prints one `config invalid:` line and the heavy guard
