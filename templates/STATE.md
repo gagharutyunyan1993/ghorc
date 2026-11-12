@@ -1,4 +1,4 @@
-# STATE (40-80 lines; details live in files, link them here)
+# STATE (at most 8192 bytes; details live in files, link them here)
 Updated: <date, time>   Session: <session_id>   seq: <N, +1 on every write>   handoff_id: <id or none>
 
 ## Package, stage, next step
