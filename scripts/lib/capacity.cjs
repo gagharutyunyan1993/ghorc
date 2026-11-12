@@ -30,6 +30,8 @@ function settings(cfg) {
     minFreeRamGb: num(c.minFreeRamGb, 4),
     weeklyCapPct: num(c.weeklyCapPct, 0),
     agentsOverPace: num(c.agentsOverPace, 0),
+    weeklyAgentsStepPct: num(c.weeklyAgentsStepPct, 0),
+    weeklyNoNewPct: num(c.weeklyNoNewPct, 0),
     idleMarker: text(c.idleMarker, 'Idle:').trim() || 'Idle:',
     leadNamePrefix: text(c.leadNamePrefix, 'lead-'),
   };
@@ -378,13 +380,19 @@ function weekState(raw, s, nowMs = Date.now()) {
   const resetsAt = finite(raw.resetsAt) ? raw.resetsAt : null;
   const f = resetsAt === null ? 1 : Math.min(1, Math.max(0, (nowS - (resetsAt - WEEK_S)) / WEEK_S));
   const plan = s.weeklyCapPct * f;
+  const stale = Boolean(raw.other) || resetsAt === null || resetsAt <= nowS;
+  const capOn = s.weeklyCapPct > 0; // the steps may be set without the cap: then there is no cap and no pace
   return {
     used: raw.used,
     plan,
     f,
-    capped: raw.used >= s.weeklyCapPct,
-    overPace: s.agentsOverPace > 0 && raw.used > plan,
-    stale: Boolean(raw.other) || resetsAt === null || resetsAt <= nowS,
+    capped: capOn && raw.used >= s.weeklyCapPct,
+    overPace: capOn && s.agentsOverPace > 0 && raw.used > plan,
+    // the steps never act on stale data (another session's file, a past or missing resets_at): they are a ladder to the cap
+    // and a wrong rung would stop work for no reason; the cap itself keeps its old behaviour
+    stepped: !stale && s.weeklyAgentsStepPct > 0 && s.agentsOverPace > 0 && raw.used >= s.weeklyAgentsStepPct,
+    noNew: !stale && s.weeklyNoNewPct > 0 && raw.used >= s.weeklyNoNewPct,
+    stale,
   };
 }
 
@@ -395,6 +403,12 @@ function weekNote(w, s) {
   if (!w) return null;
   const stale = w.stale ? ' (stale)' : '';
   if (w.capped) return `WEEKLY CAP: no new agents (used ${pct(w.used)}% >= ${pct(s.weeklyCapPct)}%)${stale}; only merge what is ready.`;
+  if (w.noNew) {
+    return `Weekly step ${pct(s.weeklyNoNewPct)}%: used ${pct(w.used)}%; no new packages, only finish and merge what is in flight${s.weeklyCapPct > 0 ? ` (cap ${pct(s.weeklyCapPct)}%)` : ''}.`;
+  }
+  if (w.stepped) {
+    return `Weekly step ${pct(s.weeklyAgentsStepPct)}%: used ${pct(w.used)}%; at most ${s.agentsOverPace} agents${s.weeklyCapPct > 0 ? ` (cap ${pct(s.weeklyCapPct)}%)` : ''}.`;
+  }
   if (w.overPace) {
     return `Weekly pace: used ${pct(w.used)}% > plan ${pct(w.plan)}% (cap ${pct(s.weeklyCapPct)}%)${stale}; at most ${s.agentsOverPace} agents.`;
   }
@@ -414,8 +428,8 @@ function stopDecision(input, s, ctx) {
   if (idleReasonGiven(input.last_assistant_message, s.idleMarker)) return null;
   const { agents, workers, week } = ctx;
   if (agents === null) return null; // unknown: do not interfere
-  if (week && week.capped) return null;
-  const cap = week && week.overPace ? Math.min(s.agents, s.agentsOverPace) : s.agents;
+  if (week && (week.capped || week.noNew)) return null; // noNew: no new packages, so no "underloaded" demand either
+  const cap = week && (week.overPace || week.stepped) ? Math.min(s.agents, s.agentsOverPace) : s.agents;
   if (agents >= cap) return null;
   const freeGb = ctx.freeGb();
   if (freeGb === null || freeGb < s.minFreeRamGb) return null;

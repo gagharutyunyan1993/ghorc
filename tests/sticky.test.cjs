@@ -721,16 +721,16 @@ test('N6: a compaction after a crossing, or of a 0.7.0 flag, keeps the flag enfo
 
 test('N7: SKILL.md states the sticky qualifier, exit 2 / cannot tell and the lead role; session-start warns about a roleless sticky session', () => {
   const skill = fs.readFileSync(path.join(__dirname, '..', 'skills', 'handoff', 'SKILL.md'), 'utf8');
-  assert.match(skill, /With `handoff\.stickyOnCompact` and `GHORC_ROLE=lead`, Stop blocks you until/);
+  assert.match(skill, /With `handoff\.stickyOnCompact` and a proven lead, Stop blocks you until/);
   assert.match(skill, /at most 2 blocks, released once STATE is newer/);
   assert.match(skill, /Exit 2 .*"cannot tell"/);
   assert.doesNotMatch(skill, /optional, a plain main session is the lead\)/);
   assert.match(skill, /created with `--env GHORC_ROLE=lead`/);
   const startWith = (cfg, role) =>
     runScript('session-start.cjs', { hook_event_name: 'SessionStart', session_id: sid(), cwd: tmpProject(cfg) }, { env: { GHORC_NO_AUTOSTART: '1', ...(role ? { GHORC_ROLE: role } : {}) } }).out;
-  assert.match(startWith(STICKY), /stickyOnCompact is on, but GHORC_ROLE is not set.*no enforcement until GHORC_ROLE=lead/);
-  assert.doesNotMatch(startWith(STICKY, 'lead'), /no enforcement/);
-  assert.doesNotMatch(startWith({}), /no enforcement/);
+  assert.match(startWith(STICKY), /stickyOnCompact is on, but GHORC_ROLE is not set.*applies only to a proven lead.*otherwise set GHORC_ROLE=lead/);
+  assert.doesNotMatch(startWith(STICKY, 'lead'), /enforced only/);
+  assert.doesNotMatch(startWith({}), /enforced only/);
 });
 
 test('statusline prints the role through the helper: trimmed and lowercased', () => {

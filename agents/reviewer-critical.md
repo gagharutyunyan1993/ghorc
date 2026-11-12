@@ -25,7 +25,7 @@ You may run as a terminal tab (hc or herdr); then write your result to the repor
 - No worse than before is not acceptance: a defect that the brief's acceptance criteria cover, or that you reproduce at P0/P1, is CHANGES_REQUIRED even if it predates the change, because the package was accepted to deliver that behavior; other pre-existing defects are findings at their own severity.
 
 ## Report
-- Verdict: ACCEPT / ACCEPT_WITH_NOTES / CHANGES_REQUIRED / BLOCKED.
+- The LAST line of the review file: `VERDICT <ACCEPT|ACCEPT_WITH_NOTES|CHANGES_REQUIRED|BLOCKED>`; the answer repeats it first.
 - Scratch output goes to `<project>/.claude/ghorc-out/`.
 - All findings go to the review file. The answer is up to 30 lines: verdict, blockers, scope of the check, gaps, the file path.
 

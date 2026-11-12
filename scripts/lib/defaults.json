@@ -17,7 +17,8 @@
     "maxScreenshots": 60
   },
   "heavyGuard": {
-    "requireLeadEnv": false
+    "requireLeadEnv": false,
+    "agentsWhenFree": false
   },
   "heavySlots": {
     "slots": 0,
@@ -52,6 +53,12 @@
   "review": {
     "maxFixRounds": 2
   },
+  "backend": {
+    "prefer": "hc"
+  },
+  "worker": {
+    "permissionArgs": []
+  },
   "criticalPaths": [],
   "capacity": {
     "enabled": false,
@@ -60,6 +67,8 @@
     "minFreeRamGb": 4,
     "weeklyCapPct": 0,
     "agentsOverPace": 0,
+    "weeklyAgentsStepPct": 0,
+    "weeklyNoNewPct": 0,
     "idleMarker": "Idle:",
     "leadNamePrefix": "lead-"
   }

@@ -89,8 +89,9 @@ agents are namespaced by Claude Code, so they cannot collide with your own.
    file); attachments go as a file path to `ghorc:media`; PDFs are converted to text/PNG first. This is an
    instruction; the hook enforces it only with `GHORC_ROLE=lead`.
 10. The lead does not write package code, does not run checks synchronously, does not poll agents.
-11. The lead reads its context with `ctx.cjs --session <id>` at a stage boundary: 120K - refresh STATE; 150K - take
-    no new package, hand the shift over; 140K (`ctxWarn`) - prepare the handoff.
+11. The lead reads its context with `ctx.cjs --session <id>` at a stage boundary: `ctxPrepare` - refresh STATE;
+    `ctxWarn` - prepare the handoff, take no new package (no agents in flight: start the handoff at once);
+    `ctxHandoff` - hand the shift over.
 12. Do not pull large output in; if it was pulled in, the owner runs `/rewind`. The lead does not use `/clear`.
 13. In chat at most 25 lines; an agent report at most 25 lines (review at most 30); anything large goes to a file.
 14. A brief is one tagged structure: ordinary at most 500 words, critical review at most 800; over 200 lines is a
@@ -163,11 +164,11 @@ opus-5.5, so a call that omits effort never lands on low or high by accident.
 | 120K tokens | `thresholds.ctxPrepare` | refresh STATE at the next stage boundary |
 | 140K tokens | `thresholds.ctxWarn` (default `ctxHandoff` - 10K) | prepare the handoff; take no new package |
 | 150K tokens | `thresholds.ctxHandoff` | handoff mode: no new agent, edits only to STATE/HANDOFF; `/ghorc:handoff` |
-| 17 | `env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` | context fill percentage at which autocompaction runs |
+| 19 | `env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` | context fill percentage at which autocompaction runs |
 
 The token thresholds are enforced by the context guard hook for the lead ([handoff.md](handoff.md#the-context-guard)).
 The autocompact percentage is of the context window and must compact above `ctxHandoff`: `setup` recommends
-`ctxHandoff` + 20K as a share of the window, rounded up (17% of 1M is 170K; of 200K 85%); a value at or below
+`ctxHandoff` + 35K as a share of the window, rounded up (19% of 1M is 190K; of 200K 93%); a value at or below
 `ctxHandoff` is reported as wrong.
 
 ## Brief
@@ -229,7 +230,7 @@ not the conversation. While a background `full` runs, the lead waits for the not
 |---|---|---|
 | `statusLine` | `~/.claude/settings.json` | `node "<plugin>/scripts/statusline.cjs"`, `refreshInterval` 30 |
 | `statusLineStale` | `~/.claude/settings.json` | check only: older plugin-cache path; same fix as `statusLine` |
-| `pct` | global `settings.json`; `--project`: `settings.local.json` | `env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` = `"17"` (computed from `ctxHandoff` and the window) |
+| `pct` | global `settings.json`; `--project`: `settings.local.json` | `env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` = `"19"` (computed from `ctxHandoff` and the window) |
 | `idle` | `~/.claude/settings.json` | `idleCompaction` = `false` (no compaction while the lead waits) |
 | `model` (owner decision) | `~/.claude/settings.json` | `model` = `lead.model` |
 | `effort` (owner decision) | `~/.claude/settings.json` | `modelSettings.<lead model id>.effortLevel` = `lead.effort` (full id, e.g. `claude-opus-5-5`; no top-level `effortLevel`) |

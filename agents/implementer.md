@@ -20,13 +20,14 @@ You may run as a terminal tab (hc or herdr); then write your result to the repor
 - Do not widen the task with incidental refactoring.
 - Do not re-read the same file without edits between the reads.
 - Two failed fixes of the same cause in a row: stop guessing, return observations, hypotheses and the next step.
-- Aim to finish within ~80 calls, then commit and hand in. Do not treat `maxTurns` as a working budget.
+- Stop-loss: about 80 calls or 45 min, checkpoint at 50, stop after 12 calls without progress; then commit and hand in. Do not treat `maxTurns` as a working budget.
 - Money, recovery, migrations and files from `criticalPaths`: preserve the invariants and name them in the report.
 
 ## Report
 - Up to 25 lines. Everything large (logs, long diffs) goes to a file; the report gives the path.
-- Format: `STATUS: DONE | HANDOFF | BLOCKED`; SHA; behavior change; acceptance map; checks with command and output; unverified items; blockers; next step; suggestions.
+- Format: SHA; behavior change; acceptance map; checks with command and output; unverified items; blockers; next step; suggestions.
 - Acceptance map: one line per acceptance item from the brief, `PASS | FAIL | UNVERIFIED`, with the command or `file:line` that shows it.
+- The LAST line of the report file is `DONE <name>`, `BLOCKED <name>: <reason>` or `HANDOFF <name>` (`<name>` from the brief).
 - Do not return reasoning, only facts.
 - Reports, scratch and large outputs go to `<project>/.claude/ghorc-out/` (not into the conversation, not into tracked files).
 

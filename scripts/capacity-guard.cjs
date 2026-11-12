@@ -4,8 +4,9 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { run } = require('./lib/hook-io.cjs');
 const { load, projectRoot } = require('./lib/config.cjs');
+const { sessionRoot } = require('./lib/root.cjs');
 const cg = require('./lib/ctxguard.cjs');
-const { isWorker, isLead } = require('./lib/role.cjs');
+const { isWorker, provenLead } = require('./lib/role.cjs');
 const cap = require('./lib/capacity.cjs');
 
 if (process.argv.includes('--help')) {
@@ -18,7 +19,8 @@ if (process.argv.includes('--help')) {
       'the active terminal backend (scripts/lib/backend.cjs: hc -> `hc ls`, herdr -> `herdr agent list`, none -> 0; working/blocked, ' +
       'name not starting with capacity.leadNamePrefix, not this session; for hc also only terminals that have a parent). ' +
       'UserPromptSubmit adds "agents N/M, CPU X%, free Y GB". capacity.weeklyCapPct / agentsOverPace read ' +
-      'rate_limits.seven_day from the status line ctx files. Errors go to .claude/ghorc-out/capacity-guard.log; the hook ' +
+      'rate_limits.seven_day from the status line ctx files; weeklyAgentsStepPct (agent limit drops to agentsOverPace) and ' +
+      'weeklyNoNewPct (no new packages, no Stop block) are optional steps below the cap, never taken on stale data. Errors go to .claude/ghorc-out/capacity-guard.log; the hook ' +
       'fails open. Test seams: GHORC_CAPACITY_CPU_PCT, _FREE_GB, _HERDR_JSON, _HC_JSON, _LEDGER, _SAMPLE_MS.',
   );
   process.exit(0);
@@ -57,18 +59,24 @@ run((input) => {
 
     // weekly cap: null - the rule is on but there is no data; undefined - the rule is off
     let week;
-    if (s.weeklyCapPct > 0) {
+    if (s.weeklyCapPct > 0 || s.weeklyAgentsStepPct > 0 || s.weeklyNoNewPct > 0) {
       week = cap.weekState(cap.readWeekRaw(path.join(root, '.claude'), session), s);
       if (week === null) log('weekly cap: no rate_limits.seven_day in any ctx file, the weekly brake is off');
     }
 
     if (event === 'Stop') {
       if (input.stop_hook_active) return;
-      // handoff: the old lead must go idle (SENT), and in handoff mode context-guard demands the opposite of new work
-      const handoffPath = path.resolve(root, ((cfg && cfg.handoff) || {}).handoffPath || 'HANDOFF.md');
-      // a compaction-only flag (handoff.stickyOnCompact) binds the lead only: for any other session it is no flag
+      // handoff (HANDOFF.md at the session root, the same helper as context-guard): the old lead must go idle (SENT), and in handoff mode context-guard demands the opposite of new work
+      const handoffPath = path.resolve(sessionRoot(cwd), ((cfg && cfg.handoff) || {}).handoffPath || 'HANDOFF.md');
+      // a compaction-only flag (handoff.stickyOnCompact) binds the lead only: for any other session it is no flag. The lead
+      // is the proven one (role, else the terminal), asked only here, only for such a flag; a failed lookup is "not proven"
       const flag = cg.readFlag(session);
-      if (cg.handoffSentBy(handoffPath, session) || (flag && (isLead() || !cg.compactOnly(flag)))) return;
+      if (
+        cg.handoffSentBy(handoffPath, session) ||
+        (flag && (!cg.compactOnly(flag) || provenLead({ session, leadPrefix: s.leadNamePrefix, prefer: (cfg.backend || {}).prefer, cwd })))
+      ) {
+        return;
+      }
       const fromTasks = cap.agentsFromTasks(input.background_tasks, log);
       const mine = cap.readLedger(ledgerFile).filter((e) => e.session === session).length;
       if (!cap.anyAgentTaskInFlight(input.background_tasks) && mine > 0) {

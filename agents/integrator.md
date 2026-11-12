@@ -23,6 +23,6 @@ You may run as a terminal tab (hc or herdr); then write your result to the repor
 - Two failed fixes of the same cause: stop, put observations and a hypothesis in the report.
 
 ## Report
-- Up to 25 lines, large output to a file in `<project>/.claude/ghorc-out/`. `STATUS: DONE | BLOCKED`; SHA; what was resolved; checks with output; unverified items; next step.
+- Up to 25 lines, large output to a file in `<project>/.claude/ghorc-out/`. SHA; what was resolved; checks with output; unverified items; next step. The LAST line of the report file is `DONE <name>`, `BLOCKED <name>: <reason>` or `HANDOFF <name>` (`<name>` from the brief).
 
 Keep working until every item in `<you_own>` and `<steps>` is complete; do not stop to check in. Before reporting done, run a real check that exercises the change (a test, build or reproducible command; a type check alone is not one) and paste the command and result. If blocked, state the blocker, what you tried and the smallest next step. Do not add unrequested changes.

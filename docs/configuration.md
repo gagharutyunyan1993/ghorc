@@ -20,7 +20,7 @@ The project config is `<project>/.claude/ghorc.json`. `/ghorc:setup` copies a sh
     "mediaByteBudget": 8388608,
     "maxScreenshots": 60
   },
-  "heavyGuard": { "requireLeadEnv": false },
+  "heavyGuard": { "requireLeadEnv": false, "agentsWhenFree": false },
   "heavySlots": { "slots": 0, "minFreeRamGb": 0 },
   "thresholds": { "ctxPrepare": 120000, "ctxHandoff": 150000 },
   "lead": { "model": "opus", "effort": "medium", "remind": true },
@@ -39,6 +39,8 @@ The project config is `<project>/.claude/ghorc.json`. `/ghorc:setup` copies a sh
     "handoffPath": "HANDOFF.md"
   },
   "review": { "maxFixRounds": 2 },
+  "backend": { "prefer": "hc" },
+  "worker": { "permissionArgs": [] },
   "criticalPaths": [],
   "capacity": {
     "enabled": false,
@@ -80,6 +82,10 @@ project with `test` and `test:full` gets `test:full` proposed even when `npm tes
 ### heavyGuard
 `requireLeadEnv` (false): when true, heavy commands are also denied unless the process has `GHORC_ROLE=lead`.
 
+`agentsWhenFree` (false): when true and `heavySlots.slots` is above 0, a subagent or worker may start a heavy command while
+a slot is free and is denied only when all slots are taken ("heavy-check slots are full", with the holders). False keeps
+the rule that only the lead runs heavy checks. With `slots` 0 the key does nothing.
+
 ### heavySlots
 Limit on heavy checks running at once on the machine. Off by default.
 - `slots` (0): 0 = off, 1 to 8. A value above 8 is clipped to 8 with a warning (`heavy-slot.cjs status`, and in the
@@ -89,7 +95,7 @@ Limit on heavy checks running at once on the machine. Off by default.
 The lock is `scripts/heavy-slot.cjs run --label <text> -- <command>`; the heavy-check hook only denies early, when
 every slot holds a live claim of another session ([hooks.md](hooks.md#heavy-check-slots-scriptsheavy-slotcjs)).
 Call the wrapper from `checks.full`, from the project directory, for example
-`"full": "node \"<plugin>/scripts/heavy-slot.cjs\" run --label full -- \"npm run test:full\""` (on Windows `npm` is a `.cmd`, so it goes in as one string). The claim's session is
+`"full": "node \"<plugin>/scripts/heavy-slot.cjs\" run --label full -- \"npm run test:full\""` (on Windows `npm` is a `.cmd`: write `npm.cmd` with separate arguments, or one string as here). The claim's session is
 `--session`, else `$GHORC_SESSION`, else `$CLAUDE_CODE_SESSION_ID` (set by Claude Code in the shell tools' environment,
 equal to the id the hook sees), else `pid-<parent pid>`, so with no setup the lead's own claim is its own.
 `--minutes <n>` marks a claim that runs longer than announced in `status` (it is not removed).
@@ -100,8 +106,9 @@ Lead context in tokens, enforced by the context guard hook (`scripts/context-gua
 handoff, take no new packages". `ctxHandoff` (150000): handoff mode - no new agent, edits only to `handoff.statePath`
 and `handoff.handoffPath`, Stop blocks until STATE is newer than the flag (at most 2 times; skill `ghorc:handoff`).
 With `handoff.stickyOnCompact` a compaction starts the same mode too, whatever the token numbers say. Set
-autocompact above `ctxHandoff` (`/ghorc:setup` item `pct`), otherwise a compaction resets the counter before the
-guard reacts.
+autocompact at `ctxHandoff` + 35K or a little above, never at or below `ctxHandoff` (`/ghorc:setup` item `pct`
+recommends `ctxHandoff` + 35K as a share of the window, rounded up; 1M window: 19%), otherwise a compaction
+resets the counter before the guard reacts.
 
 ### lead
 `model` (`opus`) and `effort` (`medium`): used by `/ghorc:handoff` for the candidate and by `/ghorc:setup`. Effort precedence: env `CLAUDE_CODE_EFFORT_LEVEL` > per-call `effort` > role frontmatter > session; keep the variable unset and pass `effort` on every Agent call. Global advice: no top-level `effortLevel` in `~/.claude/settings.json`; per-model medium for sonnet-5.5 and opus-5.5.
@@ -127,13 +134,32 @@ on `origin` (`node scripts/unpushed.cjs [--branches a,b]` lists them: local refs
 `stickyOnCompact` (false): sticky handoff. A compaction (SessionStart, source `compact`) writes the handoff flag; only
 `HANDOFF.md` with `status: SENT` and `old_session_id` equal to the session clears it; Stop blocks the lead once per
 turn until then (a repeat block within 60 s passes). A flag caused by a compaction denies and blocks only a session
-with `GHORC_ROLE=lead`; every other session (a worker, or one without `GHORC_ROLE`) gets a reminder only. So
-enabling it requires that leads run with `GHORC_ROLE=lead`. Off or absent: a compaction changes nothing and Stop
+with `GHORC_ROLE=lead`, or a session without `GHORC_ROLE` whose terminal proves it is a lead: on `hc`
+(`hc get <own id>`) the terminal name starts with `capacity.leadNamePrefix` or the terminal has no parent; on `herdr`
+(`herdr agent list`) the tab label starts with that prefix as configured (`lead-` matches `lead-next45`, not `leaderboard-ui`). `GHORC_ROLE=worker` is
+never a lead, whatever the tab is called. A lookup that fails, is slow (about 1.5 s at most) or finds no backend proves
+nothing and the session gets the reminder only; the lookup runs only when `GHORC_ROLE` does not answer. Every other
+session (a worker, or one that is not proven) gets a reminder only. Leads started by the owner should still run with
+`GHORC_ROLE=lead`. `statePath` and `handoffPath` are resolved from the root of the session's own git worktree (a lead
+branch in a linked worktree keeps `HANDOFF.md` there, not in the main checkout); outside a linked worktree that is the
+project root, as before. Off or absent: a compaction changes nothing and Stop
 behaves as in 0.7.0.
 
 `candidatePermissionArgs` can bypass permission prompts (for example `--dangerously-skip-permissions`), so setting it is
 the project's explicit decision. `setup.cjs --check` prints an information line saying whether it is set;
 `setup.cjs --apply` never writes it.
+
+### backend
+`prefer` (`"hc"`): which terminal backend wins when both are present in a session (`HC_TERMINAL_ID` set and `HERDR_ENV=1`
+with a herdr server that answers). `"hc"` is the 0.9.0 behaviour; `"herdr"` makes the `herdr` CLI win. With only one
+backend present that one is used whatever the key says, and with `"herdr"` a herdr server that does not answer leaves
+`hc`. Any other value fails `check-config.cjs`. `node scripts/backend.cjs` prints the answer.
+
+### worker
+`permissionArgs` (`[]`): permission arguments for terminal workers the lead starts, for example
+`["--dangerously-skip-permissions"]` or `["--permission-mode", "acceptEdits"]`; an array of strings, validated by
+`check-config.cjs`. The key is the project's explicit decision (it can bypass permission prompts), like
+`handoff.candidatePermissionArgs`; `setup.cjs --apply` never writes it. No hook reads it; it is the one place for the permission arguments of the commands that start workers.
 
 ### review
 `maxFixRounds` (2): fix rounds per package before the lead stops resending the implementer. After that comes a cheap
@@ -156,15 +182,20 @@ Off by default. `enabled` (false): switch the hook on. `agents` (3): the ceiling
 lead has fewer running agents (subagents, teammates and terminal workers of `hc` or `herdr`). `cpuStartPct` (60): demand work only while
 the average CPU is below it. `minFreeRamGb` (4): and free RAM is at least this. `weeklyCapPct` (0 = off): at this
 share of the weekly limit no new agents are demanded. `agentsOverPace` (0 = off): while the weekly use is above
-`weeklyCapPct` times the elapsed share of the week, demand work only below this many agents. `idleMarker` (`Idle:`):
+`weeklyCapPct` times the elapsed share of the week, demand work only below this many agents. `weeklyAgentsStepPct`
+(0 = off): from this share of the weekly limit the agent limit is at most `agentsOverPace` (needs `agentsOverPace` > 0).
+`weeklyNoNewPct` (0 = off): from this share the prompt line says to start no new packages and only finish and merge
+what is in flight, and Stop no longer raises the "machine underloaded" block. Both steps act only on fresh data (not
+on a stale value, see [hooks.md](hooks.md#capacity-guardcjs)). Each is 0..100 and, when non-zero, they must climb:
+`weeklyAgentsStepPct` <= `weeklyNoNewPct` <= `weeklyCapPct`; a violation is a config error. `idleMarker` (`Idle:`):
 a line starting with it and a reason lets the turn end. `leadNamePrefix` (`lead-`): herdr panes and hc terminals with this name
 prefix are lead sessions and are not counted as workers (empty: none excluded).
 
 ## Environment variables
-- `GHORC_ROLE`: optional. Empty on a main session means `lead`. `worker` marks a terminal worker (no lead reminder, heavy
+- `GHORC_ROLE`: optional. Empty on a main session means `lead` for most hooks; the sticky handoff block treats a roleless session as a lead only when its terminal proves it (see `stickyOnCompact`). `worker` marks a terminal worker (no lead reminder, heavy
   commands denied, reminder-only context guard). For a herdr tab set it with `herdr tab create --env GHORC_ROLE=worker`,
   not before `herdr agent start` (it would not reach the session); with `hc run` (no `--env`) put `env GHORC_ROLE=worker`
-  in front of the program. `lead` switches on the strict mode (`leadNoMedia`, `heavyGuard.requireLeadEnv`) and is required for
+  in front of the program. `lead` switches on the strict mode (`leadNoMedia`, `heavyGuard.requireLeadEnv`) and is the sure way to make a session a lead for
   `handoff.stickyOnCompact`. The value is trimmed and lowercased (`Worker` is `worker`).
 - `GHORC_TMP`: overrides the state directory `<tmp>/ghorc-<user>`.
 - `GHORC_NO_AUTOSTART=1`: SessionStart never starts the watchdog.

@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.10.0 - 2026-11-12
+
+### Added
+- `heavy-slot.cjs run -- npm.cmd <args>` on Windows (.cmd/.bat with separate arguments, quoted by fixed rules; `"`, `%`, line breaks and a quoted trailing `\` are refused with a message).
+- `heavyGuard.agentsWhenFree` (default false): agents and workers may start a heavy check while a heavy slot is free.
+- `backend.prefer` (`"hc"` default, or `"herdr"`): which terminal backend wins when both are present in a session; with `"herdr"` a herdr server that does not answer leaves hc. Validated.
+- `worker.permissionArgs` (`[]`): permission arguments for the workers the lead starts (read by the skills; no hook reads it). Validated as an array of strings.
+- `capacity.weeklyAgentsStepPct` (0 = off): from this weekly usage the agent limit drops to `agentsOverPace`. `capacity.weeklyNoNewPct` (0 = off): from this usage the prompt line says no new packages, only finish and merge what is in flight, and Stop does not demand more work. The cap wins over both; the steps never fire on stale or missing data and work with `weeklyCapPct` 0. Validation: each of the three keys is 0..100 and, when non-zero, step <= noNew <= cap (a violation is a config error; 0..100 for `weeklyCapPct` is new too).
+- Proven lead (`provenLead` in `scripts/lib/role.cjs`): a session with no `GHORC_ROLE` counts as the lead when its terminal proves it (hc: the terminal name starts with `capacity.leadNamePrefix` or it has no parent; herdr: this session's agent name starts with the prefix as configured, dash included). `GHORC_ROLE=worker` is never a lead and asks nothing. The lookup is lazy, takes at most 1.5 s (`GHORC_TOOL_TIMEOUT_MS`) and never throws; a failed one is "not proven". The capacity guard's Stop uses it too (it used the role only).
+- Skills and templates: `--outlive-parent` for long-lived hc tabs, tab names, closing after acceptance and children at handoff; the herdr `agent wait` form with three `--until` and `--timeout`; `DONE`/`BLOCKED`/`HANDOFF` and `VERDICT` last lines in the agents, brief templates and example; a stop-loss line; the fate of each review finding; STATE (8192 bytes) and HANDOFF (3072 + 1600 acceptance block) limits; `backend.prefer` and `worker.permissionArgs` in the lead and handoff skills.
+
+### Changed
+- **Default behaviour change:** a roleless lead on hc/herdr (no `GHORC_ROLE`, terminal named `lead-*` or without a parent) is now blocked in sticky mode (`handoff.stickyOnCompact`) after a compaction, as `GHORC_ROLE=lead` was before. A worker (`GHORC_ROLE=worker`) and a session whose lookup fails are never blocked.
+- `STATE.md` and `HANDOFF.md` are resolved against the root of the session's own worktree (`sessionRoot` in `scripts/lib/root.cjs`): inside a linked git worktree the worktree's top level, before the main checkout. With `CLAUDE_PROJECT_DIR` set it is that directory whatever the cwd; elsewhere the project root as before. Ctx files and watchdog alerts stay under the project root.
+- The heavy matcher reads stdin scripts (`bash <<EOF`, `echo ... | sh`, `| xargs`), quoted/pathed/.cmd programs, call operator, PowerShell assignment, shell keywords, wsl/corepack/cross-env/eval/env -S/gtimeout, `-EncodedCommand`, `npm t|exec|x`, `npx -y`, line continuations, glued quotes. Only adds matches.
+- Autocompact advice is `ctxHandoff` + 35K (was + 20K): `/ghorc:setup` item `pct` recommends 19% of a 1M window (was 17%; 93% of 200K, was 85%). The skills and docs name the context thresholds by key (`ctxPrepare`, `ctxWarn`, `ctxHandoff`) instead of numbers; with no agents in flight `ctxWarn` starts the handoff at once.
+- Test environment: `runScript` clears `HC_TERMINAL_ID` and `HERDR_ENV`, so hook tests never reach a real hc or herdr.
+
+### Removed
+- From "Known": the `.cmd`/`.bat` argument-list limitation of `heavy-slot.cjs run` (see 0.9.0).
+
+### Fixed
+- `sessionRoot` follows `CLAUDE_PROJECT_DIR` when it is set: a lead started in the main checkout whose cwd drifted into a linked worktree edits and is released by `<main>/HANDOFF.md`, as in 0.9.0 (review finding P1).
+- `capacity-guard.cjs` Stop reads HANDOFF.md through `sessionRoot`, like `context-guard.cjs`: a lead that wrote `status: SENT` is no longer told "Machine underloaded".
+- herdr: the lead prefix is matched as configured (`lead-` no longer matches `leaderboard-ui`, `leads-export`, `leadtime`); a prefix configured without a dash still matches `lead1`. **Behaviour change:** a herdr tab named exactly `lead` is no longer a proven lead under the default prefix `lead-` (name it `lead-...` or set `GHORC_ROLE=lead`).
+
+### Known
+- On `hc` a terminal without a parent counts as a proven lead (an owner-opened helper session or a nested `claude` in the lead's terminal is blocked as the lead); the `hc get` output shape was not verified against a live herdr-app.
+- With both backends present and a dead preferred backend the proven-lead lookup may exceed the hook timeout; the guard then fails open (no block).
+- Open in the heavy matchers: `& $npm test`, `iex $x`, `base64 | sh`.
+
 ## 0.9.0 - 2026-11-05
 
 ### Added

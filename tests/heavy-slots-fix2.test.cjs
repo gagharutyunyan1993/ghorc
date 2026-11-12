@@ -192,7 +192,7 @@ test('P2.4: the hook lets a heavy command through when the slot directory cannot
 
 // ---- new P2.2: a program path with a space ----
 
-test('P2.2: run -- "<dir with a space>/prog" runs the program (exit code passes) (POSIX)', { skip: win && 'a .cmd path is refused in an argument list on Windows, see heavy-slots-cut.test.cjs' }, () => {
+test('P2.2: run -- "<dir with a space>/prog" runs the program (exit code passes) (POSIX)', { skip: win && 'a POSIX shell script path: not on Windows' }, () => {
   const dir = path.join(mkTmp('ghorc-sp-'), 'with space');
   fs.mkdirSync(dir);
   const prog = path.join(dir, 'prog.sh');

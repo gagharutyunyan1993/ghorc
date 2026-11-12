@@ -9,7 +9,8 @@ const { detect } = require('./lib/backend.cjs');
 if (process.argv.includes('--help')) {
   console.log(
     'backend.cjs: prints the active terminal backend. hc when HC_TERMINAL_ID is set; herdr when HERDR_ENV=1 and ' +
-      '`herdr agent list` answers; none otherwise (no tab commands: use the Agent tool and the /clear fallback). ' +
+      '`herdr agent list` answers; when both are present the config key backend.prefer (hc by default, or herdr) decides, ' +
+      'and a herdr that does not answer leaves hc; none otherwise (no tab commands: use the Agent tool and the /clear fallback). ' +
       '--name prints only the word. Test seams: GHORC_HC_BIN, GHORC_HERDR_BIN (a path or a JSON array [program, ...args]).',
   );
   process.exit(0);

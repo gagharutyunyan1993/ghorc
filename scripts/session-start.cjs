@@ -119,7 +119,7 @@ run((input) => {
 
   const status = [];
   if (isMain && role === '' && (cfg.handoff || {}).stickyOnCompact === true) {
-    status.push('handoff.stickyOnCompact is on, but GHORC_ROLE is not set: this session has no enforcement until GHORC_ROLE=lead is set');
+    status.push('handoff.stickyOnCompact is on, but GHORC_ROLE is not set: the block after compaction applies only to a proven lead (tab name, or on hc a terminal without a parent), otherwise set GHORC_ROLE=lead');
   }
   status.push(found(cwd) ? 'config: ok' : 'config not found: copy templates/ghorc.json to .claude/ghorc.json');
   try {

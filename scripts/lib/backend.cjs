@@ -3,7 +3,9 @@
 //   hc    herdr-app / herdr-core. Active when HC_TERMINAL_ID is set (hc gives every terminal its address in it).
 //   herdr the older `herdr` CLI. Active when HERDR_ENV=1 and its server answers `herdr agent list`.
 //   none  neither: no tab commands may be run (the skills fall back to the Agent tool and /clear).
-// One module decides, so hooks, scripts and skills never assume a single backend. Nothing here reads a project file.
+// One module decides, so hooks, scripts and skills never assume a single backend. When both are present the answer is
+// the backend of `backend.prefer` (hc by default); the config is read only then, and only if the caller did not pass
+// `prefer`. Nothing else here reads a project file.
 const { execFileSync } = require('node:child_process');
 
 // GHORC_TOOL_TIMEOUT_MS: for tests on a loaded machine (a fake program started twice can exceed 3 s)
@@ -31,11 +33,11 @@ const herdrSpec = (env) => binSpec('GHORC_HERDR_BIN', 'herdr', env);
 // Runs a program and returns { stdout, stderr, status } even for a non-zero exit; { missing: true } when it is not
 // installed. stderr is piped (never inherited) so a message of the tool cannot reach the hook output. Other failures
 // (timeout, a signal) throw.
-function runTool(spec, args, run = execFileSync) {
+function runTool(spec, args, run = execFileSync, timeout = timeoutMs()) {
   try {
     const stdout = run(spec[0], [...spec.slice(1), ...args], {
       encoding: 'utf8',
-      timeout: timeoutMs(),
+      timeout,
       windowsHide: true,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
@@ -49,26 +51,46 @@ function runTool(spec, args, run = execFileSync) {
 
 const SERVER_DOWN = /"server_not_running"/;
 
+// backend.prefer of the project config ('hc' | 'herdr'); 'hc' when the config cannot be read or has another value.
+function configuredPrefer(cwd) {
+  try {
+    const v = ((require('./config.cjs').load(cwd) || {}).backend || {}).prefer;
+    return v === 'herdr' ? 'herdr' : 'hc';
+  } catch {
+    return 'hc';
+  }
+}
+
 // { backend: 'hc' | 'herdr' | 'none', reason, terminal?, raw?, failed? }
 //   hc: terminal is HC_TERMINAL_ID.
 //   herdr: raw is the stdout of `herdr agent list` (the probe itself, so the caller need not ask twice).
 //   none: reason says why; failed is true when herdr was expected (HERDR_ENV=1) but the probe failed in an unknown way
 //         (timeout, odd exit): a caller that counts things treats that as "unknown", not as "zero".
+// Both present (HC_TERMINAL_ID set and HERDR_ENV=1): opts.prefer ('hc' | 'herdr'; else backend.prefer of the project config
+// found from opts.cwd) decides; with 'herdr' the server must answer, otherwise hc stays. One present: that one, always.
+// opts.timeoutMs bounds the herdr probe (default: GHORC_TOOL_TIMEOUT_MS or 3 s).
 function detect(opts = {}) {
   const env = opts.env || process.env;
   const run = opts.exec || execFileSync;
   const hcId = String(env.HC_TERMINAL_ID || '').trim();
-  if (hcId) return { backend: 'hc', reason: `HC_TERMINAL_ID=${hcId}`, terminal: hcId };
-  if (String(env.HERDR_ENV || '').trim() !== '1') return { backend: 'none', reason: 'neither HC_TERMINAL_ID nor HERDR_ENV=1 is set' };
+  const herdrEnv = String(env.HERDR_ENV || '').trim() === '1';
+  const hc = hcId ? { backend: 'hc', reason: `HC_TERMINAL_ID=${hcId}`, terminal: hcId } : null;
+  if (hc && !herdrEnv) return hc;
+  if (!herdrEnv) return { backend: 'none', reason: 'neither HC_TERMINAL_ID nor HERDR_ENV=1 is set' };
+  if (hc) {
+    const prefer = opts.prefer === 'herdr' || opts.prefer === 'hc' ? opts.prefer : configuredPrefer(opts.cwd || process.cwd());
+    if (prefer !== 'herdr') return hc;
+  }
   try {
-    const r = runTool(herdrSpec(env), ['agent', 'list'], run);
-    if (r.missing) return { backend: 'none', reason: 'HERDR_ENV=1 but herdr is not installed' };
-    const body = `${r.stdout}\n${r.stderr}`;
-    if (SERVER_DOWN.test(body)) return { backend: 'none', reason: 'HERDR_ENV=1 but the herdr server is not running (server_not_running)' };
-    if (r.status !== 0) return { backend: 'none', reason: `herdr agent list exited with ${r.status}`, failed: true };
+    const r = runTool(herdrSpec(env), ['agent', 'list'], run, opts.timeoutMs || timeoutMs());
+    if (r.missing) return hc || { backend: 'none', reason: 'HERDR_ENV=1 but herdr is not installed' };
+    const body = `${r.stdout}
+${r.stderr}`;
+    if (SERVER_DOWN.test(body)) return hc || { backend: 'none', reason: 'HERDR_ENV=1 but the herdr server is not running (server_not_running)' };
+    if (r.status !== 0) return hc || { backend: 'none', reason: `herdr agent list exited with ${r.status}`, failed: true };
     return { backend: 'herdr', reason: 'HERDR_ENV=1 and the herdr server answers', raw: r.stdout };
   } catch (e) {
-    return { backend: 'none', reason: `herdr agent list: ${e && e.message ? e.message : e}`, failed: true };
+    return hc || { backend: 'none', reason: `herdr agent list: ${e && e.message ? e.message : e}`, failed: true };
   }
 }
 
@@ -188,4 +210,54 @@ function hcSendTargets(env = process.env, run = execFileSync, projectDirs = null
   return out;
 }
 
-module.exports = { detect, runTool, binSpec, hcSpec, herdrSpec, workersFromHc, leadsFromHc, hcText, hcParent, hcSendTargets, LIVE_WORKER };
+
+// --- is this terminal a lead? -------------------------------------------------------------------------------------------
+// Only a positive answer counts; anything else (no backend, tool missing, a timeout, an odd answer) is "not proven".
+const LOOKUP_MS = 1500; // a hook has 5 s: the lookup may not eat them
+const lookupMs = (env) => Number(env.GHORC_TOOL_TIMEOUT_MS) || LOOKUP_MS;
+
+// hc: the answer of `hc get <own id>` is an object; the terminal is a lead when its name starts with the lead prefix or
+// it has no parent (the owner started it). The object must look like a terminal (an address, name, state or agent field)
+// and, if it has an address, that is this terminal: an answer in another shape is not read as "no parent".
+function hcIsLead(env, run, leadPrefix, ms) {
+  const id = String(env.HC_TERMINAL_ID || '').trim();
+  if (!id) return false;
+  const r = runTool(hcSpec(env), ['get', id], run, ms);
+  if (r.missing || r.status !== 0) return false;
+  const t = JSON.parse(r.stdout);
+  if (!t || typeof t !== 'object' || Array.isArray(t)) return false;
+  if (!['address', 'name', 'state', 'agent'].some((k) => k in t)) return false;
+  if ('address' in t && t.address !== id) return false;
+  const prefix = String(leadPrefix == null ? 'lead-' : leadPrefix).toLowerCase();
+  if (prefix && String(t.name == null ? '' : t.name).toLowerCase().startsWith(prefix)) return true;
+  return !t.parent;
+}
+
+// herdr: the agent of this session in the text of `herdr agent list` has a name (the tab label) that starts with the lead
+// prefix as configured (`lead-` does not match `leaderboard-ui`; a prefix without a dash, `lead`, matches `lead1`).
+function herdrIsLead(raw, session, leadPrefix) {
+  const prefix = String(leadPrefix == null ? 'lead-' : leadPrefix).toLowerCase();
+  if (!prefix || !session) return false;
+  const list = JSON.parse(raw).result.agents;
+  return (
+    Array.isArray(list) &&
+    list.some((a) => a && typeof a === 'object' && a.agent_session && a.agent_session.value === session && String(a.name == null ? '' : a.name).toLowerCase().startsWith(prefix))
+  );
+}
+
+// opts: { env, exec, session (herdr), leadPrefix (capacity.leadNamePrefix), prefer, cwd }. Never throws.
+function terminalIsLead(opts = {}) {
+  try {
+    const env = opts.env || process.env;
+    const run = opts.exec || execFileSync;
+    const ms = lookupMs(env);
+    const d = detect({ env, exec: run, prefer: opts.prefer, cwd: opts.cwd, timeoutMs: ms });
+    if (d.backend === 'hc') return hcIsLead(env, run, opts.leadPrefix, ms) === true;
+    if (d.backend === 'herdr') return herdrIsLead(d.raw, opts.session, opts.leadPrefix) === true;
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+module.exports = { detect, terminalIsLead, runTool, binSpec, hcSpec, herdrSpec, workersFromHc, leadsFromHc, hcText, hcParent, hcSendTargets, LIVE_WORKER };

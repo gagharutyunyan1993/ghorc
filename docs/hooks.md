@@ -67,6 +67,11 @@ plugin (`claude plugin disable ghorc@ghorc`).
   early hint; the lock itself is `scripts/heavy-slot.cjs` (below).
 - A command matching `heavyCommands` is denied when a subagent or a `GHORC_ROLE=worker` session runs it. The lead
   runs it freely, unless `heavyGuard.requireLeadEnv` is true and the session lacks `GHORC_ROLE=lead`.
+- `heavyGuard.agentsWhenFree` (default false): with `true` and `heavySlots.slots` above 0, a subagent or worker may start
+  a heavy command while a slot is free, and is denied only when every slot holds a live claim (the text says
+  "heavy-check slots are full" and names the holders). Unlike the lead, an agent is never exempted by a claim of its own
+  parent session. With slots off the key does nothing: agents stay denied. `requireLeadEnv` does not apply to agents then.
+  The lock is still `heavy-slot.cjs`: an agent should start its check through it.
 - If `.claude/ghorc.json` is invalid (JSON error, wrong type, bad regex), it denies every heavy command for everyone,
   the lead too, using the valid configured patterns plus a built-in default list, and says why.
 - With no project config, or an empty `heavyCommands` (the default), it denies nothing except the agent starts above.
@@ -126,11 +131,15 @@ node "<plugin>/scripts/heavy-slot.cjs" release --session <id>
 - The command is one of two things. An argument list (no shell: `--` `git` `status` reaches `git` as written, `&&` is
   an argument), or one string with spaces (`-- "npm run a && npm run b"`), which the shell runs (`sh -c`, `cmd /c`). A
   single word that is an existing file (`"/opt/my dir/tool"`) is a program path, not a shell line. On Windows an
-  argument list whose first word ends in `.cmd` or `.bat` (case does not matter) is refused: exit 2, nothing runs, no
-  slot taken, and the message says to give the whole command as one string (`run -- "npm test"`). That includes
-  `npm.cmd` and `.\x.cmd`; a bare `npm` in an argument list is not found on Windows (exit 127, with the same hint).
-  Running a `.cmd`/`.bat` with separate arguments is not done (not in 0.9.0 either). A command that cannot start ends with a message
-  and a non-zero exit, and the slot is released. The hook blanks quoted text before it matches, so it does not read
+  argument list whose first word ends in `.cmd` or `.bat` (case does not matter) runs through
+  `cmd.exe /d /s /v:off /c` with the arguments still separate: `run -- npm.cmd run test`, `run -- .\x.cmd "a b"`. Each
+  argument made of `A-Z a-z 0-9 _ - . : \ / + @` is written as it is; any other argument is wrapped in double quotes, so
+  `& | < > ^ ( ) ; , = !` and spaces are plain text and arrive as one argument, never as a second command. An argument
+  that cannot be quoted safely is refused: exit 2, nothing runs, no slot taken, and the message names the argument and
+  says to give the whole command as one string. Refused: a double quote and a percent sign (cmd.exe expands `%NAME%`
+  inside quotes and has no escape for `"`), a line break, and an argument that needs quotes and ends in a backslash. A
+  bare `npm` in an argument list is not found on Windows (exit 127): write `npm.cmd`. A command that cannot start ends
+  with a message and a non-zero exit, and the slot is released. The hook blanks quoted text before it matches, so it does not read
   inside a quoted one-string command; the wrapper still takes the lock.
 - The session of the claim is `--session`, else `$GHORC_SESSION`, else `$CLAUDE_CODE_SESSION_ID` (Claude Code sets it
   in the environment of the shell tools, and it equals the `session_id` the hook receives), else `pid-<parent pid>`.
@@ -184,6 +193,19 @@ nothing. For the PowerShell tool and `powershell`/`pwsh` wrappers the command is
 (a backtick escapes, a backslash is plain text, so `cd "D:\a\"; npm test` still exposes `npm test`); a segment found
 either way counts.
 
+Since this version the matcher also reads forms that the plain cut missed (ported from a project classifier; each only
+adds matches). Text sent to a shell on stdin is a script: `bash <<EOF ... EOF`, `cat <<EOF | bash`, `echo 'npm test' | sh`;
+`echo test | xargs npm` runs `npm test`. A program is read without its directory and `.cmd`/`.exe`/`.bat`/`.ps1`/`.com`
+(`C:\x\npm.cmd test`, `./node_modules/.bin/vitest run`), also in quotes (`& "C:\Program Files\nodejs\npm.cmd" test`,
+`"npm" test`) and with glued quotes or escapes (`np""m`, `npm "test"`, `n\pm`). A backslash or backtick at the end of a
+line continues the command. Also peeled: shell keywords (`if`, `then`, `do`, `while`, `!`), a PowerShell assignment
+(`$x = npm test`), a redirection in front (`> out npm test`), `@`, `wsl`, `corepack`, `cross-env`, `eval "..."`,
+`env -S "..."`, `gtimeout`, `cmd /r`, `sh -ec`, `ksh`, a bare `powershell "npm test"` and `-EncodedCommand`;
+`Start-Process`/`saps` with a quoted path or positional arguments; `npm t`/`tst`, `npm exec|x`, `npx -y|-p x|-c "..."`
+and `node .../node_modules/vitest/vitest.mjs`. A command text that cannot be read is matched as before: this never
+throws and never denies more because of a parse failure. Still open: a program in a variable (`& $npm test`), `iex $x`,
+a script file or `node -e` that runs the check inside.
+
 It prints `config: <path>`, any `ERROR:` lines (invalid JSON, unknown key, wrong type, bad regex) and, per sample,
 `HEAVY (<pattern>)` or `ordinary`. On a config error SessionStart prints one `config invalid:` line and the heavy guard
 denies as above; an unknown key alone prints `config warning:` and denies nothing. Validation results are cached by
@@ -194,6 +216,25 @@ file mtime and size in `<tmp>/ghorc-<user>/config-valid.json`.
 **When it fires.** SessionStart (matcher `compact`), UserPromptSubmit, PreToolUse on every tool, and Stop; for the lead
 only (no `agent_id`, not `GHORC_ROLE=worker`). A worker session gets a reminder only. The compaction entry is inert
 unless `handoff.stickyOnCompact` is true.
+
+**Proven lead.** "The lead" for a block is the proven lead (`provenLead` in `scripts/lib/role.cjs`): `GHORC_ROLE=lead`
+is yes and `GHORC_ROLE=worker` is never (neither asks anything). With no role the terminal must prove it: on hc `hc get <id>`
+shows a terminal named with `capacity.leadNamePrefix` (default `lead-`) or one without a parent; on herdr this session's agent
+name starts with the prefix as configured (`lead-` matches `lead-next45`, not `leaderboard-ui`, `leads-export` or `leadtime`; a prefix configured without a dash matches `lead1`). The backend is chosen by `backend.prefer` when both are present. The lookup is
+asked lazily, only where the answer matters (a compaction, a compaction-only flag, Stop with a flag), takes at most 1.5 s
+(`GHORC_TOOL_TIMEOUT_MS`) and never throws; a missing tool, a timeout or an answer that does not look like this
+terminal means "not proven", i.e. not blocked. A roleless lead on hc/herdr is therefore blocked in sticky mode now.
+Known limits: on `hc` a terminal without a parent counts as a proven lead (an owner-opened helper session, or a `claude`
+started inside the lead's terminal, is blocked as the lead), and the `hc get` output shape was not verified against a live
+herdr-app. With both backends present and a dead preferred backend the lookup may exceed the hook timeout; then the guard
+fails open (no block).
+
+**Session root.** `STATE.md` and `HANDOFF.md` (`handoff.statePath` / `handoffPath`) are resolved against the root of the
+session's own work tree (`sessionRoot` in `scripts/lib/root.cjs`): inside a linked git worktree that is the worktree's top
+level, so a lead branch hands over from its own worktree. When `CLAUDE_PROJECT_DIR` is set it is that directory, whatever
+the cwd has drifted into (a lead started in the main checkout that `cd`s into a linked worktree still edits and releases
+`<main>/HANDOFF.md`); in a plain checkout or without git it is the project root. `capacity-guard.cjs` reads HANDOFF.md
+through the same helper. The ctx files, flags and watchdog alerts stay under the project root.
 
 **What it does.** See [handoff.md](handoff.md#the-context-guard): stage lines at `ctxPrepare` / `ctxWarn`; handoff mode
 at `ctxHandoff` (flag; denies a new Agent and edits outside STATE/HANDOFF; Stop blocks until STATE is newer, at most 2
@@ -212,7 +253,9 @@ only warns. The flag and its throttle state live in `<tmp>/ghorc-<user>`; a deny
 `capacity.enabled: true` ([configuration.md](configuration.md#capacity)) it prints nothing and writes nothing.
 It acts for the lead only (no `agent_id`, not `GHORC_ROLE=worker`); SubagentStart/Stop only feed the ledger.
 Stop is silent when the last answer has no text (the field is missing or not a string), when `HANDOFF.md` says
-`status: SENT` for this session (the old lead goes idle) and while the handoff flag of the context guard is set.
+`status: SENT` for this session (the old lead goes idle) and while the handoff flag of the context guard is set. A compaction-only flag
+(`handoff.stickyOnCompact`) silences Stop for the proven lead only (see context-guard.cjs); a flag set by the token
+numbers silences it for every session.
 
 **What it does.**
 - Stop returns the turn once (never when `stop_hook_active`) when agents < `capacity.agents` AND average CPU <
@@ -244,6 +287,13 @@ Stop is silent when the last answer has no text (the field is missing or not a s
   7 days)) / 7 days, 0, 1). `used >= weeklyCapPct`: Stop demands no agents and the prompt line says `WEEKLY CAP`.
   `used > weeklyCapPct * f` and `agentsOverPace` > 0: Stop demands agents only while there are fewer than
   `agentsOverPace`.
+- Weekly steps (optional ladder below the cap, both 0 = off, `weeklyAgentsStepPct` <= `weeklyNoNewPct` <=
+  `weeklyCapPct`; they also work when `weeklyCapPct` is 0): `used >= weeklyAgentsStepPct` and `agentsOverPace` > 0:
+  the agent limit is at most `agentsOverPace`, as for the pace rule, and the prompt line says `Weekly step N%`.
+  `used >= weeklyNoNewPct`: the prompt line says no new packages, only finish and merge what is in flight, and Stop
+  raises no "machine underloaded" block (a lead with free capacity may end its turn). The cap, when reached, wins
+  over both. The steps never act on stale data (see below) or when there is no data; the cap keeps acting on stale
+  data as before. With both keys 0 the output is the same as before the keys existed.
   Data of a past or missing `resets_at`, or taken from the newest other session's ctx file, is marked `(stale)`; no data
   at all: the plain rules, a line in the prompt and in the log.
 

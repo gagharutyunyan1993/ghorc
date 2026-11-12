@@ -243,7 +243,7 @@ test('setup pct: recommended is above ctxHandoff, a value at or below it is wron
     fs.writeFileSync(path.join(proj, '.claude', 'settings.local.json'), JSON.stringify({ env: { CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: v } }));
   };
   const pctLine = () => check().split('\n').find((l) => /pct \[project\]/.test(l)) || '';
-  assert.match(pctLine(), /-> "17"/, '170K of 1M, rounded up');
+  assert.match(pctLine(), /-> "19"/, '185K of 1M, rounded up');
   setPct('15'); // 150K = ctxHandoff: compaction would reset the counter before the guard acts
   assert.doesNotMatch(pctLine(), /\bok\b/i);
   setPct('14');
@@ -254,9 +254,9 @@ test('setup pct: recommended is above ctxHandoff, a value at or below it is wron
   assert.match(pctLine(), /\bok\b/i);
   setPct('30'); // far too late
   assert.doesNotMatch(pctLine(), /\bok\b/i);
-  // another window: 200K gives 85
+  // another window: 200K gives 93
   fs.writeFileSync(path.join(proj, '.claude', 'ctx-w.json'), JSON.stringify({ context_window_size: 200000 }));
-  assert.match(pctLine(), /-> "85"/);
+  assert.match(pctLine(), /-> "93"/);
 });
 
 // ---- review round 1 (E300) ----
