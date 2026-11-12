@@ -831,3 +831,165 @@ test('readWeekRaw: units and the choice between ctx files', () => {
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// ---- weekly steps: weeklyAgentsStepPct / weeklyNoNewPct ----
+// resets_at 100 s ahead: f is about 1, so the pace rule (used > cap * f) stays out of the way of the steps
+const NEAR_END = () => nowS() + 100;
+const steps = (extra = {}) => base({ weeklyCapPct: 80, agentsOverPace: 2, weeklyAgentsStepPct: 65, weeklyNoNewPct: 75, ...extra });
+const weekAt = (p, used, resetsAt = NEAR_END()) => writeCtx(p, p.s, { used_percentage: used, resets_at: resetsAt });
+
+test('weekly steps: below both steps the plain rules apply', () => {
+  const p = setup(steps());
+  weekAt(p, 60);
+  assert.ok(blocks(stop(p, { background_tasks: tasks('running', 'running') })), '2 of 3 still demands work');
+  assert.equal(line(prompt(p)), 'agents 0/3, CPU 20%, free 16.0 GB.');
+});
+
+test('weekly steps: from weeklyAgentsStepPct the agent limit drops to agentsOverPace', () => {
+  const p = setup(steps());
+  weekAt(p, 65); // the step itself counts (>=)
+  assert.equal(stop(p, { background_tasks: tasks('running', 'running') }).out, '', '2 of 2');
+  const r = stop(p, { background_tasks: tasks('running') });
+  assert.ok(blocks(r), '1 of 2');
+  assert.match(reason(r), /agents 1 of 2, /);
+  assert.match(reason(r), /Weekly step 65%: used 65%; at most 2 agents \(cap 80%\)\./);
+  assert.match(line(prompt(p)), /Weekly step 65%: used 65%; at most 2 agents \(cap 80%\)\./);
+  assert.doesNotMatch(line(prompt(p)), /no new packages|WEEKLY CAP/);
+  weekAt(p, 64.9);
+  assert.ok(blocks(stop(p, { background_tasks: tasks('running', 'running') })), 'just below the step: 2 of 3');
+  // agentsOverPace 0 has no limit to drop to: the step changes nothing
+  const q = setup(steps({ agentsOverPace: 0 }));
+  weekAt(q, 70);
+  assert.ok(blocks(stop(q, { background_tasks: tasks('running', 'running') })));
+  assert.doesNotMatch(line(prompt(q)), /Weekly step/);
+});
+
+test('weekly steps: from weeklyNoNewPct no new packages and no "underloaded" Stop block', () => {
+  const p = setup(steps());
+  weekAt(p, 75);
+  const r = stop(p);
+  assert.equal(r.code, 0);
+  assert.equal(r.out, '', 'zero agents, machine idle, still no block');
+  assert.match(line(prompt(p)), /Weekly step 75%: used 75%; no new packages, only finish and merge what is in flight \(cap 80%\)\./);
+  assert.doesNotMatch(line(prompt(p)), /at most|WEEKLY CAP/);
+  weekAt(p, 79.9);
+  assert.equal(stop(p).out, '');
+  // the cap itself keeps its own wording
+  weekAt(p, 80);
+  assert.equal(stop(p).out, '');
+  assert.match(line(prompt(p)), /WEEKLY CAP: no new agents \(used 80% >= 80%\)/);
+  assert.doesNotMatch(line(prompt(p)), /no new packages/);
+  // weeklyNoNewPct alone (the agents step off)
+  const q = setup(steps({ weeklyAgentsStepPct: 0 }));
+  weekAt(q, 70);
+  assert.ok(blocks(stop(q)), 'below the no-new step and no agents step');
+  weekAt(q, 76);
+  assert.equal(stop(q).out, '');
+});
+
+test('weekly steps: both keys at 0 behave exactly as before (same bytes)', () => {
+  for (const used of [10, 66, 76, 85]) {
+    for (const extra of [{ weeklyCapPct: 80, agentsOverPace: 2 }, { weeklyCapPct: 80 }, {}]) {
+      const a = setup(base(extra));
+      const b = setup(base({ ...extra, weeklyAgentsStepPct: 0, weeklyNoNewPct: 0 }));
+      weekAt(a, used);
+      weekAt(b, used);
+      for (const tk of [undefined, tasks('running'), tasks('running', 'running')]) {
+        const bg = tk ? { background_tasks: tk } : {};
+        assert.equal(stop(b, bg).out, stop(a, bg).out, `Stop, used ${used}, ${JSON.stringify(extra)}`);
+      }
+      assert.equal(prompt(b).out, prompt(a).out, `prompt, used ${used}, ${JSON.stringify(extra)}`);
+    }
+  }
+  // and the 0.9.0 wording is unchanged below and at the cap
+  const p = setup(base({ weeklyCapPct: 80, agentsOverPace: 2 }));
+  weekAt(p, 76);
+  assert.equal(line(prompt(p)), 'agents 0/3, CPU 20%, free 16.0 GB.');
+  weekAt(p, 85);
+  assert.equal(line(prompt(p)), 'agents 0/3, CPU 20%, free 16.0 GB. WEEKLY CAP: no new agents (used 85% >= 80%); only merge what is ready.');
+});
+
+test('weekly steps: stale or missing usage data never triggers a step', () => {
+  const p = setup(steps({ weeklyCapPct: 95 }));
+  const idle = () => assert.ok(blocks(stop(p)), 'plain rules: an idle machine is told to work');
+  const clean = () => assert.doesNotMatch(line(prompt(p)), /Weekly step/);
+  weekAt(p, 90, nowS() - 100); // the window has reset
+  idle();
+  clean();
+  writeCtx(p, p.s, { used_percentage: 90 }); // resets_at missing
+  idle();
+  clean();
+  // own file without rate_limits: another session's value is used and marked stale
+  const q = setup(steps({ weeklyCapPct: 95 }));
+  writeCtx(q, q.s, null);
+  writeCtx(q, 'older-session', { used_percentage: 90, resets_at: NEAR_END() }, 5);
+  assert.ok(blocks(stop(q)));
+  assert.doesNotMatch(line(prompt(q)), /Weekly step/);
+  // no data at all: the plain rules and the said-aloud line, as before
+  const n = setup(steps());
+  assert.ok(blocks(stop(n)));
+  assert.match(line(prompt(n)), /Week: no rate_limits in any ctx file/);
+  assert.match(readLog(n), /weekly cap: no rate_limits/);
+  // fresh data in the own file does trigger
+  weekAt(p, 90);
+  assert.equal(stop(p).out, '');
+  assert.match(line(prompt(p)), /Weekly step 75%/);
+});
+
+test('weekly steps work without weeklyCapPct (no cap, no pace, only the steps)', () => {
+  const p = setup(base({ agentsOverPace: 2, weeklyAgentsStepPct: 65, weeklyNoNewPct: 75 }));
+  weekAt(p, 50);
+  assert.ok(blocks(stop(p, { background_tasks: tasks('running', 'running') })));
+  weekAt(p, 70);
+  assert.equal(stop(p, { background_tasks: tasks('running', 'running') }).out, '');
+  assert.match(line(prompt(p)), /Weekly step 65%: used 70%; at most 2 agents\./);
+  weekAt(p, 99);
+  assert.equal(stop(p).out, '');
+  assert.match(line(prompt(p)), /Weekly step 75%: used 99%; no new packages/);
+  assert.doesNotMatch(line(prompt(p)), /WEEKLY CAP/);
+});
+
+test('weekState: steps are false on stale data and when off', () => {
+  const s = cap.settings({ capacity: { weeklyCapPct: 80, agentsOverPace: 2, weeklyAgentsStepPct: 65, weeklyNoNewPct: 75 } });
+  const now = 1_800_000_000_000;
+  const nowSec = now / 1000;
+  const w = (raw, set = s) => cap.weekState(raw, set, now);
+  assert.equal(w({ used: 64.9, resetsAt: nowSec + 100 }).stepped, false);
+  assert.equal(w({ used: 65, resetsAt: nowSec + 100 }).stepped, true);
+  assert.equal(w({ used: 65, resetsAt: nowSec + 100 }).noNew, false);
+  assert.equal(w({ used: 75, resetsAt: nowSec + 100 }).noNew, true);
+  for (const stale of [{ resetsAt: nowSec - 1 }, { resetsAt: null }, { resetsAt: nowSec + 100, other: true }]) {
+    const r = w({ used: 90, ...stale });
+    assert.equal(r.stepped, false, JSON.stringify(stale));
+    assert.equal(r.noNew, false, JSON.stringify(stale));
+    assert.equal(r.stale, true);
+  }
+  const off = cap.settings({ capacity: { weeklyCapPct: 80, agentsOverPace: 2 } });
+  assert.equal(off.weeklyAgentsStepPct, 0);
+  assert.equal(off.weeklyNoNewPct, 0);
+  assert.equal(w({ used: 99, resetsAt: nowSec + 100 }, off).stepped, false);
+  assert.equal(w({ used: 99, resetsAt: nowSec + 100 }, off).noNew, false);
+  assert.equal(cap.settings({ capacity: { weeklyNoNewPct: 'x' } }).weeklyNoNewPct, 0, 'a wrong type falls back to off');
+});
+
+test('config validation: weekly steps are 0..100 and climb step <= noNew <= cap', () => {
+  const check = (capacity) => validate.checkFile(path.join(tmpProject({ capacity }), '.claude', 'ghorc.json'));
+  assert.deepEqual(check({ enabled: true, weeklyCapPct: 80, weeklyAgentsStepPct: 65, weeklyNoNewPct: 75 }).fatal, []);
+  assert.deepEqual(check({ weeklyCapPct: 80, weeklyAgentsStepPct: 80, weeklyNoNewPct: 80 }).fatal, [], 'equal values are allowed');
+  assert.deepEqual(check({ weeklyCapPct: 0, weeklyAgentsStepPct: 0, weeklyNoNewPct: 0 }).fatal, []);
+  assert.deepEqual(check({ weeklyCapPct: 80, weeklyAgentsStepPct: 0, weeklyNoNewPct: 75 }).fatal, [], '0 = off, not compared');
+  assert.deepEqual(check({ weeklyCapPct: 0, weeklyNoNewPct: 75 }).fatal, [], 'a step without a cap is allowed');
+  const bad = [
+    [{ weeklyAgentsStepPct: 76, weeklyNoNewPct: 75 }, /weeklyAgentsStepPct \(76\) must not exceed capacity\.weeklyNoNewPct \(75\)/],
+    [{ weeklyNoNewPct: 85, weeklyCapPct: 80 }, /weeklyNoNewPct \(85\) must not exceed capacity\.weeklyCapPct \(80\)/],
+    [{ weeklyAgentsStepPct: 90, weeklyCapPct: 80 }, /weeklyAgentsStepPct \(90\) must not exceed capacity\.weeklyCapPct \(80\)/],
+    [{ weeklyNoNewPct: 101 }, /weeklyNoNewPct: 101 is outside 0\.\.100/],
+    [{ weeklyAgentsStepPct: -1 }, /weeklyAgentsStepPct: -1 is outside 0\.\.100/],
+    [{ weeklyCapPct: 150 }, /weeklyCapPct: 150 is outside 0\.\.100/],
+  ];
+  for (const [capacity, re] of bad) {
+    const r = check(capacity);
+    assert.ok(r.fatal.some((x) => re.test(x)), `${JSON.stringify(capacity)}: ${r.fatal.join(';')}`);
+  }
+  assert.ok(check({ weeklyNoNewPct: 'x' }).fatal.some((x) => /capacity\.weeklyNoNewPct: expected number/.test(x)));
+});

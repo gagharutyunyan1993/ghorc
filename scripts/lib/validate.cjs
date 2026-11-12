@@ -11,6 +11,21 @@ function typeOf(v) {
   return Array.isArray(v) ? 'array' : v === null ? 'null' : typeof v;
 }
 
+// Weekly percentages of the capacity section: each 0..100 (0 = off); when non-zero they must climb weeklyAgentsStepPct <=
+// weeklyNoNewPct <= weeklyCapPct. Wrong types are reported by the generic check, so only numbers are looked at here.
+function checkCapacity(c, problems) {
+  const keys = ['weeklyAgentsStepPct', 'weeklyNoNewPct', 'weeklyCapPct'];
+  const val = (k) => (typeof c[k] === 'number' && Number.isFinite(c[k]) ? c[k] : null);
+  for (const k of keys) {
+    const v = val(k);
+    if (v !== null && (v < 0 || v > 100)) problems.push(`capacity.${k}: ${v} is outside 0..100`);
+  }
+  const [step, noNew, capPct] = keys.map(val);
+  if (step > 0 && noNew > 0 && step > noNew) problems.push(`capacity.weeklyAgentsStepPct (${step}) must not exceed capacity.weeklyNoNewPct (${noNew})`);
+  if (noNew > 0 && capPct > 0 && noNew > capPct) problems.push(`capacity.weeklyNoNewPct (${noNew}) must not exceed capacity.weeklyCapPct (${capPct})`);
+  if (step > 0 && capPct > 0 && step > capPct) problems.push(`capacity.weeklyAgentsStepPct (${step}) must not exceed capacity.weeklyCapPct (${capPct})`);
+}
+
 // Returns { path, problems: string[], fatal: string[] }. path=null means there is no file (not an error).
 // fatal = the problems that make the config unusable (everything except unknown keys).
 const isFatal = (p) => !p.startsWith('unknown key');
@@ -55,6 +70,7 @@ function checkFile(file) {
       }
     }
   }
+  if (isObj(data.capacity)) checkCapacity(data.capacity, problems);
   if (Array.isArray(data.heavyCommands)) {
     data.heavyCommands.forEach((p, i) => {
       if (typeof p !== 'string') return problems.push(`heavyCommands[${i}]: not a string`);

@@ -18,7 +18,8 @@ if (process.argv.includes('--help')) {
       'the active terminal backend (scripts/lib/backend.cjs: hc -> `hc ls`, herdr -> `herdr agent list`, none -> 0; working/blocked, ' +
       'name not starting with capacity.leadNamePrefix, not this session; for hc also only terminals that have a parent). ' +
       'UserPromptSubmit adds "agents N/M, CPU X%, free Y GB". capacity.weeklyCapPct / agentsOverPace read ' +
-      'rate_limits.seven_day from the status line ctx files. Errors go to .claude/ghorc-out/capacity-guard.log; the hook ' +
+      'rate_limits.seven_day from the status line ctx files; weeklyAgentsStepPct (agent limit drops to agentsOverPace) and ' +
+      'weeklyNoNewPct (no new packages, no Stop block) are optional steps below the cap, never taken on stale data. Errors go to .claude/ghorc-out/capacity-guard.log; the hook ' +
       'fails open. Test seams: GHORC_CAPACITY_CPU_PCT, _FREE_GB, _HERDR_JSON, _HC_JSON, _LEDGER, _SAMPLE_MS.',
   );
   process.exit(0);
@@ -57,7 +58,7 @@ run((input) => {
 
     // weekly cap: null - the rule is on but there is no data; undefined - the rule is off
     let week;
-    if (s.weeklyCapPct > 0) {
+    if (s.weeklyCapPct > 0 || s.weeklyAgentsStepPct > 0 || s.weeklyNoNewPct > 0) {
       week = cap.weekState(cap.readWeekRaw(path.join(root, '.claude'), session), s);
       if (week === null) log('weekly cap: no rate_limits.seven_day in any ctx file, the weekly brake is off');
     }
