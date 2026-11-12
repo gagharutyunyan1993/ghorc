@@ -5,7 +5,7 @@ const role = () => roleOf();
 
 // Is this session a lead that may be blocked (the sticky handoff block)? Order: GHORC_ROLE=lead -> yes; GHORC_ROLE=worker
 // -> never; no role -> only if the terminal proves it (lib/backend.cjs terminalIsLead: on hc the terminal name starts with
-// capacity.leadNamePrefix or it has no parent; on herdr the tab label starts with the prefix without its dash). A failed or
+// capacity.leadNamePrefix or it has no parent; on herdr this session's agent name starts with the prefix as configured, dash included). A failed or
 // timed-out lookup is "not proven": a false block on a worker is worse than a missed block. The lookup is asked only when
 // the role variable does not answer. opts: { env, exec, session, leadPrefix, prefer, cwd }. Never throws.
 function provenLead(opts = {}) {

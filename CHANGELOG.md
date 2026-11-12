@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.10.0 (unreleased)
+## 0.10.0 - 2026-11-12
 
 ### Added
 - `heavy-slot.cjs run -- npm.cmd <args>` on Windows (.cmd/.bat with separate arguments, quoted by fixed rules; `"`, `%`, line breaks and a quoted trailing `\` are refused with a message).
@@ -24,7 +24,7 @@
 ### Fixed
 - `sessionRoot` follows `CLAUDE_PROJECT_DIR` when it is set: a lead started in the main checkout whose cwd drifted into a linked worktree edits and is released by `<main>/HANDOFF.md`, as in 0.9.0 (review finding P1).
 - `capacity-guard.cjs` Stop reads HANDOFF.md through `sessionRoot`, like `context-guard.cjs`: a lead that wrote `status: SENT` is no longer told "Machine underloaded".
-- herdr: the lead prefix is matched as configured (`lead-` no longer matches `leaderboard-ui`, `leads-export`, `leadtime`); a prefix configured without a dash still matches `lead1`.
+- herdr: the lead prefix is matched as configured (`lead-` no longer matches `leaderboard-ui`, `leads-export`, `leadtime`); a prefix configured without a dash still matches `lead1`. **Behaviour change:** a herdr tab named exactly `lead` is no longer a proven lead under the default prefix `lead-` (name it `lead-...` or set `GHORC_ROLE=lead`).
 
 ### Known
 - On `hc` a terminal without a parent counts as a proven lead (an owner-opened helper session or a nested `claude` in the lead's terminal is blocked as the lead); the `hc get` output shape was not verified against a live herdr-app.
