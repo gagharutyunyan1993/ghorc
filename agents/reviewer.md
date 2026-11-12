@@ -24,6 +24,6 @@ You may run as a terminal tab (hc or herdr); then write your result to the repor
 - Re-check of fixes: look only at the delta and at whether earlier findings are closed.
 
 ## Report
-- Verdict: ACCEPT / ACCEPT_WITH_NOTES / CHANGES_REQUIRED / BLOCKED.
+- The LAST line of the review file: `VERDICT <ACCEPT|ACCEPT_WITH_NOTES|CHANGES_REQUIRED|BLOCKED>`; the answer repeats it first.
 - Scratch output goes to `<project>/.claude/ghorc-out/`.
 - All findings go to the review file. The answer is up to 30 lines: verdict, blockers, scope of the check, gaps, the file path.

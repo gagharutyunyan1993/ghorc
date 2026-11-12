@@ -7,9 +7,9 @@ over with a READY/STOP protocol. Parameters come from `.claude/ghorc.json`: `lea
 
 ## When
 
-- From `thresholds.ctxWarn` (140K): prepare the handoff and take no new package. At `thresholds.ctxHandoff` (150K):
+- From `thresholds.ctxWarn`: prepare the handoff and take no new package; with no agents in flight start it at once. At `thresholds.ctxHandoff`:
   hand the shift over (handoff mode: no new agents, edits only to STATE and HANDOFF).
-- From `thresholds.ctxPrepare` (120K): refresh STATE.md at a stage boundary.
+- From `thresholds.ctxPrepare`: refresh STATE.md at a stage boundary.
 - The lead reads its context with `node "<plugin>/scripts/ctx.cjs" --session <id>` (id from the SessionStart line or
   the `#id` status segment).
 
@@ -69,7 +69,7 @@ the `handoff_id` copied into it.
 
 **Sequence** (prompts go through `herdr pane run <pane_id> "<text>"`; pane id from `herdr agent get lead-next`; never use `--wait`):
 
-1. Fill `handoff.handoffPath` from `templates/HANDOFF.md` (at most 50 lines), `status: DRAFT`.
+1. Fill `handoff.handoffPath` from `templates/HANDOFF.md` (at most 3072 bytes, plus an optional acceptance block of at most 1600 bytes / 15 lines written by the old lead so that the candidate need not load the skill), `status: DRAFT`. With several leads each lives in its own worktree and HANDOFF/STATE are at the root of the session's worktree.
    First push the branches of the packages in STATE `in_flight` (`git push origin <branch>`, never `main` or a foreign
    branch), check them with `node scripts/unpushed.cjs --branches <a,b>` (local refs, no network; exit 1 lists what is
    still unpushed) and write each head SHA into HANDOFF. With `handoff.pushGuard: true` the hook denies the candidate
@@ -80,7 +80,7 @@ the `handoff_id` copied into it.
 herdr tab create --label lead-next --cwd <project root>
 herdr agent start lead-next --kind claude --pane <pane_id> -- --model opus --effort medium <permArgs>
 herdr pane run <pane_id> "Read HANDOFF.md, verify it against git, answer READY handoff=<id>; wait for ACTIVATE."
-herdr agent wait lead-next --until idle,blocked
+herdr agent wait lead-next --until idle --until done --until blocked --timeout 60000
 herdr agent read lead-next
 ```
 
@@ -89,13 +89,13 @@ herdr agent read lead-next
    `handoff.stickyOnCompact` is on).
    The role must be set on `herdr tab create --env`; a variable set before `herdr agent start` does not reach the
    session (see [with-herdr.md](with-herdr.md)). A herdr worker that did not receive `GHORC_ROLE=worker` looks like a
-   lead to the context guard: at 150K it would be put in handoff mode and asked to update `handoff.statePath` (the
+   lead to the context guard: at `ctxHandoff` it would be put in handoff mode and asked to update `handoff.statePath` (the
    lead's STATE in the main checkout), so check that its SessionStart line says `role=worker`. After a compaction only
    a session with `GHORC_ROLE=lead` is put in handoff mode (with `handoff.stickyOnCompact`).
 
 3. **READY:** the candidate answers `READY handoff=<id>`, the state path with `seq`, the next action, restrictions
    and discrepancies. With discrepancies the old lead fixes HANDOFF and asks again in the same tab. The old lead polls
-   `herdr agent get lead-next` every 60 s up to `handoff.readyTimeoutMin` (default 10) minutes.
+   `herdr agent get lead-next` every 60 s up to `handoff.readyTimeoutMin` (default 10) minutes and checks `working` after EVERY send to the candidate (first prompt, READY repeat, ACTIVATE). A wait timeout is a check-in, not a refusal; a comma list in `--until` does not work.
 4. **ACTIVATE and STOP:** on an accepted READY the old lead writes `status: SENT` (STATE `seq` + 1), sends
    `herdr pane run <pane_id> "ACTIVATE <handoff_id>"` (text plus Enter in one call) as its last action; it is always the
    old lead, never the owner. Delivery is confirmed by status `working` or the line "running UserPromptSubmit hooks" in
@@ -108,7 +108,7 @@ herdr agent read lead-next
    `herdr agent read`, answers every `unanswered_owner_messages` item, collects every `in_flight` item, and verifies
    SHA, branch and processes itself: READY is a report, not proof.
 6. **Closing the old tab** (mandatory and verified when `handoff.allowSendKeysExit` is `true`; otherwise the owner closes
-   it): right after ACTIVATE the new lead runs `herdr agent wait <old agent> --until idle`, then
+   it): right after ACTIVATE the new lead runs `herdr agent wait <old agent> --until idle --until done --until blocked --timeout 60000`, then
    `MSYS_NO_PATHCONV=1 herdr pane run <old_pane_id> "/exit"`, then checks that the pane is gone from `herdr pane list`.
    Git Bash turns a slash command into a path (`/exit` becomes `C:/Program Files/Git/exit`), so every `herdr pane run` or
    `send-keys` with a slash command carries `MSYS_NO_PATHCONV=1` (or runs from PowerShell).

@@ -1,5 +1,5 @@
-# HANDOFF <handoff_id> (<date>)
-handoff_id: <id>   status: DRAFT|SENT   old_session_id: <id>   created_at: <time>   reason: <reason, e.g. 150K>
+# HANDOFF <handoff_id> (<date>)   (at most 3072 bytes, plus the optional acceptance block below)
+handoff_id: <id>   status: DRAFT|SENT   old_session_id: <id>   created_at: <time>   reason: <reason, e.g. ctxHandoff>
 state_path: <path to STATE.md>
 
 ## 1. Package chain and stages
@@ -21,3 +21,6 @@ state_path: <path to STATE.md>
 1. Verify the facts: <git command>, expected HEAD <SHA>; presence of <files>.
 2. Answer READY (format in skill ghorc:handoff); change nothing until `ACTIVATE <handoff_id>` arrives (refuse a different id); then re-read STATE.md (`head`, `seq`).
 3. <first working action>
+
+## 6. Acceptance block (optional, at most 1600 bytes and 15 lines; the old lead writes it)
+- READY format, the ACTIVATE rule and the first steps in short, so that the candidate need not load skill ghorc:handoff.

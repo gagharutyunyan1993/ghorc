@@ -69,7 +69,7 @@ Done when:
 </constraints>
 
 <report_back>
-STATUS: DONE | HANDOFF | BLOCKED. Then: SHA; behavior change; acceptance map (one line per acceptance item, PASS/FAIL/UNVERIFIED); checks with output and links; unverified items; blockers; next step; suggestions. Up to 25 lines, the rest goes to file <path> (under `.claude/ghorc-out/`).
+SHA; behavior change; acceptance map (one line per acceptance item, PASS/FAIL/UNVERIFIED); checks with output and links; unverified items; blockers; next step; suggestions. Up to 25 lines, the rest goes to file <path> (under `.claude/ghorc-out/`). The LAST line of the file: `DONE <name>` / `BLOCKED <name>: <reason>` / `HANDOFF <name>`.
 </report_back>
 ```
 
@@ -106,8 +106,7 @@ Start with the diff. Widen reading to the affected dependencies, calling code an
 </constraints>
 
 <report_back>
-Verdict: ACCEPT / ACCEPT_WITH_NOTES / CHANGES_REQUIRED / BLOCKED.
-All substantiated findings go to the review file <path under .claude/ghorc-out/>. In the answer: blockers, scope of the check, gaps. Up to 30 lines.
+All substantiated findings go to the review file <path under .claude/ghorc-out/>; its LAST line is `VERDICT <ACCEPT|ACCEPT_WITH_NOTES|CHANGES_REQUIRED|BLOCKED>`. In the answer: blockers, scope of the check, gaps. Up to 30 lines.
 </report_back>
 ```
 
@@ -129,7 +128,7 @@ All substantiated findings go to the review file <path under .claude/ghorc-out/>
 
 <constraints>If the input does not match the description - BLOCKED with the reason, because a guess on mismatched input passes silently. Assume nothing, because the operation is mechanical and has no room for interpretation.</constraints>
 
-<report_back>The result in the stated format; up to 10 lines.</report_back>
+<report_back>The result in the stated format; up to 10 lines; the LAST line `DONE <name>` or `BLOCKED <name>: <reason>`.</report_back>
 ```
 
 ## Antipatterns
@@ -144,7 +143,6 @@ All substantiated findings go to the review file <path under .claude/ghorc-out/>
 
 ## Report example
 ```
-STATUS: DONE
 SHA: 1a2b3c4
 Changed: src/queue.ts (retry guard), tests/queue.test.ts (new case)
 Check: `npm run test:fast` -> 212 pass, 0 fail
@@ -153,6 +151,7 @@ Acceptance map:
 - A2 unknown outcome stays unknown: PASS (tests/queue.test.ts:71)
 - A3 crash matrix still green: UNVERIFIED (full is the lead's run)
 Open question: should the guard also cover the manual retry button?
+DONE T-17
 ```
 
 ## Report limits
