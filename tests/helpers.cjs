@@ -14,7 +14,7 @@ function runScript(name, input, opts = {}) {
   const r = spawnSync(process.execPath, [path.join(SCRIPTS, name), ...(opts.args || [])], {
     input: typeof input === 'string' ? input : JSON.stringify(input),
     encoding: 'utf8',
-    env: { ...process.env, CLAUDE_PROJECT_DIR: '', GHORC_ROLE: '', GHORC_TMP: TEST_TMP, GHORC_WATCHDOG_ROOT: TEST_ROOT, GHORC_NO_AUTOSTART: '1', GHORC_HOOK_GIT_TIMEOUT_MS: '15000', ...(opts.env || {}) }, // root.cjs gives git 1000 ms: too little under load
+    env: { ...process.env, CLAUDE_PROJECT_DIR: '', GHORC_ROLE: '', HC_TERMINAL_ID: '', HERDR_ENV: '', GHORC_TMP: TEST_TMP, GHORC_WATCHDOG_ROOT: TEST_ROOT, GHORC_NO_AUTOSTART: '1', GHORC_HOOK_GIT_TIMEOUT_MS: '15000', ...(opts.env || {}) }, // root.cjs gives git 1000 ms: too little under load
     cwd: opts.cwd,
   });
   return { code: r.status, out: r.stdout, err: r.stderr };

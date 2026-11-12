@@ -4,9 +4,10 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { run, deny, readState, writeState } = require('./lib/hook-io.cjs');
 const { load, projectRoot } = require('./lib/config.cjs');
+const { sessionRoot } = require('./lib/root.cjs');
 const tmp = require('./lib/tmp.cjs');
 const cg = require('./lib/ctxguard.cjs');
-const { isWorker, isLead } = require('./lib/role.cjs');
+const { isWorker, provenLead } = require('./lib/role.cjs');
 const { matches, AGENT_START } = require('./lib/cmd.cjs');
 const { unpushed, pending, originDefaultBranch } = require('./lib/unpushed.cjs');
 
@@ -21,13 +22,16 @@ if (process.argv.includes('--help')) {
       'PreToolUse denies Agent/Task and Edit/Write/NotebookEdit outside handoff.statePath and handoff.handoffPath ' +
       '(Bash, Read, SendMessage, MCP tools stay allowed); with handoff.pushGuard true it also denies `herdr agent start` and `hc run ... claude` ' +
       'while a branch named in STATE in_flight is ahead of or missing on origin. Stop blocks the lead until ' +
-      'handoff.statePath is newer than the flag, at most 2 times, never when stop_hook_active. ' +
+      'handoff.statePath is newer than the flag, at most 2 times, never when stop_hook_active. STATE.md and HANDOFF.md are ' +
+      'looked for at the root of the own git worktree of the session (a lead branch in a linked worktree uses that worktree, not the main checkout). ' +
       'handoff.stickyOnCompact (default false) switches on the sticky mode: any compaction (SessionStart with source ' +
       'compact) also writes the flag, the flag is cleared only when HANDOFF.md (handoff.handoffPath) has ' +
       '`status: SENT` and `old_session_id` equal to this session (token numbers never clear it), and Stop blocks once ' +
       'per turn until then (never when stop_hook_active, and a repeat block within 60 s for the session passes), with a ' +
       'reason that has no token numbers. A flag caused by a compaction denies and blocks only a session with ' +
-      'GHORC_ROLE=lead; any other session (worker, roleless) gets a reminder only; a flag from crossing ctxHandoff ' +
+      'GHORC_ROLE=lead, or a roleless session whose terminal proves it is a lead (hc: the terminal name starts with ' +
+      'capacity.leadNamePrefix or it has no parent; herdr: the tab label starts with the prefix without its dash; a failed ' +
+      'or slow lookup proves nothing); GHORC_ROLE=worker never; any other session gets a reminder only; a flag from crossing ctxHandoff ' +
       'reaches every main session that is not a worker. The reminder also goes to the model through the ' +
       'additionalContext of UserPromptSubmit. Without a ctx file, or with one older than 10 minutes, and without a ' +
       'flag, it only warns (fail-open). The transcript size and unread watchdog alerts are secondary signals ' +
@@ -112,17 +116,32 @@ run((input) => {
   // times and lets go once STATE is newer than the flag). On: the sticky mode described in --help.
   const sticky = hand.stickyOnCompact === true;
   if (worker && !sticky) return;
-  const lead = isLead();
-  const root = projectRoot(cwd);
+  // A lead that may be blocked: GHORC_ROLE=lead, or (no role at all) a terminal that proves it. Asked lazily, once, and only
+  // where the answer matters; the role variable is read before any lookup. See lib/role.cjs.
+  let leadAnswer = null;
+  const isLead = () => {
+    if (leadAnswer === null) {
+      leadAnswer = provenLead({
+        session: sid,
+        leadPrefix: (cfg.capacity || {}).leadNamePrefix,
+        prefer: (cfg.backend || {}).prefer,
+        cwd,
+      });
+    }
+    return leadAnswer;
+  };
+  const root = projectRoot(cwd); // the ctx files and watchdog alerts live under the project root
+  const own = sessionRoot(cwd); // STATE.md and HANDOFF.md live at the root of the session's own worktree
   const th = cg.thresholds(cfg);
   const now = Date.now();
-  const statePath = path.resolve(root, hand.statePath || 'STATE.md');
-  const handoffPath = path.resolve(root, hand.handoffPath || 'HANDOFF.md');
+  const statePath = path.resolve(own, hand.statePath || 'STATE.md');
+  const handoffPath = path.resolve(own, hand.handoffPath || 'HANDOFF.md');
   const stateName = path.basename(statePath);
   const handoffName = path.basename(handoffPath);
 
   if (event === 'SessionStart') {
     if (!sticky || input.source !== 'compact' || cg.handoffSentBy(handoffPath, sid)) return;
+    const lead = !worker && isLead();
     const flag = cg.markCompacted(sid, now, lead);
     const enforced = !worker && (lead || Boolean(flag.crossed));
     return context('SessionStart', [
@@ -152,7 +171,7 @@ run((input) => {
   let ctx = null;
   const readCtx = () => ctx || (ctx = cg.readCtx(root, sid, now));
   let reminder = null;
-  if (sticky && flag && !lead && (worker || cg.compactOnly(flag))) {
+  if (sticky && flag && (worker || cg.compactOnly(flag)) && !isLead()) {
     let reminderOnly = true;
     if (!worker) {
       const c = readCtx();
@@ -277,7 +296,7 @@ run((input) => {
   if (reminder) return input.stop_hook_active ? undefined : out({ systemMessage: reminder });
   if (!flag) return;
 
-  if (sticky && lead) {
+  if (sticky && isLead()) {
     // Blocked once per turn until HANDOFF.md says SENT for this session (which also removed the flag above). Never on
     // the second pass of a turn (stop_hook_active). Backstop: stop_hook_active may be missing, so a repeat block within
     // 60 s for the session passes. No token numbers in the reason.
