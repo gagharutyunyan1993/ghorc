@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { run } = require('./lib/hook-io.cjs');
 const { load, projectRoot } = require('./lib/config.cjs');
+const { sessionRoot } = require('./lib/root.cjs');
 const cg = require('./lib/ctxguard.cjs');
 const { isWorker, provenLead } = require('./lib/role.cjs');
 const cap = require('./lib/capacity.cjs');
@@ -65,8 +66,8 @@ run((input) => {
 
     if (event === 'Stop') {
       if (input.stop_hook_active) return;
-      // handoff: the old lead must go idle (SENT), and in handoff mode context-guard demands the opposite of new work
-      const handoffPath = path.resolve(root, ((cfg && cfg.handoff) || {}).handoffPath || 'HANDOFF.md');
+      // handoff (HANDOFF.md at the session root, the same helper as context-guard): the old lead must go idle (SENT), and in handoff mode context-guard demands the opposite of new work
+      const handoffPath = path.resolve(sessionRoot(cwd), ((cfg && cfg.handoff) || {}).handoffPath || 'HANDOFF.md');
       // a compaction-only flag (handoff.stickyOnCompact) binds the lead only: for any other session it is no flag. The lead
       // is the proven one (role, else the terminal), asked only here, only for such a flag; a failed lookup is "not proven"
       const flag = cg.readFlag(session);

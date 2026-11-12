@@ -1026,3 +1026,33 @@ test('config validation: weekly steps are 0..100 and climb step <= noNew <= cap'
   }
   assert.ok(check({ weeklyNoNewPct: 'x' }).fatal.some((x) => /capacity\.weeklyNoNewPct: expected number/.test(x)));
 });
+
+// ---- fix round 1: one root for HANDOFF.md in both guards ----
+test('P2-1: a lead in a linked worktree whose HANDOFF.md is SENT is not told "Machine underloaded" (same root as context-guard)', () => {
+  const { spawnSync } = require('node:child_process');
+  const os = require('node:os');
+  const git = (cwd, ...args) => {
+    const r = spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.com', ...args], { cwd, encoding: 'utf8' });
+    assert.equal(r.status, 0, `git ${args.join(' ')}: ${r.stderr}`);
+  };
+  const p = setup(base());
+  git(p.cwd, 'init', '-q', '-b', 'main');
+  fs.writeFileSync(path.join(p.cwd, 'a.txt'), 'a\n');
+  git(p.cwd, 'add', 'a.txt');
+  git(p.cwd, 'commit', '-q', '-m', 'init');
+  const wt = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'ghorc-wt-')), 'lead-branch');
+  process.on('exit', () => fs.rmSync(path.dirname(wt), { recursive: true, force: true }));
+  git(p.cwd, 'worktree', 'add', '-q', '-b', 'lead-branch', wt);
+  const sent = `handoff_id: h-1\nstatus: SENT\nold_session_id: ${p.s}\n`;
+  const stopAt = (cwd, env) =>
+    runScript('capacity-guard.cjs', { hook_event_name: 'Stop', session_id: p.s, cwd, last_assistant_message: 'Waiting.' }, { env: { ...p.env, GHORC_ROLE: 'lead', ...env } });
+
+  assert.ok(blocks(stopAt(wt, {})), 'no HANDOFF.md anywhere: the idle lead is told to work');
+  // no CLAUDE_PROJECT_DIR: the root is the worktree, as context-guard reads it
+  fs.writeFileSync(path.join(wt, 'HANDOFF.md'), sent);
+  assert.equal(stopAt(wt, {}).out, '', 'SENT at the worktree root');
+  fs.rmSync(path.join(wt, 'HANDOFF.md'));
+  // CLAUDE_PROJECT_DIR set: the root is that directory, whatever the cwd
+  fs.writeFileSync(path.join(p.cwd, 'HANDOFF.md'), sent);
+  assert.equal(stopAt(wt, { CLAUDE_PROJECT_DIR: p.cwd }).out, '', 'SENT at CLAUDE_PROJECT_DIR');
+});
