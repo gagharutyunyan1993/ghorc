@@ -219,6 +219,6 @@ test('#1 #18 manifests: marketplace ghorc, version 0.9.0 everywhere, plugin meta
   assert.equal(j('package.json').version, '0.9.0');
   assert.equal(pl.license, 'MIT');
   assert.ok(pl.repository && pl.homepage);
-  assert.match(fs.readFileSync(path.join(ROOT, 'CHANGELOG.md'), 'utf8'), /^# Changelog\n\n(## Unreleased\n[\s\S]*?)?## 0\.9\.0 - \d{4}-\d\d-\d\d\n[\s\S]*## 0\.8\.0 - [\s\S]*## 0\.7\.0 - [\s\S]*## 0\.6\.1 -[\s\S]*## 0\.6\.0 -[\s\S]*## 0\.5\.1/);
+  assert.match(fs.readFileSync(path.join(ROOT, 'CHANGELOG.md'), 'utf8'), /^# Changelog\n\n(## (?:Unreleased|0\.10\.0 \(unreleased\))\n[\s\S]*?)?## 0\.9\.0 - \d{4}-\d\d-\d\d\n[\s\S]*## 0\.8\.0 - [\s\S]*## 0\.7\.0 - [\s\S]*## 0\.6\.1 -[\s\S]*## 0\.6\.0 -[\s\S]*## 0\.5\.1/);
   assert.ok(TEST_TMP);
 });
