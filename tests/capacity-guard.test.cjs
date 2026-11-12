@@ -505,6 +505,39 @@ test('merge follow-up P2-3: a compaction-only flag silences Stop for the lead on
   assert.ok(blocks(stop(p)));
 });
 
+test('proven lead: a roleless session in a terminal named with the lead prefix counts as lead for a compaction-only flag; a worker does not', () => {
+  const now = Date.now();
+  const compacted = { ts: now, tokens: 0, compacted: true, compactedAt: now, lead: false };
+  const dir = fs.mkdtempSync(path.join(TEST_TMP, 'fakehc-'));
+  const fake = path.join(dir, 'fake-hc.cjs');
+  fs.writeFileSync(
+    fake,
+    `const fs=require('fs'),path=require('path');const key=process.argv.slice(2).join('_');` +
+      `fs.appendFileSync(path.join(${JSON.stringify(dir)},'calls.log'),key+'\\n');` +
+      `const f=path.join(${JSON.stringify(dir)},key+'.out');` +
+      `if(!fs.existsSync(f)){process.exit(3);}process.stdout.write(fs.readFileSync(f,'utf8'));`,
+  );
+  const calls = () => (fs.existsSync(path.join(dir, 'calls.log')) ? fs.readFileSync(path.join(dir, 'calls.log'), 'utf8').split(/\r?\n/).filter(Boolean) : []);
+  const hcEnv = { HC_TERMINAL_ID: 't5', GHORC_HC_BIN: JSON.stringify([process.execPath, fake]), GHORC_TOOL_TIMEOUT_MS: '30000' };
+  const p = setup(base());
+  cgl.writeFlag(p.s, compacted);
+  fs.writeFileSync(path.join(dir, 'get_t5.out'), JSON.stringify({ address: 't5', name: 'lead-h1', parent: 't1' }));
+  assert.equal(stop(p, {}, hcEnv).out, '', 'roleless, tab lead-h1: proven lead, the flag counts, no capacity block');
+  assert.deepEqual(calls(), ['get_t5'], 'one lookup');
+  assert.equal(stop(p, {}, { ...hcEnv, GHORC_ROLE: 'lead' }).out, '', 'GHORC_ROLE=lead: the flag counts');
+  const before = calls().length;
+  assert.ok(blocks(stop(p, {}, { ...hcEnv, GHORC_ROLE: 'worker' })) === false, 'GHORC_ROLE=worker never reaches the lead path');
+  assert.equal(calls().length, before, 'a worker is never looked up');
+  // a roleless session in a worker-named tab with a parent: not proven, the flag is no flag, Stop blocks as for any idle lead
+  fs.writeFileSync(path.join(dir, 'get_t5.out'), JSON.stringify({ address: 't5', name: 'w-1', parent: 't1' }));
+  assert.ok(blocks(stop(p, {}, hcEnv)), 'not proven: blocks');
+  // a failing lookup is "not proven", never a crash
+  fs.rmSync(path.join(dir, 'get_t5.out'));
+  const r = stop(p, {}, hcEnv);
+  assert.equal(r.code, 0);
+  assert.ok(blocks(r), 'failed lookup: not proven');
+});
+
 test('ledger clear: only when no agent-bearing task is in flight (workflow and cloud session count)', () => {
   const run = (bt) => {
     const p = setup(base());

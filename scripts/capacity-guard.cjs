@@ -5,7 +5,7 @@ const path = require('node:path');
 const { run } = require('./lib/hook-io.cjs');
 const { load, projectRoot } = require('./lib/config.cjs');
 const cg = require('./lib/ctxguard.cjs');
-const { isWorker, isLead } = require('./lib/role.cjs');
+const { isWorker, provenLead } = require('./lib/role.cjs');
 const cap = require('./lib/capacity.cjs');
 
 if (process.argv.includes('--help')) {
@@ -67,9 +67,15 @@ run((input) => {
       if (input.stop_hook_active) return;
       // handoff: the old lead must go idle (SENT), and in handoff mode context-guard demands the opposite of new work
       const handoffPath = path.resolve(root, ((cfg && cfg.handoff) || {}).handoffPath || 'HANDOFF.md');
-      // a compaction-only flag (handoff.stickyOnCompact) binds the lead only: for any other session it is no flag
+      // a compaction-only flag (handoff.stickyOnCompact) binds the lead only: for any other session it is no flag. The lead
+      // is the proven one (role, else the terminal), asked only here, only for such a flag; a failed lookup is "not proven"
       const flag = cg.readFlag(session);
-      if (cg.handoffSentBy(handoffPath, session) || (flag && (isLead() || !cg.compactOnly(flag)))) return;
+      if (
+        cg.handoffSentBy(handoffPath, session) ||
+        (flag && (!cg.compactOnly(flag) || provenLead({ session, leadPrefix: s.leadNamePrefix, prefer: (cfg.backend || {}).prefer, cwd })))
+      ) {
+        return;
+      }
       const fromTasks = cap.agentsFromTasks(input.background_tasks, log);
       const mine = cap.readLedger(ledgerFile).filter((e) => e.session === session).length;
       if (!cap.anyAgentTaskInFlight(input.background_tasks) && mine > 0) {
