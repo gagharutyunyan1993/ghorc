@@ -19,6 +19,7 @@ if (process.argv.includes('--help')) {
       '`hc send` is denied too, except for a worker (GHORC_ROLE=worker, not a subagent) sending to its own parent terminal (`hc get $HC_TERMINAL_ID` -> parent) or to a live claude-code lead of the same project from `hc ls` (no parent, or named lead-*, cwd inside the project root or the parent\'s cwd); nothing readable means deny. ' +
       'heavyGuard.requireLeadEnv=true: also denies without GHORC_ROLE=lead. ' +
       'heavySlots.slots > 0: the lead is also denied a heavy command while every slot holds a live claim of another session (the holder is named; scripts/heavy-slot.cjs is the real lock; read errors fail open). ' +
+      'heavyGuard.agentsWhenFree=true with heavySlots.slots > 0: a subagent or worker may start a heavy command while a slot is free and is denied only when all slots are taken. ' +
       'Every deny is appended to <tmp>/ghorc-<user>/denials.log. An invalid project config makes it deny the built-in default heavy commands, with the reason. No project config: nothing is denied.',
   );
   process.exit(0);

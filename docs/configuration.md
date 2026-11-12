@@ -20,7 +20,7 @@ The project config is `<project>/.claude/ghorc.json`. `/ghorc:setup` copies a sh
     "mediaByteBudget": 8388608,
     "maxScreenshots": 60
   },
-  "heavyGuard": { "requireLeadEnv": false },
+  "heavyGuard": { "requireLeadEnv": false, "agentsWhenFree": false },
   "heavySlots": { "slots": 0, "minFreeRamGb": 0 },
   "thresholds": { "ctxPrepare": 120000, "ctxHandoff": 150000 },
   "lead": { "model": "opus", "effort": "medium", "remind": true },
@@ -80,6 +80,10 @@ project with `test` and `test:full` gets `test:full` proposed even when `npm tes
 ### heavyGuard
 `requireLeadEnv` (false): when true, heavy commands are also denied unless the process has `GHORC_ROLE=lead`.
 
+`agentsWhenFree` (false): when true and `heavySlots.slots` is above 0, a subagent or worker may start a heavy command while
+a slot is free and is denied only when all slots are taken ("heavy-check slots are full", with the holders). False keeps
+the rule that only the lead runs heavy checks. With `slots` 0 the key does nothing.
+
 ### heavySlots
 Limit on heavy checks running at once on the machine. Off by default.
 - `slots` (0): 0 = off, 1 to 8. A value above 8 is clipped to 8 with a warning (`heavy-slot.cjs status`, and in the
@@ -89,7 +93,7 @@ Limit on heavy checks running at once on the machine. Off by default.
 The lock is `scripts/heavy-slot.cjs run --label <text> -- <command>`; the heavy-check hook only denies early, when
 every slot holds a live claim of another session ([hooks.md](hooks.md#heavy-check-slots-scriptsheavy-slotcjs)).
 Call the wrapper from `checks.full`, from the project directory, for example
-`"full": "node \"<plugin>/scripts/heavy-slot.cjs\" run --label full -- \"npm run test:full\""` (on Windows `npm` is a `.cmd`, so it goes in as one string). The claim's session is
+`"full": "node \"<plugin>/scripts/heavy-slot.cjs\" run --label full -- \"npm run test:full\""` (on Windows `npm` is a `.cmd`: write `npm.cmd` with separate arguments, or one string as here). The claim's session is
 `--session`, else `$GHORC_SESSION`, else `$CLAUDE_CODE_SESSION_ID` (set by Claude Code in the shell tools' environment,
 equal to the id the hook sees), else `pid-<parent pid>`, so with no setup the lead's own claim is its own.
 `--minutes <n>` marks a claim that runs longer than announced in `status` (it is not removed).

@@ -25,7 +25,8 @@ if (ownArgs.includes('--help') || ownArgs.includes('-h') || !cmdName) {
     'heavy-slot.cjs run [--label <text>] [--session <id>] [--minutes <n>] -- <command...>\n' +
       '  Takes a heavy-check slot (heavySlots in .claude/ghorc.json), runs the command, passes its exit code, releases the\n' +
       '  slot. Exit 75: no free slot (the message names the holder, its label and age). slots = 0: runs the command as is.\n' +
-      '  The command is an argument list (no shell) or one string with spaces (run by the shell).\n' +
+      '  The command is an argument list (no shell) or one string with spaces (run by the shell). On Windows a .cmd/.bat\n' +
+      '  first word (npm.cmd) runs through cmd.exe with each argument quoted; one that cannot be quoted safely (a " or %) is refused.\n' +
       '  The session defaults to --session, $GHORC_SESSION, $CLAUDE_CODE_SESSION_ID, else pid-<parent pid>.\n' +
       '  --minutes <n>: how long the check should take; status reports a claim past it (it is not removed).\n' +
       'heavy-slot.cjs status                    slots, holders, free RAM\n' +
