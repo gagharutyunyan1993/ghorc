@@ -101,10 +101,13 @@ function cliRoot(cwd) {
   return fs.existsSync(path.join(last, '.git')) ? last : base;
 }
 
-// The root of the session's own work tree, where it keeps HANDOFF.md and STATE.md: inside a linked git worktree that is the
-// worktree's top level (a lead branch lives in its own worktree and hands over from there), not the main checkout that
-// projectRoot gives. Everywhere else (a plain checkout, no git, CLAUDE_PROJECT_DIR pointing into it) it is projectRoot.
+// The root of the session's own work tree, where it keeps HANDOFF.md and STATE.md. CLAUDE_PROJECT_DIR, when set, is the
+// directory the session was launched in and stays the root whatever the cwd drifts into (as in 0.9.0). Without it: inside a
+// linked git worktree the worktree's top level (a lead branch lives in its own worktree and hands over from there), not the
+// main checkout that projectRoot gives; everywhere else (a plain checkout, no git) it is projectRoot.
 function sessionRoot(cwd) {
+  const env = envProjectDir();
+  if (env) return path.resolve(env);
   try {
     const base = path.resolve(cwd || process.cwd());
     const common = gitCommonRoot(base);

@@ -351,6 +351,43 @@ test('step 4: a session in a linked worktree looks for HANDOFF.md at the worktre
   assert.equal(edit(path.join(main, 'HANDOFF.md')), true, 'main checkout HANDOFF.md');
 });
 
+// a main checkout with a linked worktree; the ctx file is written under the main root
+function mainWithWorktree(name) {
+  const main = tmpProject({ handoff: { stickyOnCompact: true } });
+  git(main, 'init', '-q', '-b', 'main');
+  fs.writeFileSync(path.join(main, 'a.txt'), 'a\n');
+  git(main, 'add', 'a.txt');
+  git(main, 'commit', '-q', '-m', 'init');
+  const wt = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'ghorc-wt-')), name);
+  process.on('exit', () => fs.rmSync(path.dirname(wt), { recursive: true, force: true }));
+  git(main, 'worktree', 'add', '-q', '-b', name, wt);
+  return { main, wt };
+}
+const rewindStop = (s) => {
+  const file = path.join(TEST_TMP, s, 'ctxguard.json');
+  const st = JSON.parse(fs.readFileSync(file, 'utf8'));
+  st.stopBlockAt -= 61 * SEC;
+  fs.writeFileSync(file, JSON.stringify(st));
+};
+
+test('P1-A: with CLAUDE_PROJECT_DIR set the root of STATE/HANDOFF is that directory, even when the cwd drifted into a linked worktree', () => {
+  const { main, wt } = mainWithWorktree('e475');
+  const s = sid();
+  writeCtx(main, s, 12000);
+  const env = { GHORC_ROLE: 'lead', CLAUDE_PROJECT_DIR: main };
+  const stop = () => runScript('context-guard.cjs', hook(wt, s, 'Stop', { stop_hook_active: false }), { env });
+  assert.equal(runScript('context-guard.cjs', hook(wt, s, 'SessionStart', { source: 'compact' }), { env }).code, 0);
+  assert.equal(blocks(stop()), true, 'flag set, no HANDOFF.md yet');
+  const edit = (file) => runScript('context-guard.cjs', hook(wt, s, 'PreToolUse', { tool_name: 'Edit', tool_input: { file_path: file } }), { env }).out.includes('"deny"');
+  assert.equal(edit(path.join(main, 'HANDOFF.md')), false, 'main HANDOFF.md');
+  assert.equal(edit(path.join(main, 'STATE.md')), false, 'main STATE.md');
+  assert.equal(edit(path.join(wt, 'HANDOFF.md')), true, 'the worktree is not the root');
+  fs.writeFileSync(path.join(main, 'HANDOFF.md'), `# HANDOFF\nhandoff_id: h-1   status: SENT   old_session_id: ${s}\n`);
+  rewindStop(s);
+  assert.equal(blocks(stop()), false, 'SENT at the main root releases Stop');
+  assert.equal(cg.readFlag(s), null, 'flag cleared');
+});
+
 test('step 4: outside a linked worktree the root is the project root as before (a subdirectory, CLAUDE_PROJECT_DIR)', () => {
   const { sessionRoot } = require('../scripts/lib/root.cjs');
   const main = tmpProject();
