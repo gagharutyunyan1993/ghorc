@@ -66,6 +66,8 @@
     "minFreeRamGb": 4,
     "weeklyCapPct": 0,
     "agentsOverPace": 0,
+    "weeklyAgentsStepPct": 0,
+    "weeklyNoNewPct": 0,
     "idleMarker": "Idle:",
     "leadNamePrefix": "lead-"
   }

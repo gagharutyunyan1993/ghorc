@@ -177,7 +177,12 @@ Off by default. `enabled` (false): switch the hook on. `agents` (3): the ceiling
 lead has fewer running agents (subagents, teammates and terminal workers of `hc` or `herdr`). `cpuStartPct` (60): demand work only while
 the average CPU is below it. `minFreeRamGb` (4): and free RAM is at least this. `weeklyCapPct` (0 = off): at this
 share of the weekly limit no new agents are demanded. `agentsOverPace` (0 = off): while the weekly use is above
-`weeklyCapPct` times the elapsed share of the week, demand work only below this many agents. `idleMarker` (`Idle:`):
+`weeklyCapPct` times the elapsed share of the week, demand work only below this many agents. `weeklyAgentsStepPct`
+(0 = off): from this share of the weekly limit the agent limit is at most `agentsOverPace` (needs `agentsOverPace` > 0).
+`weeklyNoNewPct` (0 = off): from this share the prompt line says to start no new packages and only finish and merge
+what is in flight, and Stop no longer raises the "machine underloaded" block. Both steps act only on fresh data (not
+on a stale value, see [hooks.md](hooks.md#capacity-guardcjs)). Each is 0..100 and, when non-zero, they must climb:
+`weeklyAgentsStepPct` <= `weeklyNoNewPct` <= `weeklyCapPct`; a violation is a config error. `idleMarker` (`Idle:`):
 a line starting with it and a reason lets the turn end. `leadNamePrefix` (`lead-`): herdr panes and hc terminals with this name
 prefix are lead sessions and are not counted as workers (empty: none excluded).
 

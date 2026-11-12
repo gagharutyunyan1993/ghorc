@@ -244,6 +244,13 @@ Stop is silent when the last answer has no text (the field is missing or not a s
   7 days)) / 7 days, 0, 1). `used >= weeklyCapPct`: Stop demands no agents and the prompt line says `WEEKLY CAP`.
   `used > weeklyCapPct * f` and `agentsOverPace` > 0: Stop demands agents only while there are fewer than
   `agentsOverPace`.
+- Weekly steps (optional ladder below the cap, both 0 = off, `weeklyAgentsStepPct` <= `weeklyNoNewPct` <=
+  `weeklyCapPct`; they also work when `weeklyCapPct` is 0): `used >= weeklyAgentsStepPct` and `agentsOverPace` > 0:
+  the agent limit is at most `agentsOverPace`, as for the pace rule, and the prompt line says `Weekly step N%`.
+  `used >= weeklyNoNewPct`: the prompt line says no new packages, only finish and merge what is in flight, and Stop
+  raises no "machine underloaded" block (a lead with free capacity may end its turn). The cap, when reached, wins
+  over both. The steps never act on stale data (see below) or when there is no data; the cap keeps acting on stale
+  data as before. With both keys 0 the output is the same as before the keys existed.
   Data of a past or missing `resets_at`, or taken from the newest other session's ctx file, is marked `(stale)`; no data
   at all: the plain rules, a line in the prompt and in the log.
 
