@@ -728,9 +728,9 @@ test('N7: SKILL.md states the sticky qualifier, exit 2 / cannot tell and the lea
   assert.match(skill, /created with `--env GHORC_ROLE=lead`/);
   const startWith = (cfg, role) =>
     runScript('session-start.cjs', { hook_event_name: 'SessionStart', session_id: sid(), cwd: tmpProject(cfg) }, { env: { GHORC_NO_AUTOSTART: '1', ...(role ? { GHORC_ROLE: role } : {}) } }).out;
-  assert.match(startWith(STICKY), /stickyOnCompact is on, but GHORC_ROLE is not set.*no enforcement until GHORC_ROLE=lead/);
-  assert.doesNotMatch(startWith(STICKY, 'lead'), /no enforcement/);
-  assert.doesNotMatch(startWith({}), /no enforcement/);
+  assert.match(startWith(STICKY), /stickyOnCompact is on, but GHORC_ROLE is not set.*enforced only when it is a proven lead.*otherwise set GHORC_ROLE=lead/);
+  assert.doesNotMatch(startWith(STICKY, 'lead'), /enforced only/);
+  assert.doesNotMatch(startWith({}), /enforced only/);
 });
 
 test('statusline prints the role through the helper: trimmed and lowercased', () => {
