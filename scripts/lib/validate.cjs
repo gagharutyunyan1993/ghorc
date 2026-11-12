@@ -55,6 +55,14 @@ function checkFile(file) {
       }
     }
   }
+  if (isObj(data.backend) && typeof data.backend.prefer === 'string' && !['hc', 'herdr'].includes(data.backend.prefer)) {
+    problems.push(`backend.prefer: must be "hc" or "herdr", got ${JSON.stringify(data.backend.prefer)}`);
+  }
+  if (isObj(data.worker) && Array.isArray(data.worker.permissionArgs)) {
+    data.worker.permissionArgs.forEach((a, i) => {
+      if (typeof a !== 'string') problems.push(`worker.permissionArgs[${i}]: not a string`);
+    });
+  }
   if (Array.isArray(data.heavyCommands)) {
     data.heavyCommands.forEach((p, i) => {
       if (typeof p !== 'string') return problems.push(`heavyCommands[${i}]: not a string`);

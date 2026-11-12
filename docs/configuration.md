@@ -39,6 +39,8 @@ The project config is `<project>/.claude/ghorc.json`. `/ghorc:setup` copies a sh
     "handoffPath": "HANDOFF.md"
   },
   "review": { "maxFixRounds": 2 },
+  "backend": { "prefer": "hc" },
+  "worker": { "permissionArgs": [] },
   "criticalPaths": [],
   "capacity": {
     "enabled": false,
@@ -127,13 +129,32 @@ on `origin` (`node scripts/unpushed.cjs [--branches a,b]` lists them: local refs
 `stickyOnCompact` (false): sticky handoff. A compaction (SessionStart, source `compact`) writes the handoff flag; only
 `HANDOFF.md` with `status: SENT` and `old_session_id` equal to the session clears it; Stop blocks the lead once per
 turn until then (a repeat block within 60 s passes). A flag caused by a compaction denies and blocks only a session
-with `GHORC_ROLE=lead`; every other session (a worker, or one without `GHORC_ROLE`) gets a reminder only. So
-enabling it requires that leads run with `GHORC_ROLE=lead`. Off or absent: a compaction changes nothing and Stop
+with `GHORC_ROLE=lead`, or a session without `GHORC_ROLE` whose terminal proves it is a lead: on `hc`
+(`hc get <own id>`) the terminal name starts with `capacity.leadNamePrefix` or the terminal has no parent; on `herdr`
+(`herdr agent list`) the tab label starts with that prefix without its trailing dash (`lead`). `GHORC_ROLE=worker` is
+never a lead, whatever the tab is called. A lookup that fails, is slow (about 1.5 s at most) or finds no backend proves
+nothing and the session gets the reminder only; the lookup runs only when `GHORC_ROLE` does not answer. Every other
+session (a worker, or one that is not proven) gets a reminder only. Leads started by the owner should still run with
+`GHORC_ROLE=lead`. `statePath` and `handoffPath` are resolved from the root of the session's own git worktree (a lead
+branch in a linked worktree keeps `HANDOFF.md` there, not in the main checkout); outside a linked worktree that is the
+project root, as before. Off or absent: a compaction changes nothing and Stop
 behaves as in 0.7.0.
 
 `candidatePermissionArgs` can bypass permission prompts (for example `--dangerously-skip-permissions`), so setting it is
 the project's explicit decision. `setup.cjs --check` prints an information line saying whether it is set;
 `setup.cjs --apply` never writes it.
+
+### backend
+`prefer` (`"hc"`): which terminal backend wins when both are present in a session (`HC_TERMINAL_ID` set and `HERDR_ENV=1`
+with a herdr server that answers). `"hc"` is the 0.9.0 behaviour; `"herdr"` makes the `herdr` CLI win. With only one
+backend present that one is used whatever the key says, and with `"herdr"` a herdr server that does not answer leaves
+`hc`. Any other value fails `check-config.cjs`. `node scripts/backend.cjs` prints the answer.
+
+### worker
+`permissionArgs` (`[]`): permission arguments for terminal workers the lead starts, for example
+`["--dangerously-skip-permissions"]` or `["--permission-mode", "acceptEdits"]`; an array of strings, validated by
+`check-config.cjs`. The key is the project's explicit decision (it can bypass permission prompts), like
+`handoff.candidatePermissionArgs`; `setup.cjs --apply` never writes it. No hook reads it; it is the one place for the permission arguments of the commands that start workers.
 
 ### review
 `maxFixRounds` (2): fix rounds per package before the lead stops resending the implementer. After that comes a cheap
@@ -161,10 +182,10 @@ a line starting with it and a reason lets the turn end. `leadNamePrefix` (`lead-
 prefix are lead sessions and are not counted as workers (empty: none excluded).
 
 ## Environment variables
-- `GHORC_ROLE`: optional. Empty on a main session means `lead`. `worker` marks a terminal worker (no lead reminder, heavy
+- `GHORC_ROLE`: optional. Empty on a main session means `lead` for most hooks; the sticky handoff block treats a roleless session as a lead only when its terminal proves it (see `stickyOnCompact`). `worker` marks a terminal worker (no lead reminder, heavy
   commands denied, reminder-only context guard). For a herdr tab set it with `herdr tab create --env GHORC_ROLE=worker`,
   not before `herdr agent start` (it would not reach the session); with `hc run` (no `--env`) put `env GHORC_ROLE=worker`
-  in front of the program. `lead` switches on the strict mode (`leadNoMedia`, `heavyGuard.requireLeadEnv`) and is required for
+  in front of the program. `lead` switches on the strict mode (`leadNoMedia`, `heavyGuard.requireLeadEnv`) and is the sure way to make a session a lead for
   `handoff.stickyOnCompact`. The value is trimmed and lowercased (`Worker` is `worker`).
 - `GHORC_TMP`: overrides the state directory `<tmp>/ghorc-<user>`.
 - `GHORC_NO_AUTOSTART=1`: SessionStart never starts the watchdog.

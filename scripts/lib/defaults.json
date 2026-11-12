@@ -52,6 +52,12 @@
   "review": {
     "maxFixRounds": 2
   },
+  "backend": {
+    "prefer": "hc"
+  },
+  "worker": {
+    "permissionArgs": []
+  },
   "criticalPaths": [],
   "capacity": {
     "enabled": false,

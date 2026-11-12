@@ -101,4 +101,23 @@ function cliRoot(cwd) {
   return fs.existsSync(path.join(last, '.git')) ? last : base;
 }
 
-module.exports = { git, resetGit, gitTimedOut, GIT_TIMEOUT_MS, cliRoot, projectRoot, gitCommonRoot, ancestors, envProjectDir };
+// The root of the session's own work tree, where it keeps HANDOFF.md and STATE.md: inside a linked git worktree that is the
+// worktree's top level (a lead branch lives in its own worktree and hands over from there), not the main checkout that
+// projectRoot gives. Everywhere else (a plain checkout, no git, CLAUDE_PROJECT_DIR pointing into it) it is projectRoot.
+function sessionRoot(cwd) {
+  try {
+    const base = path.resolve(cwd || process.cwd());
+    const common = gitCommonRoot(base);
+    if (!common) return projectRoot(base);
+    const r = git(['rev-parse', '--show-toplevel'], base);
+    const top = r.status === 0 ? String(r.stdout).trim() : '';
+    if (!top) return projectRoot(base);
+    const t = path.resolve(base, top);
+    const same = (a, b) => (process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b);
+    return same(t, path.resolve(common)) ? projectRoot(base) : t;
+  } catch {
+    return projectRoot(cwd);
+  }
+}
+
+module.exports = { git, sessionRoot, resetGit, gitTimedOut, GIT_TIMEOUT_MS, cliRoot, projectRoot, gitCommonRoot, ancestors, envProjectDir };
