@@ -526,6 +526,7 @@ module.exports = {
   AGENT_START: [HERDR_AGENT_START, HC_AGENT_START],
   DEFAULT_HEAVY,
   segments,
+  variants,
   stripQuotes,
   matches,
   compile,

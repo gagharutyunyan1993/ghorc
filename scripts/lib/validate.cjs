@@ -48,6 +48,29 @@ function checkTabs(c, problems) {
   }
 }
 
+// git.protectedBranches: non-empty strings ([] = no branch is protected). Wrong types are reported by the generic check.
+function checkGit(c, problems) {
+  if (!Array.isArray(c.protectedBranches)) return;
+  c.protectedBranches.forEach((b, i) => {
+    if (typeof b !== 'string' || !b.trim()) problems.push(`git.protectedBranches[${i}]: must be a non-empty string`);
+  });
+}
+
+// ciRetry: freeRetries 0..100 and hardCap 1..100 (whole numbers), freeRetries <= hardCap, windowHours above 0 and at most 720.
+function checkCiRetry(c, problems) {
+  const range = { freeRetries: [0, 100], hardCap: [1, 100] };
+  for (const [k, [lo, hi]] of Object.entries(range)) {
+    const v = c[k];
+    if (typeof v !== 'number') continue;
+    if (!Number.isFinite(v) || !Number.isInteger(v) || v < lo || v > hi) problems.push(`ciRetry.${k}: ${v} must be a whole number in ${lo}..${hi}`);
+  }
+  const h = c.windowHours;
+  if (typeof h === 'number' && (!Number.isFinite(h) || h <= 0 || h > 720)) problems.push(`ciRetry.windowHours: ${h} must be above 0 and at most 720`);
+  if (Number.isInteger(c.freeRetries) && Number.isInteger(c.hardCap) && c.freeRetries > c.hardCap) {
+    problems.push(`ciRetry.freeRetries (${c.freeRetries}) must not exceed ciRetry.hardCap (${c.hardCap})`);
+  }
+}
+
 // Returns { path, problems: string[], fatal: string[] }. path=null means there is no file (not an error).
 // fatal = the problems that make the config unusable (everything except unknown keys).
 // (a bad element of tabs.devCommands is reported but does not make the config unusable: the guard drops that one pattern)
@@ -103,6 +126,8 @@ function checkFile(file) {
   }
   if (isObj(data.capacity)) checkCapacity(data.capacity, problems);
   if (isObj(data.tabs)) checkTabs(data.tabs, problems);
+  if (isObj(data.git)) checkGit(data.git, problems);
+  if (isObj(data.ciRetry)) checkCiRetry(data.ciRetry, problems);
   if (Array.isArray(data.heavyCommands)) {
     data.heavyCommands.forEach((p, i) => {
       if (typeof p !== 'string') return problems.push(`heavyCommands[${i}]: not a string`);

@@ -56,6 +56,20 @@ Models and effort re-derived from Anthropic's guide "Which Claude model should y
   the first worker started in bypassPermissions does not stop on the one-time warning dialog.
 - Verdict cause `CASCADE`: the planned re-run of a cascade failure; it never counts as a reasoning failure, and a
   package whose first verdict carries it is left out of the first-round ACCEPT rate.
+- Git guard (`scripts/git-guard.cjs`, config `git.guard`, off by default; `/ghorc:setup` item `gitGuard`, never part of
+  `--apply all`): PreToolUse on Bash and PowerShell, for every session (lead, worker, subagent). It denies `--no-verify`
+  (and `git commit -n`), force push (`--force`, `-f`, `--force-with-lease`, `+refspec`), push to a protected branch
+  (`git.protectedBranches`, default `main` and `master`, in any spelling, and `--all`/`--mirror`), push without an
+  explicit remote and branch (bare push, `HEAD`, `@`, a variable or a glob), and writing `core.hooksPath` or `alias.*`
+  (`git config`, `git -c`). Each deny names the rule and the safe form (`git push -u origin <feature-branch>`).
+- CI retry guard (`scripts/ci-retry-guard.cjs`, config `ciRetry`, off by default; `/ghorc:setup` item `ciRetry`):
+  PreToolUse on Bash, PowerShell and MCP retry tools (`mcp__*retry_pipeline|retry_job|play_job|rerun|retry*`). CI
+  restarts (`glab ci retry|run|trigger`, `gh run rerun`, `gh workflow run`, the REST retry endpoints) are counted per
+  project in `.claude/ghorc-out/ci-retry-ledger.jsonl`: within `windowHours` (24) the first `freeRetries` (1) pass, the
+  next need a fresh `.claude/ghorc-out/ci-retry-reason.md` (what failed, the error signature, why a retry and not a fix;
+  written within 30 minutes and after the last restart), and from `hardCap` (3) every restart is denied with "report to
+  the owner". The ledger is a plain, unprotected file.
+- `scripts/lib/cmd.cjs` exports `variants()` (the wrapper-peeled forms of a segment) for the git guard.
 
 ### Changed
 - **ctx files out of the project:** the status line writes `<os tmp>/ghorc-<user>/ctx/<root hash>/ctx-<session>.json`

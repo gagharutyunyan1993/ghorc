@@ -82,6 +82,26 @@ const GUARDS = [
       o.handoff.stickyOnCompact = true;
     },
   },
+  {
+    id: 'gitGuard',
+    key: 'git.guard',
+    why: 'denies --no-verify, force push, push to main/master or without an explicit branch, and hooksPath/alias config, in every session',
+    on: (sub) => sub('git').guard === true,
+    set: (o) => {
+      o.git = o.git && typeof o.git === 'object' ? o.git : {};
+      o.git.guard = true;
+    },
+  },
+  {
+    id: 'ciRetry',
+    key: 'ciRetry.enabled',
+    why: 'a CI restart beyond the free one needs a written reason, and a hard cap stops blind retries',
+    on: (sub) => sub('ciRetry').enabled === true,
+    set: (o) => {
+      o.ciRetry = o.ciRetry && typeof o.ciRetry === 'object' ? o.ciRetry : {};
+      o.ciRetry.enabled = true;
+    },
+  },
 ];
 
 // --apply permissions --mode <name>: the arguments written to worker.permissionArgs and handoff.candidatePermissionArgs.
@@ -733,9 +753,9 @@ if (require.main === module) {
   if (args.includes('--help') || (!args.includes('--check') && !args.includes('--apply') && !args.includes('--restore'))) {
     console.log(
       'setup.cjs --check [--project] [--cwd <dir>]: report each setup item (scope, current -> recommended, why) as human lines plus a final JSON line. ' +
-        'Items marked WARN (heavy, watchdog, explore, permissions, bypassPrompt, and the opt-in guards capacity, heavySlots, pushGuard, stickyOnCompact) never make the setup unclean and are applied only when named (not by "all"); ' +
+        'Items marked WARN (heavy, watchdog, explore, permissions, bypassPrompt, and the opt-in guards capacity, heavySlots, pushGuard, stickyOnCompact, gitGuard, ciRetry) never make the setup unclean and are applied only when named (not by "all"); ' +
         'heavy prints a proposed regex list from the package.json scripts (root and app/). --status adds the role, guards, watchdog and recent denials.\n' +
-        'setup.cjs --apply <all|statusLine,statusLineStale,pct,idle,model,effort,permissions,bypassPrompt,config,claudemd,exclude,heavy,watchdog,explore,capacity,heavySlots,pushGuard,stickyOnCompact> [--mode <bypass|acceptEdits|prompts>] [--project] [--cwd <dir>]: apply the chosen items; ' +
+        'setup.cjs --apply <all|statusLine,statusLineStale,pct,idle,model,effort,permissions,bypassPrompt,config,claudemd,exclude,heavy,watchdog,explore,capacity,heavySlots,pushGuard,stickyOnCompact,gitGuard,ciRetry> [--mode <bypass|acceptEdits|prompts>] [--project] [--cwd <dir>]: apply the chosen items; ' +
         'backs up ~/.claude/settings.json first, touches only the listed keys and prints a diff. ' +
         'pct is written GLOBALLY (every project) unless --project, which writes <root>/.claude/settings.local.json instead. ' +
         'model, effort, permissions and bypassPrompt are owner-level decisions: name them only after the owner says yes; permissions needs --mode (bypass: no permission prompts in tab workers and candidate leads; acceptEdits; prompts: []). GHORC_HOME overrides the home directory. ' +

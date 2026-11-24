@@ -101,5 +101,18 @@
     "weeklyNoNewPct": 0,
     "idleMarker": "Idle:",
     "leadNamePrefix": "lead-"
+  },
+  "git": {
+    "guard": false,
+    "protectedBranches": [
+      "main",
+      "master"
+    ]
+  },
+  "ciRetry": {
+    "enabled": false,
+    "freeRetries": 1,
+    "hardCap": 3,
+    "windowHours": 24
   }
 }

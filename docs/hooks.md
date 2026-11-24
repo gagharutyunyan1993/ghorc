@@ -1,6 +1,6 @@
 # Hooks, status line, watchdog and scripts
 
-ghorc registers six hook scripts (the call ledger has two entries) in `hooks/hooks.json`. They are plain Node.js, make no network calls and never
+ghorc registers nine hook scripts (the call ledger has two entries; the git and CI retry guards are opt-in) in `hooks/hooks.json`. They are plain Node.js, make no network calls and never
 rewrite a command or a file: a PreToolUse hook either stays silent (the call proceeds) or prints a deny decision with a
 reason. Every deny is also appended to the denial log (below).
 
@@ -412,6 +412,79 @@ a Claude Code update that changes its dialogs. The runtime counts from the first
 lead started shows 0m. Identical repeated segments of one command line are read once, so a name opened twice in one command is
 not caught. The `herdr tab close <tab_id>` form needs the id from `herdr tab list` (its output was not captured here).
 
+## git-guard.cjs
+
+**When it fires.** PreToolUse on `Bash|PowerShell`. Off by default: without `git.guard: true`
+([configuration.md](configuration.md#git)) it prints nothing. When on, it judges every session alike: the lead, terminal
+workers and subagents (`agent_id` and `GHORC_ROLE` are not read).
+
+**What it denies.** Each deny names the rule and the safe form.
+- `--no-verify` on `git commit`, `push`, `merge`, `rebase`, `pull` and `am` (an unambiguous abbreviation such as
+  `--no-ver` counts), and `git commit -n` alone or in a bundle (`-anm`). The message of `-m`, `-F`, `-C`, `-c`, `-t`
+  and `--message` is skipped, so a message that mentions `--no-verify` passes. Fix what the hook reports instead.
+- Force push: `git push --force`, `-f` (also in a bundle such as `-uf`), `--force-with-lease`, `--force-if-includes`
+  and a refspec that starts with `+`. Push a new commit on top instead.
+- Push to a protected branch: `git.protectedBranches` (default `main`, `master`; `[]` protects none), in any
+  spelling of the destination (`origin main`, `HEAD:main`, `refs/heads/main`, `HEAD:refs/heads/main`, `feat:main`,
+  `:main`), compared without case; also `--all`, `--mirror` and `--branches`, which would push it too.
+- Push without an explicit remote and branch: bare `git push`, `git push origin`, the refspecs `HEAD` and `@`, and a
+  refspec with `$`, `*`, a backtick or braces (a variable, a glob or a substitution). `git push origin --tags` passes.
+- Writing `core.hooksPath` or `alias.*` with `git config` (a value given, `set`, `unset`, `--unset`, `--add`,
+  `--replace-all`, removing or renaming the `core` or `alias` section) and `git -c core.hooksPath=...` or
+  `git -c alias.<name>=...` (also `--config-env`) on any git command: a new hooks path switches the hooks off, and an
+  alias can hide `push --force` from this guard.
+
+**What passes.** Everything else: `git push origin feat/x`, `git push -u origin feat/x`, `git push origin HEAD:feat/x`,
+reading config (`git config core.hooksPath`, `--get`, `--list`), `git -c user.name=x ...`, and any command with
+`--help` or `-h` (`git help push` too).
+
+**How it reads a command.** The same segment cutter as the heavy-check guard (`scripts/lib/cmd.cjs`): segments split on
+`&&`, `||`, `;`, `|`, `&`, newlines and substitutions; shell wrappers (`bash -c "..."`, `cmd /c`, `powershell -Command`,
+`env`, `sudo`, `timeout`, ...) are looked into; a path or `.exe` on `git` is dropped; global options before the
+subcommand (`-C dir`, `--git-dir`, `--no-pager`) are skipped; redirections (`2>&1`) are ignored. Quoted text is blank
+except a quoted word of plain characters (`"main"`, `"HEAD:main"`), which is read as the word.
+
+**Not covered.** Scripts and files that run git (`./push.sh`, `npm run release`, a Makefile), a command piped into a
+shell from a file, a branch name inside a quoted variable (`"$BRANCH"` is not readable and passes), git aliases and
+`core.hooksPath` set before the guard was on or outside a session, `GIT_CONFIG_*` environment variables, and other
+git clients (an IDE, the GitLab or GitHub web UI, the REST API). It is a seat belt for a well-meaning session writing a
+plain command; branch protection on the server is the real wall for the default branch.
+
+**Failure behavior.** Any internal error allows the call. Every deny goes to the denial log.
+
+## ci-retry-guard.cjs
+
+**When it fires.** PreToolUse on `Bash|PowerShell` and on MCP tools matching
+`mcp__.*(retry_pipeline|retry_job|play_job|rerun|retry).*`. Off by default: without `ciRetry.enabled: true`
+([configuration.md](configuration.md#ciretry)) it prints nothing and writes nothing. It counts every session alike.
+
+**What counts as a restart.** `glab ci|pipe|pipeline retry|run|trigger` (options such as `-R group/project` may stand
+before or after `ci`), `gh run rerun`, `gh workflow run`, `glab api` / `gh api` calls to a
+`.../pipelines|jobs|runs/<id>/retry|play|rerun|rerun-failed-jobs` endpoint, and every call of a matching MCP tool. A
+command with `--help` or `-h` is not counted. Segments are cut like for the heavy-check guard (`cd app && glab ci retry 1`
+counts); one command line with several restarts counts once.
+
+**What it does.** Every allowed restart appends one line `{ts, command, session, tool}` (plus `reason: true` when a
+reason file let it through) to `<project root>/.claude/ghorc-out/ci-retry-ledger.jsonl`. The project root is the main
+repository root (`CLAUDE_PROJECT_DIR`, else the parent of the git common dir), so worktrees, the lead and its workers
+share one ledger. With `n` = ledger lines in the last `ciRetry.windowHours` (24):
+- `n < freeRetries` (1): allowed and recorded;
+- `freeRetries <= n < hardCap` (3): allowed and recorded only when `<project root>/.claude/ghorc-out/ci-retry-reason.md`
+  was modified within the last 30 minutes and after the last recorded restart (so each extra restart needs a new
+  write); otherwise denied with the instruction to write there what failed, the error signature (the failing log line,
+  quoted) and why a retry and not a fix;
+- `n >= hardCap`: denied even with a reason file; the reason says to stop and report to the owner, and when the window
+  frees the next restart.
+
+**Limits.** The count is of permissions given, not of runs: a restart the owner then rejects in a permission prompt,
+or one that fails to start, still counts. The ledger and the reason file are plain files: nothing protects them, so a
+session can edit or delete the ledger to reset the count; the guard is a speed bump against blind retries, not an
+access control. Scripts that restart CI, the web UI and other tools are not seen. `.claude/ghorc-out/` is in the git
+exclude that `/ghorc:setup` (item `exclude`) writes.
+
+**Failure behavior.** Any internal error allows the call; a ledger that cannot be read counts as empty, a line that
+cannot be parsed is skipped, and a restart that cannot be recorded is still allowed. Every deny goes to the denial log.
+
 ## ledger.cjs
 
 **When it fires.** PostToolUse on `Agent` (`ledger.cjs hook`) and SubagentStop (`ledger.cjs stop`). It never denies
@@ -450,7 +523,7 @@ starts the watchdog.
 
 ## Denial log
 
-Every deny of the read guard and the heavy guard appends `<iso time> <session8> <hook> <reason>` to
+Every deny of the read, heavy-check, tabs, git and CI retry guards appends `<iso time> <session8> <hook> <reason>` to
 `<tmp>/ghorc-<user>/denials.log`; cleanup keeps 7 days. `/ghorc:status` (through `setup.cjs --check --status`) shows
 the counts per hook and the last lines:
 

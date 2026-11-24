@@ -52,7 +52,9 @@ The project config is `<project>/.claude/ghorc.json`. `/ghorc:setup` copies a sh
     "agentsOverPace": 0,
     "idleMarker": "Idle:",
     "leadNamePrefix": "lead-"
-  }
+  },
+  "git": { "guard": false, "protectedBranches": ["main", "master"] },
+  "ciRetry": { "enabled": false, "freeRetries": 1, "hardCap": 3, "windowHours": 24 }
 }
 ```
 
@@ -214,6 +216,23 @@ on a stale value, see [hooks.md](hooks.md#capacity-guardcjs)). Each is 0..100 an
 a line starting with it and a reason lets the turn end. `leadNamePrefix` (`lead-`): herdr panes and hc terminals with this name
 prefix are lead sessions and are not counted as workers (empty: none excluded).
 
+### git
+The git guard (`scripts/git-guard.cjs`, [hooks.md](hooks.md#git-guardcjs)). Off by default; `/ghorc:setup` item
+`gitGuard` switches it on. `guard` (false): deny, in every session, `--no-verify` (and `git commit -n`), force push and
+`+refspec`, push to a protected branch, push without an explicit remote and branch, and writing `core.hooksPath` or
+`alias.*` (`git config`, `git -c`). `protectedBranches` (`["main", "master"]`): the branch names no push may land on,
+compared without case; each a non-empty string; `[]` protects none (the other rules stay).
+
+### ciRetry
+The CI retry guard (`scripts/ci-retry-guard.cjs`, [hooks.md](hooks.md#ci-retry-guardcjs)). Off by default;
+`/ghorc:setup` item `ciRetry` switches it on. `enabled` (false): count CI restarts (`glab ci retry|run|trigger`,
+`gh run rerun`, `gh workflow run`, the REST retry endpoints and MCP retry tools) in
+`<project root>/.claude/ghorc-out/ci-retry-ledger.jsonl`. `freeRetries` (1, 0..100): restarts in the window allowed
+without a reason. `hardCap` (3, 1..100, not below `freeRetries`): from this many restarts in the window every restart
+is denied (report to the owner). `windowHours` (24, above 0 and at most 720): the rolling window. Between the two a
+restart needs `<project root>/.claude/ghorc-out/ci-retry-reason.md` written within 30 minutes and after the last
+restart. The ledger is not protected from edits.
+
 ## Environment variables
 - `GHORC_ROLE`: optional. Empty on a main session means `lead` for most hooks; the sticky handoff block treats a roleless session as a lead only when its terminal proves it (see `stickyOnCompact`). `worker` marks a terminal worker (no lead reminder, heavy
   commands denied, reminder-only context guard). For a herdr tab set it with `herdr tab create --env GHORC_ROLE=worker`,
@@ -230,5 +249,5 @@ prefix are lead sessions and are not counted as workers (empty: none excluded).
   `GHORC_TEST_FREE_RAM_GB`: for tests of the slots.
 
 ## Denial log
-Every deny from the read guard and the heavy-check guard appends `<iso time> <session8> <hook> <reason>` to
+Every deny from the read, heavy-check, tabs, git and CI retry guards appends `<iso time> <session8> <hook> <reason>` to
 `<tmp>/ghorc-<user>/denials.log` (7 days are kept). `/ghorc:status` shows the last 5 lines and the counts per hook.

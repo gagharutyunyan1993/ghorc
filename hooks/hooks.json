@@ -1,5 +1,5 @@
 {
-  "description": "ghorc: read guard (Read, MCP captures; reset on Edit/Write), heavy check guard, context guard (SessionStart compact, UserPromptSubmit, PreToolUse, Stop), capacity guard (off by default; Stop, UserPromptSubmit, SubagentStart, SubagentStop), session reminder, call ledger (PostToolUse Agent, SubagentStop)",
+  "description": "ghorc: read guard (Read, MCP captures; reset on Edit/Write), heavy check guard, context guard (SessionStart compact, UserPromptSubmit, PreToolUse, Stop), capacity guard (off by default; Stop, UserPromptSubmit, SubagentStart, SubagentStop), git guard (off by default; PreToolUse Bash|PowerShell), CI retry guard (off by default; PreToolUse Bash|PowerShell and MCP retry tools), session reminder, call ledger (PostToolUse Agent, SubagentStop)",
 
   "hooks": {
     "SessionStart": [
@@ -43,6 +43,24 @@
         "matcher": "Bash|PowerShell",
         "hooks": [
           { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/tabs-guard.cjs\"", "timeout": 8 }
+        ]
+      },
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/git-guard.cjs\"", "timeout": 5 }
+        ]
+      },
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/ci-retry-guard.cjs\"", "timeout": 5 }
+        ]
+      },
+      {
+        "matcher": "mcp__.*(retry_pipeline|retry_job|play_job|rerun|retry).*",
+        "hooks": [
+          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/ci-retry-guard.cjs\"", "timeout": 5 }
         ]
       }
     ],
