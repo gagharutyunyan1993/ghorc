@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { runScript, tmpProject, sid } = require('./helpers.cjs');
+const { runScript, tmpProject, ctxPath, sid } = require('./helpers.cjs');
 const cap = require('../scripts/lib/capacity.cjs');
 const validate = require('../scripts/lib/validate.cjs');
 
@@ -32,7 +32,7 @@ const tasks = (...st) => st.map((status, i) => ({ id: `t${i}`, type: 'subagent',
 const readLog = (p) => (fs.existsSync(p.log) ? fs.readFileSync(p.log, 'utf8') : '');
 
 function writeCtx(p, sessionId, week, ageMin = 0) {
-  const file = path.join(p.cwd, '.claude', `ctx-${sessionId}.json`);
+  const file = ctxPath(p.cwd, sessionId);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const j = { session_id: sessionId, ts: Date.now() - ageMin * 60000 };
   if (week) j.rate_limits = { seven_day: week };
@@ -390,24 +390,27 @@ const osx = require('node:os');
 test('statusline: a failing rename (directory at the target path) leaves no tmp file and still prints the line', () => {
   const proj = tmpProject();
   const s = sid();
-  fs.mkdirSync(path.join(proj, '.claude', `ctx-${s}.json`), { recursive: true });
+  const target = ctxPath(proj, s);
+  fs.mkdirSync(target, { recursive: true });
   const input = { session_id: s, cwd: proj, workspace: { project_dir: proj }, model: { display_name: 'M' } };
   const r = runScript('statusline.cjs', input, { cwd: proj, env: { NO_COLOR: '1' } });
   assert.equal(r.code, 0);
   assert.match(r.out, /^M/);
-  assert.deepEqual(fs.readdirSync(path.join(proj, '.claude')).filter((f) => f.endsWith('.tmp')), []);
+  assert.deepEqual(fs.readdirSync(path.dirname(target)).filter((f) => f.endsWith('.tmp')), []);
 });
 
 test('statusline: the normal path still writes the ctx file and no tmp file', () => {
   const proj = tmpProject();
   const s = sid();
   runScript('statusline.cjs', { session_id: s, cwd: proj, workspace: { project_dir: proj } }, { cwd: proj });
-  const files = fs.readdirSync(path.join(proj, '.claude'));
-  assert.ok(files.includes(`ctx-${s}.json`));
+  const target = ctxPath(proj, s);
+  const files = fs.readdirSync(path.dirname(target));
+  assert.ok(files.includes(path.basename(target)));
   assert.deepEqual(files.filter((f) => f.endsWith('.tmp')), []);
+  assert.deepEqual(fs.readdirSync(path.join(proj, '.claude')).filter((f) => f.startsWith('ctx-')), [], 'nothing in the project');
 });
 
-test('setup exclude: a project with only the old two lines is offered the new line and keeps the old ones', () => {
+test('setup exclude: only .claude/ghorc-out/ is needed now; old ctx lines are kept', () => {
   const home = fs.mkdtempSync(path.join(osx.tmpdir(), 'ghorc-home-'));
   const repo = fs.realpathSync(fs.mkdtempSync(path.join(osx.tmpdir(), 'ghorc-excl-')));
   try {
@@ -419,11 +422,13 @@ test('setup exclude: a project with only the old two lines is offered the new li
     const env = { GHORC_HOME: home, CLAUDE_PROJECT_DIR: '' };
     const check = runScript('setup.cjs', '', { args: ['--check', '--cwd', repo], env });
     assert.equal(check.code, 0, check.out + check.err);
-    assert.match(check.out, /ctx-\*\.tmp/);
+    assert.match(check.out, /ok\s+exclude/);
+    assert.doesNotMatch(check.out, /ctx-\*\.tmp/);
     const ap = runScript('setup.cjs', '', { args: ['--apply', 'exclude', '--cwd', repo], env });
     assert.equal(ap.code, 0, ap.out + ap.err);
     const lines = fs.readFileSync(exFile, 'utf8').split('\n');
-    for (const l of ['.claude/ctx-*.json', '.claude/ctx-*.tmp', '.claude/ghorc-out/']) assert.equal(lines.filter((x) => x === l).length, 1, l);
+    for (const l of ['.claude/ctx-*.json', '.claude/ghorc-out/']) assert.equal(lines.filter((x) => x === l).length, 1, l);
+    assert.equal(lines.filter((x) => x === '.claude/ctx-*.tmp').length, 0, 'not added any more');
     const gi = fs.readFileSync(path.join(__dirname, '..', '.gitignore'), 'utf8').split('\n');
     assert.ok(gi.includes('.claude/ctx-*.tmp'));
   } finally {
@@ -432,7 +437,7 @@ test('setup exclude: a project with only the old two lines is offered the new li
   }
 });
 
-test('cleanup removes old ctx-<id>.json.<pid>.tmp leftovers and keeps fresh ones', () => {
+test('cleanup removes ctx-<id>.json.<pid>.tmp leftovers from the project, fresh ones too (the legacy location)', () => {
   const proj = tmpProject();
   const dir = path.join(proj, '.claude');
   fs.mkdirSync(dir, { recursive: true });
@@ -444,7 +449,7 @@ test('cleanup removes old ctx-<id>.json.<pid>.tmp leftovers and keeps fresh ones
   fs.utimesSync(oldT, old, old);
   require('../scripts/lib/tmp.cjs').cleanup(proj);
   assert.equal(fs.existsSync(oldT), false);
-  assert.equal(fs.existsSync(newT), true);
+  assert.equal(fs.existsSync(newT), false, 'nothing ctx-related stays in the project');
 });
 
 // ---- review round 1 ----

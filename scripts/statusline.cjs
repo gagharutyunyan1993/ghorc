@@ -1,17 +1,17 @@
 'use strict';
-// statusLine: one line + the file <project root>/.claude/ctx-<session_id>.json for the lead.
+// statusLine: one line + the ctx file <tmp>/ghorc-<user>/ctx/<root hash>/ctx-<session_id>.json for the lead.
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { projectRoot } = require('./lib/root.cjs');
 const { optedIn } = require('./lib/config.cjs');
-const { tmpDir } = require('./lib/tmp.cjs');
+const { tmpDir, ctxFile } = require('./lib/tmp.cjs');
 const { role: roleOf } = require('./lib/role.cjs');
 
 if (process.argv.includes('--help')) {
   console.log(
     'statusline.cjs: statusLine command. Reads JSON from stdin, prints "model ·effort │ ctx NN% (used/size) │ 5h │ 7d (~Nd from 48 h) │ role │ #<session_id first 8> │ branch │ session name" ' +
-      'and writes <project root>/.claude/ctx-<session_id>.json. GHORC_STATUSLINE_DUMP=<file> appends the raw stdin. ' +
+      'and writes <tmp>/ghorc-<user>/ctx/<root hash>/ctx-<session_id>.json (outside the project). GHORC_STATUSLINE_DUMP=<file> appends the raw stdin. ' +
       'The first raw stdin is also saved once to <tmpdir>/ghorc-<user>/statusline-sample.json. ' +
       'NO_COLOR / GHORC_STATUSLINE_PLAIN=1 disable color. GHORC_GIT_TIMEOUT_MS overrides the 300 ms git timeout. See README.',
   );
@@ -197,9 +197,9 @@ try {
   const root = base || process.env.CLAUDE_PROJECT_DIR ? projectRoot(base) : null;
   // a project without .claude/ghorc.json never opted in: the line is shown, nothing is written into the project
   if (sid && root && optedIn(base || root)) {
-    const dir = path.join(root, '.claude');
-    fs.mkdirSync(dir, { recursive: true });
-    const target = path.join(dir, `ctx-${String(sid).replace(/[^A-Za-z0-9_.-]/g, '_')}.json`);
+    // outside the project: <tmp>/ghorc-<user>/ctx/<root hash>/ctx-<session>.json
+    const target = ctxFile(root, sid);
+    fs.mkdirSync(path.dirname(target), { recursive: true });
     const tmp = `${target}.${process.pid}.tmp`;
     const out = {
       session_id: sid,

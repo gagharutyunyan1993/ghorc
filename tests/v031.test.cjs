@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { runScript, isDeny, tmpProject, sid } = require('./helpers.cjs');
+const { runScript, isDeny, tmpProject, ctxPath, sid } = require('./helpers.cjs');
 
 const REPO = path.join(__dirname, '..');
 const mk = (p) => fs.mkdtempSync(path.join(os.tmpdir(), p));
@@ -43,8 +43,8 @@ test('root rule: statusline writes the ctx file under CLAUDE_PROJECT_DIR like ct
   try {
     const env = { CLAUDE_PROJECT_DIR: proj };
     runScript('statusline.cjs', { session_id: 'abc', cwd: other, model: { display_name: 'M' } }, { env });
-    assert.ok(fs.existsSync(path.join(proj, '.claude', 'ctx-abc.json')));
-    assert.ok(!fs.existsSync(path.join(other, '.claude', 'ctx-abc.json')));
+    assert.ok(fs.existsSync(ctxPath(other, 'abc', { projectDir: proj })));
+    assert.ok(!fs.existsSync(ctxPath(other, 'abc')), 'not under the cwd root');
     const r = runScript('ctx.cjs', '', { env, cwd: other, args: ['--session', 'abc'] });
     assert.match(r.out, /ctx-abc\.json/);
   } finally {

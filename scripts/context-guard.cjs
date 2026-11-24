@@ -15,7 +15,7 @@ if (process.argv.includes('--help')) {
   console.log(
     'context-guard.cjs: hook for SessionStart (matcher compact), UserPromptSubmit, PreToolUse (every tool) and Stop; ' +
       'acts for the lead only (no agent_id, GHORC_ROLE is not worker). ' +
-      'Context tokens come from the status line ctx file <root>/.claude/ctx-<session_id>.json (see ctx.cjs). ' +
+      'Context tokens come from the status line ctx file <tmp>/ghorc-<user>/ctx/<root hash>/ctx-<session_id>.json (see ctx.cjs). ' +
       'Stages: ctxPrepare - "update STATE"; ctxWarn (default ctxHandoff - 10000) - "prepare the handoff, take no new ' +
       'packages"; ctxHandoff - handoff mode. Handoff mode is kept by a flag file ' +
       '<tmp>/ghorc-<user>/handoff-<session_id>.json written at the first crossing of ctxHandoff. In handoff mode ' +

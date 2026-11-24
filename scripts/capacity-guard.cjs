@@ -61,7 +61,7 @@ run((input) => {
     // weekly cap: null - the rule is on but there is no data; undefined - the rule is off
     let week;
     if (s.weeklyCapPct > 0 || s.weeklyAgentsStepPct > 0 || s.weeklyNoNewPct > 0) {
-      week = cap.weekState(cap.readWeekRaw(path.join(root, '.claude'), session), s);
+      week = cap.weekState(cap.readWeekRaw(require('./lib/tmp.cjs').ctxDir(root), session), s);
       if (week === null) log('weekly cap: no rate_limits.seven_day in any ctx file, the weekly brake is off');
     }
 

@@ -7,7 +7,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { runScript, isDeny, tmpProject, bareProject, sid, TEST_TMP } = require('./helpers.cjs');
+const { runScript, isDeny, tmpProject, ctxPath, bareProject, sid, TEST_TMP } = require('./helpers.cjs');
 
 process.env.GHORC_TMP = TEST_TMP;
 const cg = require('../scripts/lib/ctxguard.cjs');
@@ -16,7 +16,7 @@ const SEC = 1000;
 const LEAD = { GHORC_ROLE: 'lead', GHORC_HOOK_GIT_TIMEOUT_MS: '15000' }; // the sticky tests run as the lead unless a test says otherwise
 const STICKY = { handoff: { stickyOnCompact: true } };
 function writeCtx(cwd, s, tokens, ageMin = 0) {
-  const p = path.join(cwd, '.claude', `ctx-${s}.json`);
+  const p = ctxPath(cwd, s);
   fs.mkdirSync(path.dirname(p), { recursive: true });
   fs.writeFileSync(p, JSON.stringify({ used_percentage: 9, current_usage: { input_tokens: 1000, cache_creation_input_tokens: 0, cache_read_input_tokens: tokens - 1000 }, context_window_size: 1000000 }));
   const t = new Date(Date.now() - ageMin * 60 * SEC);
@@ -174,8 +174,7 @@ test('a non-lead session (GHORC_ROLE=worker) gets a reminder only: no deny, no b
 test('a broken ctx file is reported as found, bad JSON; a missing one as no ctx file', () => {
   const cwd = tmpProject({});
   const s = sid();
-  fs.mkdirSync(path.join(cwd, '.claude'), { recursive: true });
-  fs.writeFileSync(path.join(cwd, '.claude', `ctx-${s}.json`), '{"current_usage": {');
+  fs.writeFileSync(ctxPath(cwd, s), '{"current_usage": {');
   const r = call(hook(cwd, s, 'UserPromptSubmit'));
   assert.match(text(r), /Context guard inactive: the ctx file was found, bad JSON/);
   assert.doesNotMatch(text(r), /no ctx file/);

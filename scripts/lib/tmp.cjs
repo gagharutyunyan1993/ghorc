@@ -32,6 +32,10 @@ function rootHash(root) {
   return crypto.createHash('sha1').update(r).digest('hex').slice(0, 8);
 }
 
+// Per-session context files written by the status line, one directory per project root, outside the project:
+// <tmp>/ghorc-<user>/ctx/<root hash>/ctx-<session>.json (before 0.11 they were <root>/.claude/ctx-<session>.json).
+const ctxDir = (root) => path.join(tmpDir(), 'ctx', rootHash(root));
+const ctxFile = (root, sid) => path.join(ctxDir(root), `ctx-${String(sid).replace(/[^A-Za-z0-9_.-]/g, '_')}.json`);
 const pidFile = (root) => path.join(tmpDir(), `watchdog-${rootHash(root)}.pid`);
 const heartbeatFile = (root) => path.join(tmpDir(), `watchdog-${rootHash(root)}.beat`);
 const logFile = (root) => path.join(tmpDir(), `watchdog-${rootHash(root)}.log`);
@@ -165,7 +169,8 @@ function denials(n = 5) {
   return out;
 }
 
-// Deletes ctx-*.json (and stray temp files) under <root>/.claude, leftover capacity ledger temp files under
+// Deletes every legacy ctx-*.json (and stray temp files) under <root>/.claude whatever its age (the status line no longer
+// writes there), ctx files older than maxAgeDays under <tmp>/ctx/<any root>, leftover capacity ledger temp files under
 // <root>/.claude/ghorc-out, plus session state dirs, alert offsets and handoff flags (handoff-*.json) in the tmp dir,
 // when older than maxAgeDays. Returns the number of removed entries. Never throws.
 function cleanup(root, maxAgeDays = 7, now = Date.now()) {
@@ -189,7 +194,18 @@ function cleanup(root, maxAgeDays = 7, now = Date.now()) {
   try {
     const dir = path.join(root, '.claude');
     for (const f of fs.readdirSync(dir)) {
-      if (/^ctx-.*\.json(\..*\.tmp)?$/.test(f) && old(path.join(dir, f))) rm(path.join(dir, f));
+      if (/^ctx-.*\.json(\..*\.tmp)?$/.test(f)) rm(path.join(dir, f));
+    }
+  } catch {
+    /* no directory */
+  }
+  try {
+    // every project's ctx directory: old files, then a directory left empty
+    const base = path.join(tmpDir(), 'ctx');
+    for (const h of fs.readdirSync(base)) {
+      const d = path.join(base, h);
+      for (const f of fs.readdirSync(d)) if (old(path.join(d, f))) rm(path.join(d, f));
+      if (!fs.readdirSync(d).length) rm(d);
     }
   } catch {
     /* no directory */
@@ -235,6 +251,8 @@ module.exports = {
   tmpDir,
   safeName,
   rootHash,
+  ctxDir,
+  ctxFile,
   pidFile,
   heartbeatFile,
   logFile,

@@ -17,7 +17,7 @@ Claim template: "Ran [N] packages with [X] lead compactions instead of [Y] on th
 - **What:** how often the lead session auto-compacts while finishing the same work.
 - **How:** count compaction boundaries in the lead's transcript (`~/.claude/projects/<encoded project root>/`), and
   record the context fill at each stage boundary with `node "<plugin>/scripts/ctx.cjs" --session <id>` (it reads the
-  `ctx-<session_id>.json` file the status line writes). Note `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`: it must be the same in
+  ctx file the status line writes, `<os tmp>/ghorc-<user>/ctx/<root hash>/ctx-<session_id>.json`). Note `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`: it must be the same in
   both runs of a pair.
 
 ## 2. Worker full-suite attempts stopped

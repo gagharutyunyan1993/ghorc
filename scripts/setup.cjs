@@ -10,7 +10,7 @@ const { slotConfig } = require('./lib/slots.cjs');
 
 const PLUGIN_ROOT = path.join(__dirname, '..');
 const MARKER = '<!-- ghorc -->';
-const EXCLUDE_LINES = ['.claude/ctx-*.json', '.claude/ctx-*.tmp', '.claude/ghorc-out/'];
+const EXCLUDE_LINES = ['.claude/ghorc-out/']; // the ctx files live in the tmp dir since 0.11
 const cg = require('./lib/ctxguard.cjs');
 const { load } = require('./lib/config.cjs');
 

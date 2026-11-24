@@ -4,7 +4,7 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { runScript, isDeny, tmpProject, bareProject, sid } = require('./helpers.cjs');
+const { runScript, isDeny, tmpProject, ctxPath, bareProject, sid } = require('./helpers.cjs');
 
 const read = (s, cwd, file, ti = {}, agent_id = 'ag1') => ({
   hook_event_name: 'PreToolUse',
@@ -191,9 +191,10 @@ test('P2-8: statusline writes to the project root (git), atomically, ctx --sessi
   const s1 = sid();
   const s2 = sid();
   for (const s of [s1, s2]) runScript('statusline.cjs', { session_id: s, cwd: sub, context_window: { used_percentage: 5 } });
-  assert.ok(fs.existsSync(path.join(proj, '.claude', `ctx-${s1}.json`)));
+  assert.ok(fs.existsSync(ctxPath(sub, s1)));
+  assert.equal(ctxPath(sub, s1), ctxPath(proj, s1), 'the project root (git), not the subdirectory');
   assert.ok(!fs.existsSync(path.join(sub, '.claude')));
-  assert.equal(fs.readdirSync(path.join(proj, '.claude')).filter((f) => f.endsWith('.tmp')).length, 0);
+  assert.equal(fs.readdirSync(path.dirname(ctxPath(proj, s1))).filter((f) => f.endsWith('.tmp')).length, 0);
   const r = runScript('ctx.cjs', '', { args: ['--cwd', sub, '--session', s2] });
   assert.equal(r.out.trim().split('\n').length, 1);
   assert.match(r.out, new RegExp(`ctx-${s2}`));
@@ -201,7 +202,7 @@ test('P2-8: statusline writes to the project root (git), atomically, ctx --sessi
   const pd = tmpProject();
   const s3 = sid();
   runScript('statusline.cjs', { session_id: s3, cwd: sub, workspace: { project_dir: pd }, context_window: {} });
-  assert.ok(fs.existsSync(path.join(pd, '.claude', `ctx-${s3}.json`)));
+  assert.ok(fs.existsSync(ctxPath(pd, s3)));
 });
 
 test('F8: --notify with a .cmd script works through "cmd /c" on Windows', { skip: process.platform !== 'win32' && 'Windows only' }, () => {
@@ -238,7 +239,8 @@ test('round 2: the project root from a worktree is the main repository (git work
     fs.writeFileSync(path.join(repo, '.claude', 'ghorc.json'), '{}');
     const s = sid();
     runScript('statusline.cjs', { session_id: s, cwd: wt, context_window: { used_percentage: 3 } });
-    assert.ok(fs.existsSync(path.join(repo, '.claude', `ctx-${s}.json`)));
+    assert.ok(fs.existsSync(ctxPath(repo, s)));
+    assert.equal(ctxPath(wt, s), ctxPath(repo, s), 'a worktree maps to the main repository');
     assert.ok(!fs.existsSync(path.join(wt, '.claude')));
     // ctx.cjs from a worktree sees the same file
     assert.match(runScript('ctx.cjs', '', { args: ['--cwd', wt, '--session', s] }).out, new RegExp(`ctx-${s}`));

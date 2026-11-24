@@ -3,7 +3,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
-const { runScript, tmpProject, bareProject, sid } = require('./helpers.cjs');
+const { runScript, tmpProject, ctxPath, bareProject, sid } = require('./helpers.cjs');
 const config = require('../scripts/lib/config.cjs');
 
 const PLAIN = { GHORC_STATUSLINE_PLAIN: '1', CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: '', GHORC_GIT_TIMEOUT_MS: '15000' };
@@ -29,7 +29,7 @@ test('statusline: prints the line and writes the ctx file', () => {
   assert.equal(r.code, 0);
   assert.equal(r.out.trim(), 'Opus 5.5 ·medium ⚡ │ ctx 12% (24K/200K) │ 5h 42% │ 7d 75% │ #' + s.slice(0, 8) + ' │ my-session');
   assert.ok(!r.out.includes('$'));
-  const file = path.join(cwd, '.claude', `ctx-${s}.json`);
+  const file = ctxPath(cwd, s);
   const d = JSON.parse(fs.readFileSync(file, 'utf8'));
   assert.equal(d.session_id, s);
   assert.equal(d.used_percentage, 12.4);
@@ -91,8 +91,7 @@ test('statusline: garbage on stdin - exit 0', () => {
 
 test('ctx.cjs --all: newest first, --max-age filters', () => {
   const cwd = tmpProject();
-  const dir = path.join(cwd, '.claude');
-  fs.mkdirSync(dir, { recursive: true });
+  const dir = path.dirname(ctxPath(cwd, 'x'));
   const mk = (name, pct, ageMin) => {
     const p = path.join(dir, name);
     fs.writeFileSync(p, JSON.stringify({ used_percentage: pct, context_window_size: 200000, model: { display_name: 'M' } }));

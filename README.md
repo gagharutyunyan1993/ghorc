@@ -142,7 +142,8 @@ migration, and changes model only at a handoff.
 ## Security and removal
 
 The hooks make no network calls and send nothing anywhere; your model provider still receives your prompts as usual.
-State lives in `<os tmp>/ghorc-<user>` and `<project>/.claude/ctx-<session>.json`. Details: [SECURITY.md](SECURITY.md).
+State lives in `<os tmp>/ghorc-<user>`; nothing is written into the project but `.claude/ghorc-out/`.
+Details: [SECURITY.md](SECURITY.md).
 
 The transcript watchdog is off by default. Turn it on with `/ghorc:setup` (item `watchdog`); stop it with
 `node "<plugin>/scripts/watchdog.cjs" --stop` in the project directory.

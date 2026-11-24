@@ -5,7 +5,7 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { runScript, tmpProject } = require('./helpers.cjs');
+const { runScript, tmpProject, ctxPath } = require('./helpers.cjs');
 
 const ledgerFile = (dir) => path.join(dir, '.claude', 'ghorc-out', 'ledger.jsonl');
 const readLines = (dir) =>
@@ -16,10 +16,9 @@ const readLines = (dir) =>
     .map((l) => JSON.parse(l));
 const env = (dir) => ({ CLAUDE_PROJECT_DIR: dir });
 const SECRET = 'SECRET-BRIEF-TEXT sk-live-123';
-// The status line writes <project>/.claude/ctx-<session>.json with the model the session ran on.
+// The status line writes the ctx file of a session (tmp dir, per project root) with the model the session ran on.
 const writeCtxModel = (proj, id) => {
-  fs.mkdirSync(path.join(proj, '.claude'), { recursive: true });
-  fs.writeFileSync(path.join(proj, '.claude', 'ctx-t.json'), JSON.stringify({ session_id: 't', model: { id }, context_window_size: 1000000 }));
+  fs.writeFileSync(ctxPath(proj, 't'), JSON.stringify({ session_id: 't', model: { id }, context_window_size: 1000000 }));
 };
 
 function payload(dir, extra = {}) {

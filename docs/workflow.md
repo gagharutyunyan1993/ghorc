@@ -233,7 +233,7 @@ not the conversation. While a background `full` runs, the lead waits for the not
 | `effort` (owner decision) | `~/.claude/settings.json` | `modelSettings.<lead model id>.effortLevel` = `lead.effort` (the full id the newest session recorded for the `lead.model` alias, read from its ctx file; nothing is written until one session has run on it; no top-level `effortLevel`) |
 | `config` | `<project>/.claude/ghorc.json` | copied from the short template if missing |
 | `claudemd` | `<project>/CLAUDE.md` | `templates/CLAUDE-section.md` appended if the marker is missing |
-| `exclude` | git `info/exclude` (via `git rev-parse --git-path`) | lines `.claude/ctx-*.json`, `.claude/ctx-*.tmp`, `.claude/ghorc-out/` |
+| `exclude` | git `info/exclude` (via `git rev-parse --git-path`) | line `.claude/ghorc-out/` (the ctx files live in the tmp dir) |
 | `heavy` (warning) | `<project>/.claude/ghorc.json` | proposed `heavyCommands` from `package.json` scripts |
 | `watchdog` (warning) | `<project>/.claude/ghorc.json` | `watchdog.autostart` = `true`, only if you want it |
 | `permissions` (warning, owner decision) | `<project>/.claude/ghorc.json` | `worker.permissionArgs` and `handoff.candidatePermissionArgs` from `--mode <bypass\|acceptEdits\|prompts>`; the owner answers, `--apply all` never picks |

@@ -45,7 +45,7 @@ denies heavy commands with the reason until the file is fixed.
 
 Per-session read counters, watchdog pid, state and log files, and the config validation cache live in
 `<os tmp dir>/ghorc-<user>` (`GHORC_TMP` replaces that path). The status line writes
-`<project>/.claude/ctx-<session_id>.json`. `GHORC_HOOK_DUMP=<file>`, if you set it, appends raw hook input to that
+`<os tmp>/ghorc-<user>/ctx/<root hash>/ctx-<session_id>.json` there too, never into the project. `GHORC_HOOK_DUMP=<file>`, if you set it, appends raw hook input to that
 file; it is off by default, so remove the dump when you share it, because it contains tool arguments.
 
 ## Reporting a vulnerability

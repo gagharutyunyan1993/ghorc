@@ -58,6 +58,10 @@ Models and effort re-derived from Anthropic's guide "Which Claude model should y
   package whose first verdict carries it is left out of the first-round ACCEPT rate.
 
 ### Changed
+- **ctx files out of the project:** the status line writes `<os tmp>/ghorc-<user>/ctx/<root hash>/ctx-<session>.json`
+  instead of `<project>/.claude/ctx-<session>.json`; the context guard, `ctx.cjs`, the capacity guard and setup read
+  there. Session start deletes the old project files whatever their age (in projects with `.claude/ghorc.json`); in
+  others delete `.claude/ctx-*.json` by hand. Setup item `exclude` now needs only `.claude/ghorc-out/`.
 - **Only projects that opted in:** every hook (read guard, heavy guard, context guard, session start, capacity guard,
   call ledger, tabs guard) and the status line's ctx file act only where `.claude/ghorc.json` exists. ghorc installs at
   user scope, and before this a project that never ran `/ghorc:setup` still got denies (a 4th read, an Edit past

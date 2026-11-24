@@ -35,7 +35,8 @@ Every deny is also in `<tmp>/ghorc-<user>/denials.log` ([hooks.md](hooks.md#deni
   shape is undocumented). Inspect `<tmp>/ghorc-<user>/statusline-sample.json` (the first input, saved once) or set
   `GHORC_STATUSLINE_DUMP=<file>` to append every input.
 - **`ctx.cjs` prints a usage line and exits 2.** It needs `--session <id>` (or `GHORC_SESSION`, or `--all`).
-- **`ctx.cjs` says "no ctx-*.json files".** The status line is not configured, or wrote under another root: it uses
+- **`ctx.cjs` says "no ctx-*.json files".** The status line is not configured, the project has no `.claude/ghorc.json`,
+  or the status line wrote under another root (its files are in `<os tmp>/ghorc-<user>/ctx/<root hash>/ctx-<session_id>.json`): it uses
   the root rule (`CLAUDE_PROJECT_DIR`, else the git common root of `workspace.project_dir` or the cwd). Run
   `ctx.cjs --cwd <that root>`.
 
@@ -71,7 +72,7 @@ Every deny is also in `<tmp>/ghorc-<user>/denials.log` ([hooks.md](hooks.md#deni
 `<tmp>/ghorc-<user>` (one directory per OS user) and `GHORC_TMP` replaces that whole path. Per project root (an
 8-character hash) it keeps `watchdog-<hash>.log`, `.pid`, `.beat`, `.state.json` and `alerts-<hash>.log`; per session
 an alert offset file and read counters; for everyone `denials.log` and `config-valid.json`. The status line writes
-`<project>/.claude/ctx-<session_id>.json`.
+`<os tmp>/ghorc-<user>/ctx/<root hash>/ctx-<session_id>.json` (before 0.11 `<project>/.claude/ctx-*.json`; session start deletes those).
 
 ## Install scopes and updating
 

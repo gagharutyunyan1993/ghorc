@@ -7,8 +7,7 @@ reason. Every deny is also appended to the denial log (below).
 **Only in projects that opted in.** ghorc is installed at user scope, so its hooks run in every project. They act only
 where `.claude/ghorc.json` exists (found from the cwd, its ancestors or the main repository root of a linked worktree;
 an unreadable file still counts). Without one every hook is silent: nothing is denied, blocked, reminded or written
-(no ledger, no watchdog, no ctx files), and the status line shows its line but writes no `.claude/ctx-*.json` into the
-project. `/ghorc:setup` (item `config`) opts a project in.
+(no ledger, no watchdog, no ctx files), and the status line shows its line but writes no ctx file for it. `/ghorc:setup` (item `config`) opts a project in.
 
 **Who is a subagent.** A hook input with `agent_id` is a subagent; a call without it counts as the main session.
 `GHORC_ROLE=worker` (a herdr worker session) counts as a subagent for the heavy guard. `GHORC_ROLE` is optional for the
@@ -288,7 +287,7 @@ numbers silences it for every session.
 - UserPromptSubmit adds the line `agents N/M, CPU X%, free Y GB` to the context (CPU: one 400 ms sample).
 - CPU is the average of three `os.cpus()` intervals (400 ms each, one interval is capped at 500 ms: Stop waits 1.5 s at
   most); free RAM is `os.freemem()`. No child process for either.
-- Weekly cap, when `weeklyCapPct` > 0: `rate_limits.seven_day` of `<project>/.claude/ctx-<session_id>.json` (written
+- Weekly cap, when `weeklyCapPct` > 0: `rate_limits.seven_day` of the ctx file `<os tmp>/ghorc-<user>/ctx/<root hash>/ctx-<session_id>.json` (written
   by the status line; `resets_at` is epoch seconds, the file's `ts` is milliseconds). `f` = clamp((now - (resets_at -
   7 days)) / 7 days, 0, 1). `used >= weeklyCapPct`: Stop demands no agents and the prompt line says `WEEKLY CAP`.
   `used > weeklyCapPct * f` and `agentsOverPace` > 0: Stop demands agents only while there are fewer than
@@ -440,7 +439,8 @@ lead: load skill ghorc:lead
 run /ghorc:setup
 ```
 
-**What else it does.** It removes `ctx-*.json` files, session state and alert offsets older than 7 days, and trims the
+**What else it does.** It removes ctx files older than 7 days (and every legacy `<project>/.claude/ctx-*.json` of 0.10, whatever
+its age), session state and alert offsets older than 7 days, and trims the
 denial log to 7 days. When `watchdog.autostart` is true (default false) and the session is a main session with
 `GHORC_ROLE` empty or `lead`, it starts or restarts the project's watchdog. It does not start one for a drive root,
 `/`, the home directory or a missing transcript directory (it prints `watchdog: not started (<reason>)`).
@@ -487,7 +487,7 @@ A segment is omitted when its data is absent.
 Colors for `ctx`, `5h`, `7d`: green below 50%, yellow 50-69%, red 70-79%, bold red from 80%. `NO_COLOR` or
 `GHORC_STATUSLINE_PLAIN=1` turn color off. On an internal error it prints `model │ ctx ?%`. Cost is not shown.
 `GHORC_GIT_TIMEOUT_MS` raises the 300 ms git call timeout (tests use it). It writes
-`<project root>/.claude/ctx-<session_id>.json`, which `ctx.cjs` reads.
+`<os tmp>/ghorc-<user>/ctx/<root hash>/ctx-<session_id>.json`, outside the project (the hash is the one of the project root, see the root rule), which `ctx.cjs` reads.
 
 **Previous status line.** `setup.cjs --apply statusLine` saves the status line it replaces, once, in
 `~/.claude/ghorc-statusline-backup.json` (next to `settings.json`); a ghorc line, even a stale one, is never saved as
@@ -535,7 +535,7 @@ its next poll. It also exits when its project root no longer exists.
 
 ## Scripts (`scripts/`, run with `node`, all accept `--help`)
 
-- `statusline.cjs` (stdin): the status line; writes `<project root>/.claude/ctx-<session_id>.json`.
+- `statusline.cjs` (stdin): the status line; writes `<os tmp>/ghorc-<user>/ctx/<root hash>/ctx-<session_id>.json` (only in a project with `.claude/ghorc.json`).
 - `ctx.cjs --session <id> [--max-age <minutes>] [--cwd <dir>]` or `ctx.cjs --all`: this session's ctx file, then up
   to 10 unread watchdog alerts of this session, oldest first; only the shown ones are marked read. `--session` takes
   the full id or the 8-character prefix from the status line; env `GHORC_SESSION` is the default. Without both it

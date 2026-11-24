@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { runScript, isDeny, tmpProject, sid, TEST_TMP } = require('./helpers.cjs');
+const { runScript, isDeny, tmpProject, ctxPath, sid, TEST_TMP } = require('./helpers.cjs');
 
 process.env.GHORC_TMP = TEST_TMP; // the in-process lib calls below use the same tmp area as the spawned hooks
 const tmpLib = require('../scripts/lib/tmp.cjs');
@@ -21,7 +21,6 @@ function project(tokens, { ageMin = 0, config, withState = true } = {}) {
   if (withState) fs.writeFileSync(path.join(cwd, 'STATE.md'), 'state\n');
   return { cwd, s, p };
 }
-const ctxPath = (cwd, s) => path.join(cwd, '.claude', `ctx-${s}.json`);
 function writeCtx(p, tokens, ageMin = 0) {
   fs.mkdirSync(path.dirname(p), { recursive: true });
   fs.writeFileSync(p, JSON.stringify({ used_percentage: 1, current_usage: { input_tokens: 1000, cache_creation_input_tokens: 0, cache_read_input_tokens: tokens - 1000 }, context_window_size: 1000000 }));
@@ -255,7 +254,7 @@ test('setup pct: recommended is above ctxHandoff, a value at or below it is wron
   setPct('30'); // far too late
   assert.doesNotMatch(pctLine(), /\bok\b/i);
   // another window: 200K gives 93
-  fs.writeFileSync(path.join(proj, '.claude', 'ctx-w.json'), JSON.stringify({ context_window_size: 200000 }));
+  fs.writeFileSync(ctxPath(proj, 'w'), JSON.stringify({ context_window_size: 200000 }));
   assert.match(pctLine(), /-> "93"/);
 });
 
