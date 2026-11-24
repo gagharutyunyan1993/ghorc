@@ -52,9 +52,10 @@ The install also brings [methodology-toolkit](https://github.com/gagharutyunyan1
 evidence scout and decision methods the lead uses), as a dependency from the same marketplace. If you already have it
 from its own marketplace, keep one copy: two copies of one plugin load, but only one runs its hooks.
 
-Workers and candidate leads start with `--permission-mode bypassPermissions` by default, so a tab never waits on a
-permission prompt; ghorc's hooks still deny in that mode. Set `worker.permissionArgs` and
-`handoff.candidatePermissionArgs` to `[]` to keep prompts ([configuration](docs/configuration.md#worker)).
+`/ghorc:setup` asks you how tab workers and candidate leads start: `bypass` (no permission prompts; ghorc's hooks still
+deny), `acceptEdits` or `prompts` (the default until you choose; an unattended tab then stops on each prompt). The
+answer goes to `worker.permissionArgs` and `handoff.candidatePermissionArgs`
+([configuration](docs/configuration.md#worker)).
 
 Then, in a session inside your project, run `/ghorc:setup`. It checks the status line, the autocompact threshold,
 `.claude/ghorc.json`, the `CLAUDE.md` section and the git exclude, proposes `heavyCommands` from your `package.json`

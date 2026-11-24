@@ -334,17 +334,19 @@ that binds every session (lead, subagent, worker) is the dev-command rule below.
   `maxWorkers` checks against `hc ls --json`, and `--outlive-parent` for kinds `full`, `runner`, `train`.
   An `hc run` of another program gets the name, duplicate, limit and `--outlive-parent` checks only.
 - **Workspace (herdr).** The lead's own workspace is the prefix of `HERDR_PANE_ID` (`w4:p1` is in `w4`); `HERDR_WORKSPACE_ID` alone is taken as
-  it is, and when both are set and disagree, or neither is, the workspace is unknown and only presence checks apply (the form of the
-  variable is not verified on a live herdr). `herdr tab create` needs `--workspace` and `--no-focus`: with the own workspace known
+  it is, and when both are set and disagree, or neither is, the workspace is unknown and only presence checks apply (the id forms
+  `w1` and `w1:p1` are herdr's documented public ids; `herdr api schema` lists `workspace_id` in every agent entry). `herdr tab create` needs `--workspace` and `--no-focus`: with the own workspace known
   the value is its id or a reference, and only the exact variable names count (`$HERDR_WORKSPACE_ID`, `${HERDR_WORKSPACE_ID}`,
   `$env:HERDR_WORKSPACE_ID`, `%HERDR_WORKSPACE_ID%`, quoted or not); a single-quoted reference (the shell does not expand it) or another
   variable name is denied, known workspace or not. Without `--workspace` herdr uses the UI-focused workspace, which can belong to another
   project's lead, and without `--no-focus` it moves the owner's focus. `herdr pane split` needs `--no-focus`. Creating, closing and starting
   in another workspace is denied for the lead: `herdr tab create` with a foreign `--workspace`, `herdr tab close`, `herdr pane close`,
   `herdr pane split --pane` and `herdr agent start --pane` on an id of another workspace (the part before `:`; an unqualified id is not
-  judged), and `herdr workspace create|close` always (the owner's). Operator actions - `agent prompt|send-keys`, `pane run|send-keys|send-text|read`
-  - are not judged: the owner may ask for them. Inventory, duplicate-name and limit checks count only agents whose pane id is in the own
-  workspace (when known), besides the cwd filter; on hc only terminals whose parent is this terminal or whose cwd is in the project.
+  judged), and always (the owner's): `herdr workspace create|close`, `herdr worktree create|open|remove` (a worktree workspace is a
+  separate workspace), `herdr pane move`, and any herdr command above aimed at another session, machine or host with the global
+  `--session`, `--machine` or `--remote` (reading there stays allowed). Operator actions - `agent prompt|send-keys`, `pane run|send-keys|send-text|read`
+  - are not judged: the owner may ask for them. Inventory, duplicate-name and limit checks count only agents of the own workspace
+  (their `workspace_id`, else the pane id prefix; when the own workspace is known), besides the cwd filter; on hc only terminals whose parent is this terminal or whose cwd is in the project.
 - **Dev commands (every session in a project with a ghorc config).** `tabs.devCommands` (regexes, default list in `scripts/lib/defaults.json`)
   matches dev servers and watchers: `npm|pnpm|yarn|bun [options] [workspace <w>] [run [options]] dev|start|serve|watch|preview` (a script name
   ends at a space, so `dev:setup` and `start-check` are one-shot), `vite` (not `vite build`), `next dev|start`, `nuxt|nuxi|astro dev`, `nodemon`,

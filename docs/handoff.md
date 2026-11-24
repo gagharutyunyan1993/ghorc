@@ -130,6 +130,6 @@ Set once in the project config and only read by the skill:
 
 - `handoff.allowSendKeysExit` (`false`): when `true`, the new lead closes the old tab itself (step 6: `/exit` through
   `herdr pane run`); otherwise the owner does it.
-- `handoff.candidatePermissionArgs` (`["--permission-mode", "bypassPermissions"]`): permission-mode arguments for the candidate.
-  `[]` means default permissions, and the candidate may then wait on a prompt.
+- `handoff.candidatePermissionArgs` (`[]`): permission-mode arguments for the candidate, chosen by the owner at `/ghorc:setup`
+  (item `permissions`). `[]` means default permissions, and the candidate may then wait on a prompt.
 - The new lead closes the old tab only with `allowSendKeysExit` `true` (the owner's word in the config) or the owner's word recorded in STATE.

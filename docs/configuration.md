@@ -33,14 +33,14 @@ The project config is `<project>/.claude/ghorc.json`. `/ghorc:setup` copies a sh
   },
   "handoff": {
     "allowSendKeysExit": false,
-    "candidatePermissionArgs": ["--permission-mode", "bypassPermissions"],
+    "candidatePermissionArgs": [],
     "readyTimeoutMin": 10,
     "statePath": "STATE.md",
     "handoffPath": "HANDOFF.md"
   },
   "review": { "maxFixRounds": 2 },
   "backend": { "prefer": "hc" },
-  "worker": { "permissionArgs": ["--permission-mode", "bypassPermissions"] },
+  "worker": { "permissionArgs": [] },
   "tabs": { "enabled": true, "maxWorkers": 3, "idleMin": 10, "overtimeMin": 45, "stopBlock": true, "notify": true },
   "criticalPaths": [],
   "capacity": {
@@ -125,8 +125,9 @@ Alerts go to `<tmp>/ghorc-<user>/alerts-<root hash>.log`; `scripts/ctx.cjs --ses
 
 ### handoff
 Standing owner permissions for `/ghorc:handoff`. `allowSendKeysExit` (false): the new lead may send `/exit` to the old
-tab through herdr. `candidatePermissionArgs` (`["--permission-mode", "bypassPermissions"]`): permission-mode arguments for the candidate;
-`[]` starts it with default permissions, `["--permission-mode", "acceptEdits"]` with edits only. `readyTimeoutMin` (10): minutes the old lead waits for READY (polled every
+tab through herdr. `candidatePermissionArgs` (`[]`): permission-mode arguments for the candidate;
+`[]` starts it with default permissions, `["--permission-mode", "acceptEdits"]` with edits only, `["--permission-mode",
+"bypassPermissions"]` without prompts. `readyTimeoutMin` (10): minutes the old lead waits for READY (polled every
 60 s). `statePath` and `handoffPath`: the STATE and HANDOFF files. `pushGuard` (false): in handoff mode the hook denies
 `herdr agent start` from the lead while a branch named in STATE `in_flight` (`branch: <name>`) is ahead of or missing
 on `origin` (`node scripts/unpushed.cjs [--branches a,b]` lists them: local refs, no network, exit 1 when any); no
@@ -146,11 +147,12 @@ branch in a linked worktree keeps `HANDOFF.md` there, not in the main checkout);
 project root, as before. Off or absent: a compaction changes nothing and Stop
 behaves as in 0.7.0.
 
-By default the candidate, like every worker, starts in bypassPermissions: an unattended tab must not stop on prompts.
-The hooks still deny in that mode (verified: a worker's heavy check is denied under `--permission-mode
-bypassPermissions`), deny rules still apply, and critical-path removals and `AskUserQuestion` still stop the session.
-To keep prompts, set the key to `[]` or to `acceptEdits` in the project config. `/ghorc:setup` item `bypassPrompt`
-(owner decision) sets `skipDangerousModePermissionPrompt` so the first bypass start does not stop on the one-time
+The permission mode of the candidate and of every worker is the owner's choice, asked by `/ghorc:setup` (item
+`permissions`, `--apply permissions --mode <bypass|acceptEdits|prompts>`, which writes this key and
+`worker.permissionArgs`); until then both are `[]` and an unattended tab stops on each prompt. Under `bypass` the hooks
+still deny (verified: a worker's heavy check is denied under `--permission-mode bypassPermissions`), deny rules still
+apply, and critical-path removals and `AskUserQuestion` still stop the session. `/ghorc:setup` item `bypassPrompt`
+(owner decision, applied only when named, never by `--apply all`) sets `skipDangerousModePermissionPrompt` so the first bypass start does not stop on the one-time
 warning. `setup.cjs --check` prints an information line saying whether the project sets the key.
 
 ### backend
@@ -160,10 +162,11 @@ backend present that one is used whatever the key says, and with `"herdr"` a her
 `hc`. Any other value fails `check-config.cjs`. `node scripts/backend.cjs` prints the answer.
 
 ### worker
-`permissionArgs` (`["--permission-mode", "bypassPermissions"]`): permission arguments for terminal workers the lead starts; `[]` for default
-permissions or `["--permission-mode", "acceptEdits"]` for edits only; an array of strings, validated by
-`check-config.cjs`. Same default and same notes as `handoff.candidatePermissionArgs`; `setup.cjs --apply` never writes
-it. The tabs guard checks that every worker start carries it.
+`permissionArgs` (`[]`): permission arguments for terminal workers the lead starts; `[]` for default
+permissions, `["--permission-mode", "acceptEdits"]` for edits only, `["--permission-mode", "bypassPermissions"]` for no
+prompts; an array of strings, validated by `check-config.cjs`. Same notes as `handoff.candidatePermissionArgs`; only
+`setup.cjs --apply permissions --mode <m>` writes it (both keys, the owner's answer). The tabs guard checks that every
+worker start carries it.
 
 ### tabs
 The tabs guard (`scripts/tabs-guard.cjs`, [hooks.md](hooks.md)) for the lead's terminal tabs on hc or herdr.

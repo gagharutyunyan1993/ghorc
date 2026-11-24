@@ -48,7 +48,11 @@ Models and effort re-derived from Anthropic's guide "Which Claude model should y
   (reading, prompting and sending keys to another workspace stay allowed for the owner's cross-session work); the inventory, limit and duplicate checks count
   only the own workspace. Without it, herdr creates a tab in the UI-focused workspace, which may be another project's
   lead's.
-- `/ghorc:setup` item `bypassPrompt` (owner decision): `skipDangerousModePermissionPrompt` = true in the user settings, so
+- Tabs guard, herdr: `herdr worktree create|open|remove`, `herdr pane move` and a create, close or start aimed at another
+  session, machine or host (`--session`, `--machine`, `--remote`) are denied for the lead; list entries belong to their
+  `workspace_id` (from `herdr api schema`), the pane id prefix being the fallback. The lead skill waits for a runner with
+  `herdr pane wait-output --regex` and reads `agent_not_ready` and `agent_prompt_stalled` before acting again.
+- `/ghorc:setup` item `bypassPrompt` (warning item and owner decision, applied only when named, never by `--apply all`): `skipDangerousModePermissionPrompt` = true in the user settings, so
   the first worker started in bypassPermissions does not stop on the one-time warning dialog.
 - Verdict cause `CASCADE`: the planned re-run of a cascade failure; it never counts as a reasoning failure, and a
   package whose first verdict carries it is left out of the first-round ACCEPT rate.
@@ -58,10 +62,11 @@ Models and effort re-derived from Anthropic's guide "Which Claude model should y
   `pct` recommends autocompact at 30% of a 1M window (was 19%). The lead keeps almost twice the context; on Opus a
   turn's cache read then costs about $0.05 instead of $0.03. On a window smaller than `ctxHandoff` + 35K set
   `ctxHandoff` lower by hand; the recommendation is capped at 95.
-- **Permission mode:** `worker.permissionArgs` and `handoff.candidatePermissionArgs` default to
-  `["--permission-mode", "bypassPermissions"]` (were `[]`), so an unattended tab does not stop on prompts. ghorc's hooks
-  still deny in that mode (verified live: a worker's heavy check is denied under bypass). Set both to `[]` to keep
-  prompts. `SECURITY.md` has a section on it.
+- **Permission mode:** the owner chooses it at `/ghorc:setup`: new item `permissions` (warning item, owner decision,
+  never part of `--apply all`) asks `bypass`, `acceptEdits` or `prompts`, and `--apply permissions --mode <m>` writes
+  both `worker.permissionArgs` and `handoff.candidatePermissionArgs`. The defaults stay `[]`; a lead whose project has
+  not chosen gets a SessionStart reminder. ghorc's hooks still deny under bypass (verified live: a worker's heavy check
+  is denied). `SECURITY.md` has a section on it.
 - **Routing:** migrations and performance optimization go to an Opus/medium implementer with a Fable/medium critical
   reviewer (a clear spec alone does not justify Sonnet there); a major migration to Fable/medium. Money and recovery
   stay Sonnet/high with an Opus/high critical reviewer.

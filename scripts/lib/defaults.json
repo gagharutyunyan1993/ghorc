@@ -45,10 +45,7 @@
     "allowSendKeysExit": false,
     "pushGuard": false,
     "stickyOnCompact": false,
-    "candidatePermissionArgs": [
-      "--permission-mode",
-      "bypassPermissions"
-    ],
+    "candidatePermissionArgs": [],
     "readyTimeoutMin": 10,
     "statePath": "STATE.md",
     "handoffPath": "HANDOFF.md"
@@ -60,10 +57,7 @@
     "prefer": "hc"
   },
   "worker": {
-    "permissionArgs": [
-      "--permission-mode",
-      "bypassPermissions"
-    ]
+    "permissionArgs": []
   },
   "criticalPaths": [],
   "tabs": {

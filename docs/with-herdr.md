@@ -18,14 +18,14 @@ the `/clear` fallback ([handoff.md](handoff.md#without-herdr)).
 **With herdr** you also get `/ghorc:handoff` into a new tab and worker sessions with their own process and effort.
 Inside herdr (`HERDR_ENV=1`) every package, every review and the integrator run as a separate herdr tab (a worker)
 with a report file; an Agent call is only for scouting up to about 5 minutes and for writing memory, because
-background agents inside the lead are invisible to the owner. Tab workers do not reach the ledger. Append `worker.permissionArgs` (default `--permission-mode bypassPermissions`) to every worker start, as the candidate gets `handoff.candidatePermissionArgs`. Start
+background agents inside the lead are invisible to the owner. Tab workers do not reach the ledger. Append `worker.permissionArgs` (the owner's choice at `/ghorc:setup`; `[]` until then) to every worker start, as the candidate gets `handoff.candidatePermissionArgs`. Start
 workers with `GHORC_ROLE=worker`, so they get no lead reminder, start no watchdog, never get the lead's handoff block,
 and are treated as subagents by the heavy guard (heavy commands and agent starts denied). The variable must be set
 when the tab is created:
 
 ```
 herdr tab create --workspace "$HERDR_WORKSPACE_ID" --no-focus --label <name> --cwd <dir> --env GHORC_ROLE=worker    # note result.root_pane.pane_id
-herdr agent start <name> --kind claude --pane <pane_id> -- -n <name> --model sonnet --effort medium --permission-mode bypassPermissions
+herdr agent start <name> --kind claude --pane <pane_id> -- -n <name> --model sonnet --effort medium <worker.permissionArgs>
 ```
 
 The tabs guard (`docs/hooks.md`) denies a start that misses the name rule, `-n <name>`, the model alias, the effort or

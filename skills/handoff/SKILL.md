@@ -13,7 +13,7 @@ A handoff is the only place to change the lead's model (for example Opus to Fabl
 ## Standing owner permission
 Filled in once in the project config, only read here:
 - `handoff.allowSendKeysExit` = `true`: the new lead closes the old tab itself (step 6 below: `/exit` through `herdr pane run`, or `hc kill` on `hc`). With `false` (the default) the owner closes the old tab.
-- `handoff.candidatePermissionArgs`: permission-mode arguments for the candidate (as for the old lead). Empty - the candidate starts with default permissions; tell the owner so.
+- `handoff.candidatePermissionArgs`: permission-mode arguments for the candidate (as for the old lead). Empty (the default until the owner picks a mode at `/ghorc:setup`) - the candidate starts with default permissions and may wait on a prompt in its tab; tell the owner so.
 - The new lead closes the old tab only with `allowSendKeysExit` `true` (the owner's word in the config) or the owner's word recorded in STATE.
 
 ## Preconditions

@@ -158,6 +158,7 @@ run((input) => {
     if (isLead) {
       const r = require('./setup.cjs').check(cwd);
       if (r.items.some((i) => !i.ok && !i.owner && !i.warn) || r.settingsError) reminders.push('run /ghorc:setup');
+      else if (r.items.some((i) => i.id === 'permissions' && !i.ok)) reminders.push('tab worker permission mode not chosen: /ghorc:setup asks');
     }
   } catch {
     /* optional */

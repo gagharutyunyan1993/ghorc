@@ -60,8 +60,10 @@ const term = (name, status, extra = {}) => ({ address: `t-${name}`, name, parent
 let seq = 0;
 const SID = () => `${String(++seq).padStart(4, '0')}-tabs-session-x`;
 
+// the enforcement tests pin the bypass choice explicitly; the shipped default is [] (the owner picks the mode at setup)
+const BYPASS = ['--permission-mode', 'bypassPermissions'];
 function project(tabsCfg, extra = {}) {
-  const cwd = fs.realpathSync.native(tmpProject({ tabs: tabsCfg || {}, ...extra }));
+  const cwd = fs.realpathSync.native(tmpProject({ tabs: tabsCfg || {}, worker: { permissionArgs: BYPASS }, handoff: { candidatePermissionArgs: BYPASS }, ...extra }));
   return { cwd, sid: SID() };
 }
 const penv = (p, env = {}) => ({ CLAUDE_PROJECT_DIR: p.cwd, GHORC_CAPACITY_HERDR_JSON: NONE, GHORC_CAPACITY_HC_JSON: hcl([]), ...env });
@@ -200,6 +202,10 @@ test('herdr agent start: a lead name needs handoff.candidatePermissionArgs, a wo
   // no permission args configured: nothing is demanded
   const q = project({}, { worker: { permissionArgs: [] } });
   allowed(pre(q, START('a-implementer', `${ARGS} -n a-implementer`)));
+  // no keys at all (the shipped default): nothing is demanded either
+  const r = fs.realpathSync.native(tmpProject({ tabs: {} }));
+  allowed(pre({ cwd: r, sid: SID() }, START('a-implementer', `${ARGS} -n a-implementer`)));
+  allowed(pre({ cwd: r, sid: SID() }, START('lead-next', `${ARGS} -n lead-next`)));
 });
 
 // ---- hc run ----
@@ -979,6 +985,30 @@ test('B: workspace create and close are the owner\'s', () => {
   }
   allowed(hpre(p, 'herdr workspace list'));
   allowed(hpre(p, 'herdr workspace create --label x', { GHORC_ROLE: 'worker' }));
+});
+
+test('B: worktree workspaces, pane move and another session or machine are the owner\'s', () => {
+  const p = project();
+  for (const [c, re] of [
+    ['herdr worktree create --branch feat-x', /herdr worktree create is the owner's: a worktree workspace is a separate workspace/],
+    ['herdr worktree remove w3', /herdr worktree remove is the owner's/],
+    ['herdr pane move w1:p2 --workspace w1', /herdr pane move is the owner's/],
+    [`herdr --session other tab create --label a-implementer --cwd /w --env GHORC_ROLE=worker ${WSF}`, /--session aims the command at another herdr session, machine or host/],
+    [`herdr --machine box agent start a-implementer --kind claude --pane w1:p1 -- ${ARGS} -n a-implementer ${PERM}`, /--machine aims the command/],
+    ['herdr --remote=me@host tab close w1:t2', /--remote aims the command/],
+  ]) {
+    const r = hpre(p, c);
+    assert.ok(denied(r), c);
+    assert.match(reasonOf(r), re, c);
+  }
+  for (const c of ['herdr worktree list', 'herdr --session other agent list', 'herdr worktree create --help']) allowed(hpre(p, c), c);
+});
+
+test('B: herdr list entries belong to their workspace_id first (herdr api schema AgentInfo)', () => {
+  const [e] = tabs.parseHerdrList(hdr([agent('a-implementer', 'working', '/w', { pane_id: 'w4:p1', workspace_id: 'W2' })]));
+  assert.equal(e.workspace, 'w2');
+  assert.equal(tabs.inventory([e], 'herdr', { root: '/w', self: '', leadPrefix: 'lead-', workspace: 'w4' }).length, 0, 'workspace_id wins over the pane prefix');
+  assert.equal(tabs.inventory([e], 'herdr', { root: '/w', self: '', leadPrefix: 'lead-', workspace: 'w2' }).length, 1);
 });
 
 test('B: inventory, duplicate and limit count only the own workspace', () => {

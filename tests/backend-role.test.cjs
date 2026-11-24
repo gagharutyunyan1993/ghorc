@@ -106,8 +106,9 @@ test('prefer: the key is validated and defaulted', () => {
 });
 
 // ---- step 2: worker.permissionArgs --------------------------------------------------------------------------------------
-test('worker.permissionArgs: default bypassPermissions, strings only', () => {
-  assert.deepEqual(defaults.worker, { permissionArgs: ['--permission-mode', 'bypassPermissions'] });
+test('worker.permissionArgs: default [] (the owner picks the mode at setup), strings only', () => {
+  assert.deepEqual(defaults.worker, { permissionArgs: [] });
+  assert.deepEqual(defaults.handoff.candidatePermissionArgs, []);
   const check = (cfg) => validate.checkFile(path.join(tmpProject(cfg), '.claude', 'ghorc.json'));
   assert.deepEqual(check({ worker: { permissionArgs: ['--permission-mode', 'acceptEdits'] } }).problems, []);
   assert.deepEqual(check({ worker: { permissionArgs: [] } }).problems, []);

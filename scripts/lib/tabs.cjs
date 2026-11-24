@@ -60,8 +60,8 @@ function settings(cfg) {
     notify: bool(t.notify, true),
     devCommands: Array.isArray(t.devCommands) ? t.devCommands.filter((x) => typeof x === 'string' && x) : [],
     leadPrefix: lead.toLowerCase(),
-    workerPerm: strs(cfg && cfg.worker && cfg.worker.permissionArgs, ['--permission-mode', 'bypassPermissions']),
-    leadPerm: strs(cfg && cfg.handoff && cfg.handoff.candidatePermissionArgs, ['--permission-mode', 'bypassPermissions']),
+    workerPerm: strs(cfg && cfg.worker && cfg.worker.permissionArgs, []),
+    leadPerm: strs(cfg && cfg.handoff && cfg.handoff.candidatePermissionArgs, []),
   };
 }
 
@@ -113,10 +113,13 @@ const HERDR_VALUE_OPTS = new Set(['--kind', '--pane', '--cwd', '--env', '--tab',
 // Other herdr commands the lead may only aim at its own workspace: creating, closing and starting (target in the first positional
 // word or --pane / --tab). Operator actions (agent prompt, pane run / send-keys / send-text / read) are the owner's to ask for.
 const HERDR_OTHER = {
-  pane: new Set(['close', 'split']),
+  pane: new Set(['close', 'split', 'move']),
   tab: new Set(['close']),
   workspace: new Set(['create', 'close']),
+  worktree: new Set(['create', 'open', 'remove']), // a worktree workspace is a new workspace
 };
+// Global flags that aim a command at another herdr session, machine or SSH host: never for the lead's own tabs.
+const HERDR_FOREIGN = new Set(['--session', '--machine', '--remote']);
 // $HERDR_WORKSPACE_ID in the forms of bash, PowerShell and cmd: the own workspace.
 const WS_REF = /^(?:\$(?:env:)?HERDR_WORKSPACE_ID|%HERDR_WORKSPACE_ID%)$/i;
 const wsOfPane = (pane) => (String(pane).includes(':') ? String(pane).split(':')[0].toLowerCase() : '');
@@ -159,6 +162,16 @@ function parseSegment(segment) {
   const { tokens } = c;
   const low = tokens.map((t) => t.toLowerCase());
   if (c.prog === 'herdr') {
+    const foreignBefore = (i) => low.slice(1, i).find((t) => HERDR_FOREIGN.has(t.split('=')[0])) || null;
+    const r = parseHerdr(tokens, low);
+    if (r) r.foreign = foreignBefore(r.at - 2);
+    return r;
+  }
+  return parseHc(tokens, low);
+}
+
+function parseHerdr(tokens, low) {
+  {
     for (let i = 1; i + 1 < tokens.length; i++) {
       if (low[i] === 'tab' && low[i + 1] === 'create') {
         const { opts } = scan(tokens, i + 2, tokens.length, HERDR_VALUE_OPTS);
@@ -183,6 +196,9 @@ function parseSegment(segment) {
     }
     return null;
   }
+}
+
+function parseHc(tokens, low) {
   let run = -1;
   for (let i = 1; i < tokens.length; i++) {
     if (low[i] === 'run') {
@@ -267,6 +283,7 @@ function parseHerdrList(text) {
       status: String(a.agent_status == null ? '' : a.agent_status).toLowerCase(),
       cwd: String(a.cwd == null ? '' : a.cwd),
       pane: String(a.pane_id == null ? '' : a.pane_id),
+      workspace: String(a.workspace_id == null ? '' : a.workspace_id).toLowerCase(),
       address: '',
       parent: '',
       session: a.agent_session && a.agent_session.value ? String(a.agent_session.value) : '',
@@ -312,8 +329,12 @@ function inside(cwd, root) {
   return Boolean(c) && Boolean(r) && (c === r || c.startsWith(`${r}/`));
 }
 
-// An entry of herdr's list belongs to the workspace in front of the ":" of its pane id; unknown (no pane id) counts as inside.
-const inWorkspace = (e, workspace) => !workspace || !e.pane || !String(e.pane).includes(':') || wsOfPane(e.pane) === workspace;
+// An entry of herdr's list belongs to its workspace_id, else to the workspace in front of the ":" of its pane id; unknown counts as inside.
+const inWorkspace = (e, workspace) => {
+  if (!workspace) return true;
+  if (e.workspace) return e.workspace === workspace;
+  return !e.pane || !String(e.pane).includes(':') || wsOfPane(e.pane) === workspace;
+};
 
 // The project's worker tabs: entries with a policy-valid worker name; herdr by workspace (when known) and cwd, hc by parent or cwd.
 function inventory(entries, kind, { root, self, leadPrefix, workspace }) {
@@ -332,7 +353,7 @@ function badNames(entries, kind, { root, self, session, leadPrefix, workspace })
 }
 
 // The own herdr workspace: the prefix of HERDR_PANE_ID ("w4:p1" -> "w4"). HERDR_WORKSPACE_ID alone is taken as it is; when both are set
-// and disagree, or neither is, it is unknown ('') and only the presence checks apply (the form of the variable is not verified live).
+// and disagree, or neither is, it is unknown ('') and only the presence checks apply (herdr documents the ids as w1 and w1:p1).
 function ownWorkspace(env = process.env) {
   const ws = String(env.HERDR_WORKSPACE_ID || '').trim().toLowerCase();
   const pane = wsOfPane(String(env.HERDR_PANE_ID || '').trim());
@@ -428,6 +449,9 @@ function checkParsed(p, ctx) {
   const ownWs = String(ctx.workspace || '').toLowerCase();
   const wsToken = ctx.powershell ? '$env:HERDR_WORKSPACE_ID' : '"$HERDR_WORKSPACE_ID"';
   const otherWs = (what, w) => `${what} is in workspace ${w}, this pane is in ${ownWs}: the lead acts in its own workspace only (ask the owner)`;
+  if (kind === 'herdr' && p.foreign) {
+    v.push(`${p.foreign.split('=')[0]} aims the command at another herdr session, machine or host: the lead starts and closes tabs only in its own session and workspace (ask the owner)`);
+  }
 
   // a valid name: not used by a live tab, and room for one more agent worker
   const dupAndLimit = (name) => {
@@ -530,6 +554,10 @@ function checkParsed(p, ctx) {
   } else if (p.type === 'herdr-other') {
     if (p.noun === 'workspace') {
       v.push(`herdr workspace ${p.verb} is the owner's: the lead works in its own workspace${ownWs ? ` (${ownWs})` : ''} and never creates or closes one`);
+    } else if (p.noun === 'worktree') {
+      v.push(`herdr worktree ${p.verb} is the owner's: a worktree workspace is a separate workspace; the lead keeps its tabs in its own workspace${ownWs ? ` (${ownWs})` : ''} and makes git worktrees with git`);
+    } else if (p.noun === 'pane' && p.verb === 'move') {
+      v.push(`herdr pane move is the owner's: a moved pane may leave this workspace${ownWs ? ` (${ownWs})` : ''} and gets a new pane id`);
     } else {
       if (p.noun === 'pane' && p.verb === 'split' && !p.opts.some((o) => o.name === '--no-focus')) {
         v.push("herdr pane split needs --no-focus: without it the new pane takes the owner's focus");

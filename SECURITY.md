@@ -19,12 +19,13 @@ ghorc installs Claude Code hooks, so here is exactly what they do and do not do.
 
 ## Permission mode of the sessions ghorc starts
 
-Workers and candidate leads start with `--permission-mode bypassPermissions` by default (`worker.permissionArgs`,
-`handoff.candidatePermissionArgs`), because an unattended tab that stops on a prompt stalls the whole package. In that
-mode a worker can edit and run anything in its worktree without asking. What still holds: ghorc's PreToolUse hooks deny
-as usual (verified with a worker's heavy check under bypass), your deny rules apply, critical-path removals and
-`AskUserQuestion` still stop the session, and an organization's `disableBypassPermissionsMode` setting turns the mode
-off. To keep prompts, set both keys to `[]` (or to `["--permission-mode", "acceptEdits"]`) in `.claude/ghorc.json`.
+Workers and candidate leads start with default permissions (`worker.permissionArgs` and
+`handoff.candidatePermissionArgs` are `[]`) until the owner chooses otherwise: `/ghorc:setup` asks, and
+`setup.cjs --apply permissions --mode <bypass|acceptEdits|prompts>` writes the answer into `.claude/ghorc.json`. Neither
+`--apply all` nor any other item picks a mode. With `bypass` a worker can edit and run anything in its worktree without
+asking. What still holds then: ghorc's PreToolUse hooks deny as usual (verified with a worker's heavy check under
+bypass), your deny rules apply, critical-path removals and `AskUserQuestion` still stop the session, and an
+organization's `disableBypassPermissionsMode` setting turns the mode off.
 
 ## What the hooks cannot do
 

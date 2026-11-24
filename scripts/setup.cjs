@@ -84,6 +84,13 @@ const GUARDS = [
   },
 ];
 
+// --apply permissions --mode <name>: the arguments written to worker.permissionArgs and handoff.candidatePermissionArgs.
+const PERMISSION_MODES = {
+  bypass: ['--permission-mode', 'bypassPermissions'],
+  acceptEdits: ['--permission-mode', 'acceptEdits'],
+  prompts: [],
+};
+
 function readJson(file) {
   try {
     return JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -366,20 +373,40 @@ function check(cwd, opts = {}) {
     writeAnyway: Boolean(leadId) && perModelEffort(settings, leadId) !== (lead.effort ?? 'medium'),
   });
 
-  // Workers and candidate leads start in bypassPermissions by default; the first such start shows a one-time warning
-  // dialog that would block an unattended tab until someone answers it. Accepting it once sets this user key.
+  // The permission mode of tab workers and candidate leads is the owner's choice, asked at setup: no default bypass.
   const projAll = readJson(path.join(root, '.claude', 'ghorc.json')) || {};
   const tplAll = readJson(path.join(PLUGIN_ROOT, 'scripts', 'lib', 'defaults.json')) || {};
-  const pick = (k1, k2) => {
-    const own = projAll[k1] && Array.isArray(projAll[k1][k2]) ? projAll[k1][k2] : null;
-    return own || (tplAll[k1] && Array.isArray(tplAll[k1][k2]) ? tplAll[k1][k2] : []);
-  };
-  const bypassArgs = [...pick('worker', 'permissionArgs'), ...pick('handoff', 'candidatePermissionArgs')].join(' ');
+  const own = (k1, k2) => (projAll[k1] && Array.isArray(projAll[k1][k2]) ? projAll[k1][k2] : null);
+  const pick = (k1, k2) => own(k1, k2) || (tplAll[k1] && Array.isArray(tplAll[k1][k2]) ? tplAll[k1][k2] : []);
+  const modeOf = (a) => (a === null ? null : (Object.entries(PERMISSION_MODES).find(([, v]) => v.join(' ') === a.join(' ')) || ['custom'])[0]);
+  const ownW = own('worker', 'permissionArgs');
+  const ownH = own('handoff', 'candidatePermissionArgs');
+  const permChosen = ownW !== null || ownH !== null;
+  add({
+    id: 'permissions',
+    scope: 'project',
+    warn: true,
+    applicable: true,
+    owner: true,
+    what: `${path.join(root, '.claude', 'ghorc.json')}: worker.permissionArgs, handoff.candidatePermissionArgs`,
+    current: permChosen ? `workers ${modeOf(ownW) ?? 'prompts'}, candidate lead ${modeOf(ownH) ?? 'prompts'}` : 'not chosen (prompts)',
+    recommended: 'ask the owner, then --apply permissions --mode <bypass|acceptEdits|prompts>',
+    why: 'bypass: tab workers never wait on a permission prompt (ghorc hooks and deny rules still apply); acceptEdits: edits pass, other tools ask; prompts: every tool asks and an unattended tab stops until someone answers',
+    ok: permChosen,
+    writeAnyway: true, // a named apply with a --mode always writes it: the owner may change the choice
+  });
+  // A bypass start shows a one-time warning dialog that would block an unattended tab; accepting it once sets this user key.
+  const bypassArgs = opts.permMode
+    ? PERMISSION_MODES[opts.permMode].join(' ')
+    : [...pick('worker', 'permissionArgs'), ...pick('handoff', 'candidatePermissionArgs')].join(' ');
   const usesBypass = /bypassPermissions|--dangerously-skip-permissions/.test(bypassArgs);
   add({
     id: 'bypassPrompt',
     scope: 'user',
     owner: true,
+    // A global safety-prompt suppression: never part of --apply all, only applied when named.
+    warn: true,
+    applicable: usesBypass,
     what: `${settingsFile}: skipDangerousModePermissionPrompt`,
     current: settings.skipDangerousModePermissionPrompt ?? null,
     recommended: usesBypass ? true : 'not needed (no worker starts in bypassPermissions)',
@@ -512,7 +539,11 @@ function appendLine(file, line) {
 }
 
 function apply(cwd, ids, opts = {}) {
-  const c = check(cwd, opts);
+  const permMode = ids.includes('permissions') ? opts.mode : undefined;
+  if (ids.includes('permissions') && !Object.hasOwn(PERMISSION_MODES, String(permMode))) {
+    throw new Error(`permissions needs --mode <${Object.keys(PERMISSION_MODES).join('|')}> (the owner's choice)`);
+  }
+  const c = check(cwd, { ...opts, permMode });
   const want = new Set(ids.includes('all') ? c.items.filter((i) => !i.warn).map((i) => i.id) : ids);
   const unknown = [...want].filter((id) => !c.items.some((i) => i.id === id));
   if (unknown.length) throw new Error(`unknown item(s): ${unknown.join(', ')}`);
@@ -521,7 +552,7 @@ function apply(cwd, ids, opts = {}) {
   const userItems = todo.filter((i) => i.scope === 'user');
   if (userItems.length) {
     if (c.settingsError) throw new Error(`${c.settingsFile}: ${c.settingsError}; fix it by hand first`);
-    if (c.settingsWarning) throw new Error(`${c.settingsWarning}; fix it by hand, or apply only project items (pct, config, claudemd, exclude, heavy, watchdog, explore)`);
+    if (c.settingsWarning) throw new Error(`${c.settingsWarning}; fix it by hand, or apply only project items (pct, config, claudemd, exclude, heavy, watchdog, explore, permissions)`);
     const exists = fs.existsSync(c.settingsFile);
     const settings = exists ? readJson(c.settingsFile) : {};
     if (exists) {
@@ -607,6 +638,15 @@ function apply(cwd, ids, opts = {}) {
       const g = GUARDS.find((x) => x.id === it.id);
       const dst = editProjectConfig(c.root, g.set);
       diff.push(`+ ${dst}: ${g.key} (on)`);
+    } else if (it.id === 'permissions') {
+      const args = PERMISSION_MODES[permMode];
+      const dst = editProjectConfig(c.root, (o) => {
+        o.worker = o.worker && typeof o.worker === 'object' ? o.worker : {};
+        o.handoff = o.handoff && typeof o.handoff === 'object' ? o.handoff : {};
+        o.worker.permissionArgs = [...args];
+        o.handoff.candidatePermissionArgs = [...args];
+      });
+      diff.push(`+ ${dst}: worker.permissionArgs and handoff.candidatePermissionArgs = ${JSON.stringify(args)} (${permMode})`);
     } else if (it.id === 'watchdog') {
       const dst = editProjectConfig(c.root, (o) => {
         o.watchdog = o.watchdog && typeof o.watchdog === 'object' ? o.watchdog : {};
@@ -693,12 +733,12 @@ if (require.main === module) {
   if (args.includes('--help') || (!args.includes('--check') && !args.includes('--apply') && !args.includes('--restore'))) {
     console.log(
       'setup.cjs --check [--project] [--cwd <dir>]: report each setup item (scope, current -> recommended, why) as human lines plus a final JSON line. ' +
-        'Items marked WARN (heavy, watchdog, explore, and the opt-in guards capacity, heavySlots, pushGuard, stickyOnCompact) never make the setup unclean and are applied only when named (not by "all"); ' +
+        'Items marked WARN (heavy, watchdog, explore, permissions, bypassPrompt, and the opt-in guards capacity, heavySlots, pushGuard, stickyOnCompact) never make the setup unclean and are applied only when named (not by "all"); ' +
         'heavy prints a proposed regex list from the package.json scripts (root and app/). --status adds the role, guards, watchdog and recent denials.\n' +
-        'setup.cjs --apply <all|statusLine,statusLineStale,pct,idle,model,effort,bypassPrompt,config,claudemd,exclude,heavy,watchdog,explore,capacity,heavySlots,pushGuard,stickyOnCompact> [--project] [--cwd <dir>]: apply the chosen items; ' +
+        'setup.cjs --apply <all|statusLine,statusLineStale,pct,idle,model,effort,permissions,bypassPrompt,config,claudemd,exclude,heavy,watchdog,explore,capacity,heavySlots,pushGuard,stickyOnCompact> [--mode <bypass|acceptEdits|prompts>] [--project] [--cwd <dir>]: apply the chosen items; ' +
         'backs up ~/.claude/settings.json first, touches only the listed keys and prints a diff. ' +
         'pct is written GLOBALLY (every project) unless --project, which writes <root>/.claude/settings.local.json instead. ' +
-        'model, effort and bypassPrompt are owner-level decisions: name them only after the owner says yes. GHORC_HOME overrides the home directory. ' +
+        'model, effort, permissions and bypassPrompt are owner-level decisions: name them only after the owner says yes; permissions needs --mode (bypass: no permission prompts in tab workers and candidate leads; acceptEdits; prompts: []). GHORC_HOME overrides the home directory. ' +
         'Applying statusLine saves the replaced status line (once) in ~/.claude/ghorc-statusline-backup.json; ' +
         'setup.cjs --restore statusline puts it back (or removes the key when there was none) and deletes the backup. ' +
         '--check prints "statusline: ghorc (previous saved)", "ghorc", "other" or "none". ' +
@@ -718,7 +758,7 @@ if (require.main === module) {
         .map((s) => s.trim())
         .filter(Boolean);
       if (!list.length) throw new Error('--apply needs "all" or a comma-separated item list');
-      const r = apply(cwd, list, { project });
+      const r = apply(cwd, list, { project, mode: opt('--mode') });
       console.log(r.diff.length ? r.diff.join('\n') : 'nothing to change');
     }
     const c = check(cwd, { project });
@@ -732,7 +772,7 @@ if (require.main === module) {
       console.log('proposed heavyCommands (from package.json scripts; checks.fast is never proposed):');
       for (const p of hv.proposed) console.log(`  ${p}`);
     }
-    console.log(`info: handoff.candidatePermissionArgs is ${c.candidatePermissionArgsSet ? 'set' : 'not set'} (it can bypass permission prompts; the project decides it, setup never writes it)`);
+    console.log(`info: handoff.candidatePermissionArgs is ${c.candidatePermissionArgsSet ? 'set' : 'not set'} (it can bypass permission prompts; written only by --apply permissions --mode <m>)`);
     console.log(`statusline: ${c.statusLineState}`);
     if (c.settingsWarning) console.log(`WARN: ${c.settingsWarning}`);
     if (c.settingsError) console.log(`ERROR: ${c.settingsError}`);

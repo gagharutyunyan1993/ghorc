@@ -236,13 +236,14 @@ not the conversation. While a background `full` runs, the lead waits for the not
 | `exclude` | git `info/exclude` (via `git rev-parse --git-path`) | lines `.claude/ctx-*.json`, `.claude/ctx-*.tmp`, `.claude/ghorc-out/` |
 | `heavy` (warning) | `<project>/.claude/ghorc.json` | proposed `heavyCommands` from `package.json` scripts |
 | `watchdog` (warning) | `<project>/.claude/ghorc.json` | `watchdog.autostart` = `true`, only if you want it |
-| `bypassPrompt` (owner decision) | `~/.claude/settings.json` | `skipDangerousModePermissionPrompt` = `true`, so the first worker started in bypassPermissions does not stop on the one-time warning |
+| `permissions` (warning, owner decision) | `<project>/.claude/ghorc.json` | `worker.permissionArgs` and `handoff.candidatePermissionArgs` from `--mode <bypass\|acceptEdits\|prompts>`; the owner answers, `--apply all` never picks |
+| `bypassPrompt` (warning, owner decision) | `~/.claude/settings.json` | `skipDangerousModePermissionPrompt` = `true`, so the first worker started in bypassPermissions does not stop on the one-time warning |
 | `explore` (warning) | `<project>/.claude/agents/Explore.md` | a project `Explore` agent on `haiku` (from `templates/Explore.md`); the built-in one runs on the lead's model. An existing file is left as it is |
 
 `heavy` proposes regexes from the script names in `package.json` of the project root and `app/` (test, e2e, build and
 lint names). It never proposes a pattern that matches `checks.fast`, and drops `test:x` when `test` is proposed.
-`--check` lists the proposals; `--apply heavy` prints and writes them. `heavy` and `watchdog` are warning items:
-they never make `--check` unclean and `--apply all` skips them, so name them. `--apply all` does include `model` and
+`--check` lists the proposals; `--apply heavy` prints and writes them. `heavy`, `watchdog`, `explore` and
+`bypassPrompt` are warning items: they never make `--check` unclean and `--apply all` skips them, so name them. `--apply all` does include `model` and
 `effort`. `pct` is GLOBAL (every project) unless `--project` is given. `--apply` first copies `settings.json` to
 `settings.json.ghorc-<timestamp>.bak`, changes only the listed keys and prints a diff. Changes take effect in a new
 session. `GHORC_HOME` overrides the home directory (used by tests).

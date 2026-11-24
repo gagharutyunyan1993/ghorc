@@ -38,6 +38,49 @@ test('setup explore: a WARN item, not part of all; apply writes a haiku Explore,
   });
 });
 
+test('setup permissions: no default bypass; the owner picks a mode, all never writes it', () => {
+  withHome((env) => {
+    const proj = tmpProject({});
+    const run = (...a) => runScript('setup.cjs', '', { args: [...a, '--cwd', proj], env });
+    const cfg = () => JSON.parse(fs.readFileSync(path.join(proj, '.claude', 'ghorc.json'), 'utf8'));
+    const settings = () => JSON.parse(fs.readFileSync(path.join(env.GHORC_HOME, '.claude', 'settings.json'), 'utf8'));
+    assert.match(run('--check').out, /WARN\s+permissions \[project\]: "not chosen \(prompts\)"/);
+    assert.match(run('--check').out, /ok\s+bypassPrompt \[global\]/, 'nothing starts in bypass: the warning key is not needed');
+    run('--apply', 'all');
+    assert.equal(cfg().worker, undefined, 'all does not choose a mode');
+    assert.equal(settings().skipDangerousModePermissionPrompt, undefined, 'all leaves the warning key unset');
+    const noMode = run('--apply', 'permissions');
+    assert.equal(noMode.code, 1);
+    assert.match(noMode.out, /permissions needs --mode <bypass\|acceptEdits\|prompts>/);
+    run('--apply', 'permissions', '--mode', 'acceptEdits');
+    assert.deepEqual(cfg().worker.permissionArgs, ['--permission-mode', 'acceptEdits']);
+    assert.deepEqual(cfg().handoff.candidatePermissionArgs, ['--permission-mode', 'acceptEdits']);
+    assert.match(run('--check').out, /ok\s+permissions \[project\]: "workers acceptEdits, candidate lead acceptEdits"/);
+    // bypass and the warning key in one call: bypassPrompt sees the new mode
+    run('--apply', 'permissions,bypassPrompt', '--mode', 'bypass');
+    assert.deepEqual(cfg().worker.permissionArgs, ['--permission-mode', 'bypassPermissions']);
+    assert.equal(settings().skipDangerousModePermissionPrompt, true);
+    run('--apply', 'permissions', '--mode', 'prompts');
+    assert.deepEqual(cfg().worker.permissionArgs, []);
+    assert.match(run('--check').out, /ok\s+permissions \[project\]: "workers prompts, candidate lead prompts"/);
+  });
+});
+
+test('setup bypassPrompt: a WARN item, never written by all, only when named', () => {
+  withHome((env) => {
+    const bypass = ['--permission-mode', 'bypassPermissions'];
+    const proj = tmpProject({ worker: { permissionArgs: bypass } });
+    const run = (...a) => runScript('setup.cjs', '', { args: [...a, '--cwd', proj], env }).out;
+    const file = path.join(env.GHORC_HOME, '.claude', 'settings.json');
+    assert.match(run('--check'), /WARN\s+bypassPrompt \[global\]/);
+    run('--apply', 'all');
+    assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).skipDangerousModePermissionPrompt, undefined, 'all leaves it unset');
+    run('--apply', 'bypassPrompt');
+    assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).skipDangerousModePermissionPrompt, true);
+    assert.match(run('--check'), /ok\s+bypassPrompt \[global\]/);
+  });
+});
+
 test('setup claudemd: the project roles table leaves out Explore', () => {
   withHome((env) => {
     const proj = tmpProject({});
