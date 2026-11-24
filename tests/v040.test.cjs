@@ -140,7 +140,7 @@ test('hooks.json: Read matcher covers MCP screenshots; PostToolUse covers Edit|W
 
 test('I4: invalid JSON in the project config: heavy commands are denied for everyone with the reason', () => {
   const cwd = tmpProject();
-  fs.mkdirSync(path.join(cwd, '.claude'));
+  fs.mkdirSync(path.join(cwd, '.claude'), { recursive: true });
   const f = path.join(cwd, '.claude', 'ghorc.json');
   fs.writeFileSync(f, '{"heavyCommands": [');
   const lead = hg(bash(cwd, 'npm test'));
@@ -168,7 +168,7 @@ test('I4: a bad regex or a wrong type is a fatal config error with a reason; an 
 
 test('I4: read-guard keeps working with defaults while the config is invalid', () => {
   const cwd = tmpProject();
-  fs.mkdirSync(path.join(cwd, '.claude'));
+  fs.mkdirSync(path.join(cwd, '.claude'), { recursive: true });
   fs.writeFileSync(path.join(cwd, '.claude', 'ghorc.json'), '{oops');
   const s = sid();
   for (let i = 1; i <= 3; i++) assert.equal(isDeny(rg(read(s, cwd, 'a.txt'))), false);
@@ -301,7 +301,7 @@ test('A21: GHORC_HOOK_DUMP appends the raw hook input only when set', () => {
 
 test('E3: ctx.cjs requires --session (id, 8-char prefix, GHORC_SESSION) or --all', () => {
   const cwd = tmpProject();
-  fs.mkdirSync(path.join(cwd, '.claude'));
+  fs.mkdirSync(path.join(cwd, '.claude'), { recursive: true });
   const write = (id, pct) => fs.writeFileSync(path.join(cwd, '.claude', `ctx-${id}.json`), JSON.stringify({ session_id: id, used_percentage: pct }));
   write('aaaaaaaa-1111', 11);
   write('bbbbbbbb-2222', 22);
@@ -385,7 +385,7 @@ test('F2: session-start removes ctx files and tmp state older than 7 days, keeps
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ghorc-clean-'));
   try {
     const proj = tmpProject();
-    fs.mkdirSync(path.join(proj, '.claude'));
+    fs.mkdirSync(path.join(proj, '.claude'), { recursive: true });
     const old = new Date(Date.now() - 10 * 86400000);
     const mk = (p) => {
       fs.writeFileSync(p, '{}');

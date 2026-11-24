@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { runScript, tmpProject, TEST_TMP, stopWatchdogs } = require('./helpers.cjs');
+const { runScript, tmpProject, bareProject, TEST_TMP, stopWatchdogs } = require('./helpers.cjs');
 const config = require('../scripts/lib/config.cjs');
 
 function freshTmp() {
@@ -146,7 +146,7 @@ test('ctx.cjs shows unread alerts of ONE session, oldest first, marks only those
 
 test('setup.cjs: --check finds everything missing, --apply all makes it clean, other keys survive', () => {
   const home = freshTmp();
-  const proj = tmpProject();
+  const proj = bareProject();
   fs.mkdirSync(path.join(proj, '.git', 'info'), { recursive: true });
   try {
     fs.mkdirSync(path.join(home, '.claude'), { recursive: true });

@@ -3,7 +3,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
-const { runScript, tmpProject, sid } = require('./helpers.cjs');
+const { runScript, tmpProject, bareProject, sid } = require('./helpers.cjs');
 const config = require('../scripts/lib/config.cjs');
 
 const PLAIN = { GHORC_STATUSLINE_PLAIN: '1', CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: '', GHORC_GIT_TIMEOUT_MS: '15000' };
@@ -130,23 +130,29 @@ test('config: the project config merges over the defaults', () => {
 });
 
 test('config: no file - defaults, found=false; broken JSON - the same', () => {
-  const cwd = tmpProject();
+  const cwd = bareProject();
   assert.equal(config.found(cwd), false);
+  assert.equal(config.optedIn(cwd), false);
   assert.equal(config.load(cwd).readGuard.maxRepeat, 3);
-  fs.mkdirSync(path.join(cwd, '.claude'));
+  fs.mkdirSync(path.join(cwd, '.claude'), { recursive: true });
   fs.writeFileSync(path.join(cwd, '.claude', 'ghorc.json'), '{bad');
   assert.equal(config.load(cwd).thresholds.ctxPrepare, 235000, "the shipped default: autocompact 30% of 1M = ctxHandoff 265K + 35K");
   assert.equal(config.load(cwd).thresholds.ctxHandoff, 265000);
+  assert.equal(config.optedIn(cwd), true, 'an unreadable file still opts the project in');
+  assert.equal(config.found(cwd), false);
 });
 
-test('session-start: a short reminder, under 300 characters', () => {
+test('session-start: a short reminder, under 300 characters; silent in a project without a config', () => {
   const cwd = tmpProject();
   const r = runScript('session-start.cjs', { hook_event_name: 'SessionStart', session_id: sid(), cwd });
   assert.equal(r.code, 0);
   assert.ok(r.out.length < 300, `length ${r.out.length}`);
   assert.match(r.out, /ghorc [0-9.]+ session=/);
-  assert.match(r.out, /config not found/);
+  assert.match(r.out, /config: ok/);
   assert.match(r.out, /skill ghorc:lead/);
+  const bare = runScript('session-start.cjs', { hook_event_name: 'SessionStart', session_id: sid(), cwd: bareProject() });
+  assert.equal(bare.code, 0);
+  assert.equal(bare.out, '', 'no lines in a project that never opted in');
 });
 
 test('watchdog: --once reports a large file and kills nothing', () => {

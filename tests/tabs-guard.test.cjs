@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { runScript, isDeny, tmpProject, TEST_TMP } = require('./helpers.cjs');
+const { runScript, isDeny, tmpProject, bareProject, TEST_TMP } = require('./helpers.cjs');
 process.env.GHORC_TMP = TEST_TMP; // the state file path of this process equals the one of the hook processes
 const tabs = require('../scripts/lib/tabs.cjs');
 const validate = require('../scripts/lib/validate.cjs');
@@ -1082,7 +1082,7 @@ test('D: a result line present at the first sighting is a soft RESULT? line that
 
 // ---- TABS-3 ----
 test('R3-1: a project without .claude/ghorc.json is neither judged nor reported', () => {
-  const none = { cwd: fs.realpathSync.native(tmpProject()), sid: SID() };
+  const none = { cwd: fs.realpathSync.native(bareProject()), sid: SID() };
   assert.equal(fs.existsSync(path.join(none.cwd, '.claude', 'ghorc.json')), false);
   const withCfg = project();
   for (const [kind, cmd] of [['hc', 'npm run dev'], ['herdr', 'docker compose up'], ['herdr', 'herdr tab create --label scratch'], ['herdr', 'herdr pane split --pane w1:p1'], ['hc', 'hc run --bg npm test']]) {

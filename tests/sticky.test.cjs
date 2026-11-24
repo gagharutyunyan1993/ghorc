@@ -7,7 +7,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { runScript, isDeny, tmpProject, sid, TEST_TMP } = require('./helpers.cjs');
+const { runScript, isDeny, tmpProject, bareProject, sid, TEST_TMP } = require('./helpers.cjs');
 
 process.env.GHORC_TMP = TEST_TMP;
 const cg = require('../scripts/lib/ctxguard.cjs');
@@ -331,7 +331,7 @@ test('handoff.pushGuard: off by default; on, it denies herdr agent start while a
 // ---- fix round 1: opt-in, roles, parsers, pushGuard fail-open, backstop ----
 
 const noFile = (cfg) => {
-  const cwd = tmpProject(cfg); // undefined: no .claude/ghorc.json at all (the helper writes none)
+  const cwd = cfg === undefined ? bareProject() : tmpProject(cfg); // undefined: no .claude/ghorc.json at all
   const s = sid();
   writeCtx(cwd, s, 9000);
   fs.writeFileSync(path.join(cwd, 'STATE.md'), 'state\n');
@@ -654,7 +654,7 @@ test('N2: a qualifier applies only when whitespace alone separates it from branc
 });
 
 test('N3: key off, a compaction-only flag left by a run with the key on counts as no flag (0.7.0)', () => {
-  const { cwd, s } = noFile(undefined);
+  const { cwd, s } = noFile({}); // a config without the key (a project without any config is never judged)
   cg.writeFlag(s, { ts: Date.now() - 5000, tokens: 0, compacted: true, lead: false });
   for (const env of [ROLELESS, LEAD]) {
     assert.equal(agentDenied(cwd, s, env), false, 'agent allowed');
@@ -663,7 +663,7 @@ test('N3: key off, a compaction-only flag left by a run with the key on counts a
     assert.doesNotMatch(call(hook(cwd, s, 'UserPromptSubmit'), env).out, /context 9K|Handoff|compacted/);
   }
   // a flag from crossing (the 0.7.0 shape) is still a flag with the key off
-  const x = noFile(undefined);
+  const x = noFile({});
   cg.writeFlag(x.s, { ts: Date.now() - 5000, tokens: 160000, stopBlocks: 0 });
   assert.equal(agentDenied(x.cwd, x.s, ROLELESS), true);
 });

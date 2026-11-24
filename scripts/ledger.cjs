@@ -10,6 +10,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { readStdin, parseInput } = require('./lib/hook-io.cjs');
 const { projectRoot } = require('./lib/root.cjs');
+const { optedIn } = require('./lib/config.cjs');
 const { PRICES_AS_OF, messageCost } = require('./lib/prices.cjs');
 
 const CAUSES = ['BRIEF_OMISSION', 'SKIPPED_CHECK', 'REASONING_FAILURE', 'OTHER', 'CASCADE'];
@@ -141,7 +142,7 @@ function transcriptTotals(file) {
 function modeHook() {
   try {
     const input = obj(parseInput(readStdin()));
-    if (input) append(ledgerPath(input.cwd), hookLine(input));
+    if (input && optedIn(input.cwd || process.cwd())) append(ledgerPath(input.cwd), hookLine(input));
   } catch {
     /* never fail the tool */
   }
@@ -156,7 +157,7 @@ function modeStop() {
     const tp = input && strOrNull(input.transcript_path);
     const own = tp && path.basename(tp).replace(/.jsonl$/, "") !== String(input.session_id || "") ? tp : null;
     const file = input && (strOrNull(input.agent_transcript_path) || (agentId ? own : null));
-    if (file && agentId) {
+    if (file && agentId && optedIn((input && input.cwd) || process.cwd())) {
       const t = transcriptTotals(file);
       if (t) append(ledgerPath(input.cwd), { ts: new Date().toISOString(), kind: 'done', agentId, ...t });
     }

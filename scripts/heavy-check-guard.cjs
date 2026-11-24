@@ -1,7 +1,7 @@
 'use strict';
 // PreToolUse(Bash|PowerShell): heavy commands from heavyCommands are denied to subagents and workers.
 const { deny, run } = require('./lib/hook-io.cjs');
-const { load } = require('./lib/config.cjs');
+const { load, optedIn } = require('./lib/config.cjs');
 const { isWorker, isLead } = require('./lib/role.cjs');
 const slots = require('./lib/slots.cjs');
 const { BUILTIN_SUBAGENT_DENY, DEFAULT_HEAVY, matches, compile, hcSendTargets } = require('./lib/cmd.cjs');
@@ -29,6 +29,7 @@ run((input) => {
   if (input.tool_name !== 'Bash' && input.tool_name !== 'PowerShell') return;
   const command = input.tool_input && input.tool_input.command;
   if (typeof command !== 'string') return;
+  if (!optedIn(input.cwd || process.cwd())) return; // a project without .claude/ghorc.json never opted in
 
   const cfg = load(input.cwd);
   const configured = compile(Array.isArray(cfg.heavyCommands) ? cfg.heavyCommands : []);

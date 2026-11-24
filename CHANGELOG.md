@@ -58,6 +58,11 @@ Models and effort re-derived from Anthropic's guide "Which Claude model should y
   package whose first verdict carries it is left out of the first-round ACCEPT rate.
 
 ### Changed
+- **Only projects that opted in:** every hook (read guard, heavy guard, context guard, session start, capacity guard,
+  call ledger, tabs guard) and the status line's ctx file act only where `.claude/ghorc.json` exists. ghorc installs at
+  user scope, and before this a project that never ran `/ghorc:setup` still got denies (a 4th read, an Edit past
+  `ctxHandoff`), five SessionStart lines and `.claude/ctx-*.json` files that its git did not exclude. The status line is
+  still shown everywhere (it is a user setting). `/ghorc:setup` item `config` opts a project in.
 - **Context thresholds:** `ctxPrepare` 235000 and `ctxHandoff` 265000 (were 120000 and 150000), so `/ghorc:setup` item
   `pct` recommends autocompact at 30% of a 1M window (was 19%). The lead keeps almost twice the context; on Opus a
   turn's cache read then costs about $0.05 instead of $0.03. On a window smaller than `ctxHandoff` + 35K set

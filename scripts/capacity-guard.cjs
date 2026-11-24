@@ -3,7 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { run } = require('./lib/hook-io.cjs');
-const { load, projectRoot } = require('./lib/config.cjs');
+const { load, projectRoot, optedIn } = require('./lib/config.cjs');
 const { sessionRoot } = require('./lib/root.cjs');
 const cg = require('./lib/ctxguard.cjs');
 const { isWorker, provenLead } = require('./lib/role.cjs');
@@ -32,6 +32,7 @@ run((input) => {
   const event = input.hook_event_name;
   if (!['Stop', 'UserPromptSubmit', 'SubagentStart', 'SubagentStop'].includes(event)) return;
   const cwd = input.cwd || process.cwd();
+  if (!optedIn(cwd)) return;
   const cfg = load(cwd);
   const s = cap.settings(cfg);
   if (!s.enabled) return;

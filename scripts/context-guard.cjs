@@ -3,7 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { run, deny, readState, writeState } = require('./lib/hook-io.cjs');
-const { load, projectRoot } = require('./lib/config.cjs');
+const { load, projectRoot, optedIn } = require('./lib/config.cjs');
 const { sessionRoot } = require('./lib/root.cjs');
 const tmp = require('./lib/tmp.cjs');
 const cg = require('./lib/ctxguard.cjs');
@@ -110,6 +110,7 @@ run((input) => {
   if (worker && event !== 'SessionStart' && !cg.readFlag(sid)) return; // a worker without a flag costs one file read
 
   const cwd = input.cwd || process.cwd();
+  if (!optedIn(cwd)) return; // a project without .claude/ghorc.json never opted in
   const cfg = load(cwd);
   const hand = cfg.handoff || {};
   // handoff.stickyOnCompact (default false). Off: the behaviour of v0.7.0 (no compaction flag, Stop blocks at most 2

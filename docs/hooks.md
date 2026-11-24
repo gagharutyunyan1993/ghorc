@@ -4,6 +4,12 @@ ghorc registers six hook scripts (the call ledger has two entries) in `hooks/hoo
 rewrite a command or a file: a PreToolUse hook either stays silent (the call proceeds) or prints a deny decision with a
 reason. Every deny is also appended to the denial log (below).
 
+**Only in projects that opted in.** ghorc is installed at user scope, so its hooks run in every project. They act only
+where `.claude/ghorc.json` exists (found from the cwd, its ancestors or the main repository root of a linked worktree;
+an unreadable file still counts). Without one every hook is silent: nothing is denied, blocked, reminded or written
+(no ledger, no watchdog, no ctx files), and the status line shows its line but writes no `.claude/ctx-*.json` into the
+project. `/ghorc:setup` (item `config`) opts a project in.
+
 **Who is a subagent.** A hook input with `agent_id` is a subagent; a call without it counts as the main session.
 `GHORC_ROLE=worker` (a herdr worker session) counts as a subagent for the heavy guard. `GHORC_ROLE` is optional for the
 lead; `GHORC_ROLE=lead` only switches on the strict mode (`readGuard.leadNoMedia`, `heavyGuard.requireLeadEnv`).

@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
-const { found, load, projectRoot } = require('./lib/config.cjs');
+const { found, load, projectRoot, optedIn } = require('./lib/config.cjs');
 const { check } = require('./lib/validate.cjs');
 const { run } = require('./lib/hook-io.cjs');
 const tmp = require('./lib/tmp.cjs');
@@ -13,7 +13,7 @@ const { refuseReason, deriveTranscriptDir } = require('./lib/scandir.cjs');
 
 if (process.argv.includes('--help')) {
   console.log(
-    'session-start.cjs: SessionStart hook; prints, in this order, pending watchdog alerts (count + last 2 lines), ' +
+    'session-start.cjs: SessionStart hook; silent in a project without .claude/ghorc.json (it never opted in). Otherwise prints, in this order, pending watchdog alerts (count + last 2 lines), ' +
       '"ghorc <version> session=<id> role=<role>", the config status, then reminders (skill ghorc:lead for the lead, ' +
       'a missing CLAUDE.md ghorc section, a /ghorc:setup hint). Output is cut at 299 characters and then ends with "+more: run ctx". ' +
       'Role: GHORC_ROLE is optional; an empty GHORC_ROLE on a main session prints role=lead, GHORC_ROLE=worker stays explicit. ' +
@@ -92,6 +92,7 @@ function cut(lines) {
 run((input) => {
   const version = pluginVersion();
   const cwd = input.cwd || process.cwd();
+  if (!optedIn(cwd)) return; // a project without .claude/ghorc.json never opted in: no lines, no watchdog, no cleanup
   const sid = input.session_id;
   const root = projectRoot(cwd);
   const role = roleOf();
@@ -121,7 +122,7 @@ run((input) => {
   if (isMain && role === '' && (cfg.handoff || {}).stickyOnCompact === true) {
     status.push('handoff.stickyOnCompact is on, but GHORC_ROLE is not set: the block after compaction applies only to a proven lead (tab name, or on hc a terminal without a parent), otherwise set GHORC_ROLE=lead');
   }
-  status.push(found(cwd) ? 'config: ok' : 'config not found: copy templates/ghorc.json to .claude/ghorc.json');
+  status.push(found(cwd) ? 'config: ok' : 'config unreadable: fix .claude/ghorc.json (node scripts/check-config.cjs)');
   try {
     const { problems, fatal } = check(cwd);
     if (problems.length) {

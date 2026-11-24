@@ -57,7 +57,9 @@ deny), `acceptEdits` or `prompts` (the default until you choose; an unattended t
 answer goes to `worker.permissionArgs` and `handoff.candidatePermissionArgs`
 ([configuration](docs/configuration.md#worker)).
 
-Then, in a session inside your project, run `/ghorc:setup`. It checks the status line, the autocompact threshold,
+ghorc installs for all projects but does nothing in a project until it has `.claude/ghorc.json`: no hook denies or
+reminds there, and the status line writes no files into it. Then, in a session inside your project, run
+`/ghorc:setup` (it creates that file). It checks the status line, the autocompact threshold,
 `.claude/ghorc.json`, the `CLAUDE.md` section and the git exclude, proposes `heavyCommands` from your `package.json`
 scripts, and applies only the items you confirm. To try ghorc for one session without installing:
 `claude --plugin-dir <path-to-clone>`. Upgrading from 0.4.x: see [CHANGELOG.md](CHANGELOG.md) (the marketplace was

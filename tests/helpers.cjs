@@ -29,7 +29,9 @@ function isDeny(r) {
   }
 }
 
-function tmpProject(config) {
+// A project that opted in to ghorc: .claude/ghorc.json is always written ({} when no config is given), because every hook
+// is silent in a project without one. bareProject() is a project that never opted in.
+function tmpProject(config = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ghorc-test-'));
   made.push(dir);
   if (config) {
@@ -39,6 +41,12 @@ function tmpProject(config) {
     fs.mkdirSync(path.join(dir, '.claude'), { recursive: true });
     fs.writeFileSync(path.join(dir, '.claude', 'ghorc.json'), JSON.stringify(cfg));
   }
+  return dir;
+}
+
+function bareProject() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ghorc-test-'));
+  made.push(dir);
   return dir;
 }
 
@@ -94,4 +102,4 @@ function sid() {
   return id;
 }
 
-module.exports = { killTree, stopWatchdogs, runScript, isDeny, tmpProject, sid, TEST_TMP, TEST_ROOT };
+module.exports = { killTree, stopWatchdogs, runScript, isDeny, tmpProject, bareProject, sid, TEST_TMP, TEST_ROOT };

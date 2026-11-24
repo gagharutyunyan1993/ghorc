@@ -4,7 +4,7 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { runScript, isDeny, tmpProject, sid } = require('./helpers.cjs');
+const { runScript, isDeny, tmpProject, bareProject, sid } = require('./helpers.cjs');
 
 const read = (s, cwd, file, ti = {}, agent_id = 'ag1') => ({
   hook_event_name: 'PreToolUse',
@@ -150,7 +150,7 @@ test('P2-4: check-config --sample and a valid config', () => {
 
 test('P2-4: invalid config JSON does not break the hooks (fail open)', () => {
   const cwd = tmpProject();
-  fs.mkdirSync(path.join(cwd, '.claude'));
+  fs.mkdirSync(path.join(cwd, '.claude'), { recursive: true });
   fs.writeFileSync(path.join(cwd, '.claude', 'ghorc.json'), '{bad');
   const r = runScript('check-config.cjs', '', { args: ['--cwd', cwd] });
   assert.equal(r.code, 1);
@@ -222,7 +222,7 @@ test('F8: --notify with a .cmd script works through "cmd /c" on Windows', { skip
 test('round 2: the project root from a worktree is the main repository (git worktree add)', () => {
   const { spawnSync } = require('node:child_process');
   const config = require('../scripts/lib/config.cjs');
-  const repo = fs.realpathSync.native(tmpProject());
+  const repo = fs.realpathSync.native(bareProject());
   const git = (cwd, ...a) => spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...a], { cwd, encoding: 'utf8' });
   assert.equal(git(repo, 'init', '-q').status, 0);
   fs.writeFileSync(path.join(repo, 'f.txt'), 'x');
@@ -233,7 +233,9 @@ test('round 2: the project root from a worktree is the main repository (git work
   try {
     const real = (p) => fs.realpathSync.native(p).toLowerCase();
     assert.equal(real(config.projectRoot(wt)), real(repo));
-    // statusline from a worktree writes ctx to the main repository
+    // statusline from a worktree writes ctx to the main repository (opted in there, not committed: the worktree has no .claude)
+    fs.mkdirSync(path.join(repo, '.claude'), { recursive: true });
+    fs.writeFileSync(path.join(repo, '.claude', 'ghorc.json'), '{}');
     const s = sid();
     runScript('statusline.cjs', { session_id: s, cwd: wt, context_window: { used_percentage: 3 } });
     assert.ok(fs.existsSync(path.join(repo, '.claude', `ctx-${s}.json`)));

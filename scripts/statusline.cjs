@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { projectRoot } = require('./lib/root.cjs');
+const { optedIn } = require('./lib/config.cjs');
 const { tmpDir } = require('./lib/tmp.cjs');
 const { role: roleOf } = require('./lib/role.cjs');
 
@@ -194,7 +195,8 @@ try {
   const pd = input.workspace && input.workspace.project_dir;
   const base = pd || cwd;
   const root = base || process.env.CLAUDE_PROJECT_DIR ? projectRoot(base) : null;
-  if (sid && root) {
+  // a project without .claude/ghorc.json never opted in: the line is shown, nothing is written into the project
+  if (sid && root && optedIn(base || root)) {
     const dir = path.join(root, '.claude');
     fs.mkdirSync(dir, { recursive: true });
     const target = path.join(dir, `ctx-${String(sid).replace(/[^A-Za-z0-9_.-]/g, '_')}.json`);

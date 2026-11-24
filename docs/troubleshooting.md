@@ -41,6 +41,8 @@ Every deny is also in `<tmp>/ghorc-<user>/denials.log` ([hooks.md](hooks.md#deni
 
 ## Config
 
+- **ghorc does nothing in a project** (no SessionStart line, no deny, `ctx` finds no file). The project has no
+  `.claude/ghorc.json`, so it never opted in and every hook is silent there. Run `/ghorc:setup` and apply `config`.
 - **"config not found" in a worktree.** No file in the worktree, its ancestors or the main repository root, or git is
   not on `PATH`. `check-config.cjs --cwd <worktree>` shows the expected path; put the file in the main repository's
   `.claude/`.
@@ -77,7 +79,7 @@ an alert offset file and read counters; for everyone `denials.log` and `config-v
 
 | Scope | Written to | Pick it when |
 |---|---|---|
-| `user` (default) | `~/.claude/settings.json` | you want ghorc in every project on this machine |
+| `user` (default) | `~/.claude/settings.json` | you want ghorc available in every project on this machine (it acts only where `.claude/ghorc.json` exists) |
 | `project` | `<project>/.claude/settings.json` | the team uses it (commit the file) |
 | `local` | this project, not shared | you try it in one project without affecting teammates |
 

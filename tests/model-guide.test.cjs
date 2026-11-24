@@ -5,7 +5,7 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { runScript, tmpProject } = require('./helpers.cjs');
+const { runScript, tmpProject, bareProject } = require('./helpers.cjs');
 
 const ROOT = path.join(__dirname, '..');
 
@@ -126,7 +126,7 @@ test('no model version is pinned outside the price table', () => {
 
 test('setup pct: the shipped thresholds recommend 30% of a 1M window', () => {
   withHome((env) => {
-    const proj = tmpProject(); // no project config: the shipped defaults (ctxHandoff 265K)
+    const proj = bareProject(); // no project config: the shipped defaults (ctxHandoff 265K)
     const out = runScript('setup.cjs', '', { args: ['--check', '--cwd', proj], env }).out;
     assert.match(out, /MISSING pct \[global\]: null -> "30"/);
   });
