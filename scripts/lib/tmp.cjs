@@ -36,6 +36,32 @@ function rootHash(root) {
 // <tmp>/ghorc-<user>/ctx/<root hash>/ctx-<session>.json (before 0.11 they were <root>/.claude/ctx-<session>.json).
 const ctxDir = (root) => path.join(tmpDir(), 'ctx', rootHash(root));
 const ctxFile = (root, sid) => path.join(ctxDir(root), `ctx-${String(sid).replace(/[^A-Za-z0-9_.-]/g, '_')}.json`);
+// The ctx directory of a project, made (0700) when missing; null when it, its parent `ctx` or the tmp dir is not a real
+// directory owned by this user (POSIX), or not private: another user's planted directory or symlink is never written to.
+function ensureCtxDir(root) {
+  const dirs = [tmpDir(), path.join(tmpDir(), 'ctx'), ctxDir(root)];
+  for (const d of dirs) {
+    try {
+      fs.mkdirSync(d, { mode: 0o700 });
+    } catch (e) {
+      if (e.code !== 'EEXIST') return null;
+    }
+    if (!privateDir(d)) return null;
+  }
+  return dirs[2];
+}
+// A real directory (not a symlink); on POSIX owned by this uid and not writable by group or others.
+function privateDir(d) {
+  let st;
+  try {
+    st = fs.lstatSync(d);
+  } catch {
+    return false;
+  }
+  if (!st.isDirectory()) return false;
+  if (typeof process.getuid === 'function' && (st.uid !== process.getuid() || (st.mode & 0o022) !== 0)) return false;
+  return true;
+}
 const pidFile = (root) => path.join(tmpDir(), `watchdog-${rootHash(root)}.pid`);
 const heartbeatFile = (root) => path.join(tmpDir(), `watchdog-${rootHash(root)}.beat`);
 const logFile = (root) => path.join(tmpDir(), `watchdog-${rootHash(root)}.log`);
@@ -201,11 +227,29 @@ function cleanup(root, maxAgeDays = 7, now = Date.now()) {
   }
   try {
     // every project's ctx directory: old files, then a directory left empty
+    // only real, private directories and regular files: a symlink is never followed, a file is removed without recursion
     const base = path.join(tmpDir(), 'ctx');
-    for (const h of fs.readdirSync(base)) {
-      const d = path.join(base, h);
-      for (const f of fs.readdirSync(d)) if (old(path.join(d, f))) rm(path.join(d, f));
-      if (!fs.readdirSync(d).length) rm(d);
+    if (privateDir(base)) {
+      for (const h of fs.readdirSync(base, { withFileTypes: true })) {
+        const d = path.join(base, h.name);
+        if (!h.isDirectory() || !privateDir(d)) continue;
+        for (const f of fs.readdirSync(d, { withFileTypes: true })) {
+          const p = path.join(d, f.name);
+          if (!f.isFile() || !old(p)) continue;
+          try {
+            fs.unlinkSync(p);
+            n++;
+          } catch {
+            /* ignore */
+          }
+        }
+        try {
+          fs.rmdirSync(d); // only when empty
+          n++;
+        } catch {
+          /* not empty */
+        }
+      }
     }
   } catch {
     /* no directory */
@@ -253,6 +297,8 @@ module.exports = {
   rootHash,
   ctxDir,
   ctxFile,
+  ensureCtxDir,
+  privateDir,
   pidFile,
   heartbeatFile,
   logFile,

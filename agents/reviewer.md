@@ -23,6 +23,8 @@ You may run as a terminal tab (hc or herdr); then write your result to the repor
 - A finding may be marked `UNREPRODUCED` with `file:line` and reasoning when a reproduction is impossible (races, documents). It counts toward CHANGES_REQUIRED at P0/P1 only when you state why reproduction is impossible.
 - No worse than before is not acceptance: a defect that the brief's acceptance criteria cover, or that you reproduce at P0/P1, is CHANGES_REQUIRED even if it predates the change, because the package was accepted to deliver that behavior; other pre-existing defects are findings at their own severity.
 - Re-check of fixes: look only at the delta and at whether earlier findings are closed.
+- Level understated: if a package called ordinary or light has a path to paying twice, losing a paid result or corrupting data, stop and write to the lead `level understated: <file:line, why>`; a reviewer gives no accepting verdict then.
+- An unfinished review gives no accepting verdict: if you could not go through every item of the brief's attack plan or checklist, the review file gets a section `Not checked` and the verdict `BLOCKED` with the reason `review not finished`; the lead sends the rest to a new agent.
 
 ## Report
 - The LAST line of the review file: `VERDICT <ACCEPT|ACCEPT_WITH_NOTES|CHANGES_REQUIRED|BLOCKED>`; the answer repeats it first.

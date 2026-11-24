@@ -1266,3 +1266,33 @@ test('R3-9: hc duplicate and limit checks count only this terminal\'s children a
   const inProject = hcl([term('b-implementer', 'working', { cwd: p.cwd, parent: 'someone-else' })]);
   assert.match(reasonOf(pre(p, HC('b-implementer', 'worker', good), { env: { GHORC_CAPACITY_HC_JSON: inProject, HC_TERMINAL_ID: 'self1' } })), /name b-implementer is already used by a live tab/);
 });
+
+test('NOWAIT: workers working and no background wait in the Stop input: one block, then quiet for 10 minutes', () => {
+  const p = project();
+  const env = { GHORC_CAPACITY_HERDR_JSON: hdr([agent('a1-implementer', 'working', p.cwd), agent('a1-runner', 'working', p.cwd)]) };
+  const none = { background_tasks: [] };
+  const r = mon(p, 'Stop', env, none);
+  assert.ok(blocks(r));
+  const why = JSON.parse(r.out).reason;
+  assert.match(why, /tabs NOWAIT: a1-implementer is working and no background wait is running/);
+  assert.doesNotMatch(why, /a1-runner is working/, 'a runner tab is a command, not a worker to wait on');
+  assert.match(why, /herdr agent wait <name> --until idle --until done --until blocked/);
+  // repeated within 10 minutes: no second block
+  assert.equal(mon(p, 'Stop', env, none).out.trim(), '');
+  // a live background wait (a shell or monitor task in flight): never a block
+  const envOf = (x) => ({ GHORC_CAPACITY_HERDR_JSON: hdr([agent('a1-implementer', 'working', x.cwd)]) });
+  const q = project();
+  for (const t of [{ type: 'local_bash', status: 'running' }, { type: 'monitor', status: 'running' }]) {
+    assert.equal(mon(q, 'Stop', envOf(q), { background_tasks: [t] }).out.trim(), '', t.type);
+  }
+  // only a finished shell task: no live wait
+  assert.ok(blocks(mon(q, 'Stop', envOf(q), { background_tasks: [{ type: 'local_bash', status: 'completed' }] })));
+  // the field missing (unknown): no block; stop_hook_active: no block
+  const u = project();
+  assert.equal(mon(u, 'Stop', envOf(u)).out.trim(), '');
+  assert.equal(mon(u, 'Stop', envOf(u), { ...none, stop_hook_active: true }).out.trim(), '');
+  assert.ok(blocks(mon(u, 'Stop', envOf(u), none)), 'stop_hook_active did not use up the block');
+  // no worker working: no block
+  const w = project();
+  assert.equal(mon(w, 'Stop', { GHORC_CAPACITY_HERDR_JSON: hdr([agent('a1-implementer', 'idle', w.cwd)]) }, none).out.trim(), '');
+});

@@ -5,7 +5,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { projectRoot } = require('./lib/root.cjs');
 const { optedIn } = require('./lib/config.cjs');
-const { tmpDir, ctxFile } = require('./lib/tmp.cjs');
+const { tmpDir, ctxFile, ensureCtxDir } = require('./lib/tmp.cjs');
 const { role: roleOf } = require('./lib/role.cjs');
 
 if (process.argv.includes('--help')) {
@@ -198,8 +198,9 @@ try {
   // a project without .claude/ghorc.json never opted in: the line is shown, nothing is written into the project
   if (sid && root && optedIn(base || root)) {
     // outside the project: <tmp>/ghorc-<user>/ctx/<root hash>/ctx-<session>.json
+    // a private directory of this user, or nothing is written (another user's planted directory or symlink)
+    if (!ensureCtxDir(root)) throw new Error('ctx dir not private');
     const target = ctxFile(root, sid);
-    fs.mkdirSync(path.dirname(target), { recursive: true });
     const tmp = `${target}.${process.pid}.tmp`;
     const out = {
       session_id: sid,

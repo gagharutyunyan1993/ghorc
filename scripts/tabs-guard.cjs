@@ -85,7 +85,17 @@ run((input) => {
   if (!live) return;
   const session = String(input.session_id || 'unknown');
   const now = Date.now();
-  const r = tabs.evaluate(live, tabs.readTabState(session), now, { root, s, workspace: tabs.ownWorkspace(process.env), session });
+  const prev = tabs.readTabState(session);
+  const r = tabs.evaluate(live, prev, now, { root, s, workspace: tabs.ownWorkspace(process.env), session });
+  // workers are working but the lead ends its turn with no background wait: nothing will wake it when they finish
+  let noWait = null;
+  if (event === 'Stop' && r.working.length) {
+    if (tabs.noLiveWait(input.background_tasks)) {
+      const last = typeof prev.nowaitAt === 'number' ? prev.nowaitAt : 0;
+      if (now - last >= tabs.NOWAIT_REPEAT_MS) noWait = `tabs NOWAIT: ${r.working.join(', ')} ${r.working.length > 1 ? 'are' : 'is'} working and no background wait is running, so nothing wakes you when ${r.working.length > 1 ? 'they finish' : 'it finishes'}. Start the wait in the background now (${live.kind === 'hc' ? 'hc wait <name>' : 'herdr agent wait <name> --until idle --until done --until blocked --timeout <ms>'}, run_in_background), then end the turn.`;
+      r.state.nowaitAt = noWait ? now : last;
+    }
+  } else if (typeof prev.nowaitAt === 'number') r.state.nowaitAt = prev.nowaitAt;
   // a lead that has sent its handoff must go idle (its Stop stays silent, like context-guard), and a candidate that is not activated
   // yet owns none of the old lead's workers: neither blocks Stop nor notifies
   const hand = cfg.handoff || {};
@@ -96,14 +106,15 @@ run((input) => {
   if (quiet && event === 'Stop') return;
   if (quiet) for (const name of r.toNotify) r.state.workers[name.toLowerCase()].notified = false; // not told: the next run that may tell, does
   else if (s.notify && live.kind === 'herdr') for (const name of r.toNotify) tabs.notify(name);
-  if (!r.lines.length) {
+  if (!r.lines.length && !noWait) {
     tabs.writeTabState(session, r.state);
     return;
   }
 
-  const text = r.lines.join('\n');
+  const text = [...r.lines, ...(noWait ? [noWait] : [])].join('\n');
   if (event === 'Stop') {
-    if (input.stop_hook_active || !s.stopBlock || !r.stopNew.length) {
+    if (input.stop_hook_active || !s.stopBlock || (!r.stopNew.length && !noWait)) {
+      if (noWait) delete r.state.nowaitAt; // not shown now: the next real Stop may block
       tabs.writeTabState(session, r.state);
       return;
     }

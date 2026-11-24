@@ -779,6 +779,16 @@ const BLOCKED_RESULT = /^(?:BLOCKED\s|VERDICT BLOCKED(?:\s|$))/;
 // Does not touch the disk except for the report files; the caller saves state. A result line counts only when the report is not
 // older than the first sighting of the tab (a name is reused across fix rounds, so an old report is normal). stopNew: the
 // BLOCKED / FINISHED flags that have not yet blocked Stop (state `sb`); the caller records them with markStopped when it blocks.
+// Whether the Stop input shows no live background wait: true only when background_tasks is a list and none of its in-flight
+// entries is a shell or monitor task (the form a background `hc wait` / `herdr agent wait` takes). Unknown input: false.
+const WAIT_TYPE = /^(shell|bash|local_bash|monitor|monitor_mcp)$/i;
+const TASK_DONE = /^(completed|failed|killed)$/i;
+function noLiveWait(tasks) {
+  if (!Array.isArray(tasks)) return false;
+  return !tasks.some((t) => t && WAIT_TYPE.test(String(t.type == null ? '' : t.type)) && !TASK_DONE.test(String(t.status == null ? '' : t.status)));
+}
+const NOWAIT_REPEAT_MS = 10 * 60 * 1000;
+
 function evaluate(live, prevState, now, { root, s, workspace = '', session = '' }) {
   const ws = String(workspace || '').toLowerCase();
   const inv = inventory(live.entries, live.kind, { root, self: live.self, leadPrefix: s.leadPrefix, workspace: ws });
@@ -853,7 +863,8 @@ function evaluate(live, prevState, now, { root, s, workspace = '', session = '' 
     const why = parseName(String(e.name).toLowerCase(), s.leadPrefix).why;
     lines.push(`tabs BADNAME: ${e.name ? JSON.stringify(e.name) : '(no name)'} (${e.status || '?'}) breaks the tab naming policy (${why}), so it is neither counted nor watched: rename it or close it`);
   }
-  return { live: rows.length, lines, blocked, finished: finishedNames, stopNew, state, toNotify };
+  const working = rows.filter((r) => !r.long && r.e.status === 'working').map((r) => r.e.name);
+  return { live: rows.length, lines, blocked, finished: finishedNames, stopNew, state, toNotify, working };
 }
 
 // Records in the state that these (name, flag) pairs have blocked Stop.
@@ -905,6 +916,8 @@ function notify(name, env = process.env) {
 }
 
 module.exports = {
+  noLiveWait,
+  NOWAIT_REPEAT_MS,
   AGENT_KINDS,
   LONG_KINDS,
   MAX_NAME,

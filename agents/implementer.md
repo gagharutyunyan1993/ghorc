@@ -30,6 +30,8 @@ You may run as a terminal tab (hc or herdr); then write your result to the repor
 - Acceptance map: one line per acceptance item from the brief, `PASS | FAIL | UNVERIFIED`, with the command or `file:line` that shows it.
 - The LAST line of the report file is `DONE <name>`, `BLOCKED <name>: <reason>` or `HANDOFF <name>` (`<name>` from the brief).
 - Do not return reasoning, only facts.
+- Level understated: if a package called ordinary or light has a path to paying twice, losing a paid result or corrupting data, stop and write to the lead `level understated: <file:line, why>`.
+- The DONE line goes into the report FILE: a line printed only to the terminal wakes nobody, because the lead's wait reads the file.
 - Reports, scratch and large outputs go to `<project>/.claude/ghorc-out/` (not into the conversation, not into tracked files).
 
 Keep working until every item in `<you_own>` and `<steps>` is complete; do not stop to check in. Before reporting done, run a real check that exercises the change (a test, build or reproducible command; a type check alone is not one) and paste the command and result. If blocked, state the blocker, what you tried and the smallest next step. Do not add unrequested changes.

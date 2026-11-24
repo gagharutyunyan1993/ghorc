@@ -66,6 +66,25 @@ Every deny is also in `<tmp>/ghorc-<user>/denials.log` ([hooks.md](hooks.md#deni
   receive its settings, or the 10 minutes passed. Close it and its tab, void the `handoff_id`, fix, retry; after 2
   failures ask the owner. See [handoff.md](handoff.md).
 
+## Workers and the shell (Windows and Git Bash)
+
+- **A worker does not see new rules from `.claude/ghorc.json`.** The hooks read the config from the worker session's
+  cwd, not from the command's. Start the worker in a worktree based on a fresh `origin/main`.
+- **The lead waited and nothing came.** The worker printed `DONE` to its terminal but not as the last line of its
+  report file, which is what the wait reads; the brief must say so. A Stop with working workers and no background wait
+  is blocked once (`tabs NOWAIT`).
+- **A brief or a multi-line file written with a Bash heredoc is empty or missing.** Quoting broke it; write it with the
+  Write tool and check the file exists before the launch.
+- **A check hangs and one core stays at 100%.** A `python -` (script on stdin) waits for input; use `python -I -c` or a
+  script file.
+- **A tool opened the wrong directory.** An unquoted `D:\x\y` in Git Bash becomes `D:xy`; use forward slashes in
+  quotes.
+- **An exact-string edit does not match in a `.md` or `.json` file.** The file has CRLF line ends; read it first and
+  edit from what was read.
+- **A push with a long pre-push hook breaks.** SSH drops during the hook: push with
+  `GIT_SSH_COMMAND="ssh -o ServerAliveInterval=15 -o ServerAliveCountMax=40"`, write the output to a file and compare
+  `git ls-remote` with the local SHA instead of trusting the exit code.
+
 ## Where files live
 
 `<tmp>` is the OS temp directory (`%TEMP%` on Windows, usually `/tmp` on Linux); the plugin works in

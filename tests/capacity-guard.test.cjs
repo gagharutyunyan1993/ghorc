@@ -1061,3 +1061,37 @@ test('P2-1: a lead in a linked worktree whose HANDOFF.md is SENT is not told "Ma
   fs.writeFileSync(path.join(p.cwd, 'HANDOFF.md'), sent);
   assert.equal(stopAt(wt, { CLAUDE_PROJECT_DIR: p.cwd }).out, '', 'SENT at CLAUDE_PROJECT_DIR');
 });
+
+test('cleanup never follows a link under the ctx dir: files behind a junction or symlink stay', () => {
+  const tmpMod = require('../scripts/lib/tmp.cjs');
+  const os2 = require('node:os');
+  const base = fs.mkdtempSync(path.join(os2.tmpdir(), 'ghorc-link-'));
+  const victim = fs.mkdtempSync(path.join(os2.tmpdir(), 'ghorc-victim-'));
+  const saved = process.env.GHORC_TMP;
+  process.env.GHORC_TMP = base;
+  try {
+    const old = new Date(Date.now() - 30 * 24 * 3600 * 1000);
+    const keep = path.join(victim, 'important.txt');
+    fs.writeFileSync(keep, 'x');
+    fs.utimesSync(keep, old, old);
+    fs.mkdirSync(path.join(base, 'ctx'), { recursive: true });
+    try {
+      fs.symlinkSync(victim, path.join(base, 'ctx', 'deadbeef'), process.platform === 'win32' ? 'junction' : 'dir');
+    } catch {
+      return; // links not available here
+    }
+    tmpMod.cleanup(base);
+    assert.ok(fs.existsSync(keep), 'a file behind the link is never deleted');
+    // the statusline helper refuses a planted link as the project's ctx dir
+    const root = path.join(base, 'proj');
+    fs.mkdirSync(root);
+    const hashDir = path.join(base, 'ctx', tmpMod.rootHash(root));
+    fs.symlinkSync(victim, hashDir, process.platform === 'win32' ? 'junction' : 'dir');
+    assert.equal(tmpMod.ensureCtxDir(root), null);
+  } finally {
+    if (saved === undefined) delete process.env.GHORC_TMP;
+    else process.env.GHORC_TMP = saved;
+    fs.rmSync(base, { recursive: true, force: true });
+    fs.rmSync(victim, { recursive: true, force: true });
+  }
+});

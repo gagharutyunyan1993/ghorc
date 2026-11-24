@@ -141,6 +141,11 @@ All substantiated findings go to the review file <path under .claude/ghorc-out/>
 | Asking for reasoning to be returned | Output tokens settle in the lead window |
 | Invented check commands | Checks go only through the config `checks` |
 | A brief without `file:line` for Sonnet | The agent looks for entry points itself |
+| A brief that does not say "the LAST line of the report FILE is `DONE <name>`" | The worker prints DONE to the terminal only and the lead's wait never fires |
+| Invariants retold inside the task text | The reviewer misses one: give them as a separate block, one per line |
+| A heredoc for a brief or a multi-line file in Bash | Quoting can leave the file unwritten: write it with the Write tool and check it exists before the launch |
+| `python -` (a script on stdin) in a check | A hung interpreter holds a core and breaks the full run: `python -I -c` or a script file |
+| An unquoted Windows path in Git Bash (`D:\x\y`) | Bash eats the backslashes (`D:xy`) and the tool opens the wrong place: forward slashes, in quotes |
 
 ## Report example
 ```
