@@ -343,8 +343,9 @@ that binds every session (lead, subagent, worker) is the dev-command rule below.
   in another workspace is denied for the lead: `herdr tab create` with a foreign `--workspace`, `herdr tab close`, `herdr pane close`,
   `herdr pane split --pane` and `herdr agent start --pane` on an id of another workspace (the part before `:`; an unqualified id is not
   judged), and always (the owner's): `herdr workspace create|close`, `herdr worktree create|open|remove` (a worktree workspace is a
-  separate workspace), `herdr pane move`, and any herdr command above aimed at another session, machine or host with the global
-  `--session`, `--machine` or `--remote` (reading there stays allowed). Operator actions - `agent prompt|send-keys`, `pane run|send-keys|send-text|read`
+  separate workspace), `herdr pane move`, and any herdr command above aimed at another session, machine or host with
+  `--session`, `--machine` or `--remote` anywhere in the herdr part of the command, before or after the verb (reading there stays
+  allowed). Operator actions - `agent prompt|send-keys`, `pane run|send-keys|send-text|read`
   - are not judged: the owner may ask for them. Inventory, duplicate-name and limit checks count only agents of the own workspace
   (their `workspace_id`, else the pane id prefix; when the own workspace is known), besides the cwd filter; on hc only terminals whose parent is this terminal or whose cwd is in the project.
 - **Dev commands (every session in a project with a ghorc config).** `tabs.devCommands` (regexes, default list in `scripts/lib/defaults.json`)

@@ -996,12 +996,18 @@ test('B: worktree workspaces, pane move and another session or machine are the o
     [`herdr --session other tab create --label a-implementer --cwd /w --env GHORC_ROLE=worker ${WSF}`, /--session aims the command at another herdr session, machine or host/],
     [`herdr --machine box agent start a-implementer --kind claude --pane w1:p1 -- ${ARGS} -n a-implementer ${PERM}`, /--machine aims the command/],
     ['herdr --remote=me@host tab close w1:t2', /--remote aims the command/],
+    // after the verb too: herdr routes `herdr tab ... --session x` to session x
+    [`herdr tab create --label a-implementer --cwd /w --env GHORC_ROLE=worker ${WSF} --session other`, /--session aims the command/],
+    ['herdr tab close w1:t2 --session=other', /--session aims the command/],
+    [`herdr agent start a-implementer --kind claude --pane w1:p1 --session other -- ${ARGS} -n a-implementer ${PERM}`, /--session aims the command/],
   ]) {
     const r = hpre(p, c);
     assert.ok(denied(r), c);
     assert.match(reasonOf(r), re, c);
   }
   for (const c of ['herdr worktree list', 'herdr --session other agent list', 'herdr worktree create --help']) allowed(hpre(p, c), c);
+  // a --session after `--` belongs to claude's own argv, not to herdr
+  allowed(hpre(p, `herdr agent start a-implementer --kind claude --pane w1:p1 -- ${ARGS} -n a-implementer ${PERM} --session x`));
 });
 
 test('B: herdr list entries belong to their workspace_id first (herdr api schema AgentInfo)', () => {

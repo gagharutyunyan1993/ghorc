@@ -162,9 +162,13 @@ function parseSegment(segment) {
   const { tokens } = c;
   const low = tokens.map((t) => t.toLowerCase());
   if (c.prog === 'herdr') {
-    const foreignBefore = (i) => low.slice(1, i).find((t) => HERDR_FOREIGN.has(t.split('=')[0])) || null;
+    // herdr takes --session in front of the noun and after the verb (`herdr tab list --session x` goes to session x): look at every
+    // herdr token, up to the `--` that starts the agent's own argv
     const r = parseHerdr(tokens, low);
-    if (r) r.foreign = foreignBefore(r.at - 2);
+    if (r) {
+      const end = r.type === 'agent-start' && r.dd >= 0 ? r.dd : low.length;
+      r.foreign = low.slice(1, end).find((t) => HERDR_FOREIGN.has(t.split('=')[0])) || null;
+    }
     return r;
   }
   return parseHc(tokens, low);
