@@ -42,8 +42,8 @@ Claim template: "[X]% lower estimated API cost per accepted package, counting wo
   multiply by the public API prices of each model on the day of the run, and divide by the number of accepted
   packages. Failed and retried attempts stay in the sum. State the prices used next to the result.
 - **Ledger:** `ledger.cjs report` now gives this estimate per subagent run (see [Call ledger](#call-ledger)), at the list
-  prices in `scripts/lib/prices.cjs` (as of 2026-11-24). The lead session itself and terminal tab workers are not in the
-  ledger, so their cost still has to be summed by hand from their transcripts and added.
+  prices in `scripts/lib/prices.cjs` (as of 2026-11-24), and per main session (the lead, terminal tab workers,
+  candidate leads) from their transcripts; `estimated cost with sessions` is the sum of both.
 - **Limit:** on a subscription plan this is an estimate of relative load, not money spent.
 
 ## Call ledger
@@ -61,6 +61,13 @@ Claim template: "[X]% lower estimated API cost per accepted package, counting wo
   cacheTtlAssumed}`, summed from each assistant message's `usage` (once per message id); a payload without those fields
   writes nothing. `report` joins `launch` and
   `done` by `agentId`; a launch without a done line is read lazily from its `outputFile`, if the file exists.
+- **Main sessions.** A `session` line (SessionStart: `session`, `role`, `source`, `transcript`) and a `sessionEnd`
+  snapshot (SessionEnd: the `done` fields plus `title`). `report` prices each session's transcript when it is still
+  readable (it may have grown since the snapshot), else the newest snapshot; message ids are deduplicated across
+  sessions, oldest first (a resumed session copies earlier messages), and sidechain rows are skipped (subagents are
+  their own lines). The row is the session kind and its models: the kind comes from the session name (`-n
+  p3-implementer` is `implementer`, `-n lead-x` is `lead`), else from `GHORC_ROLE`. Session lines are not agent calls:
+  they stay out of `calls`, the role rows and `estimated cost`.
 - **Cost fields of a `done` line.** `cost` is the estimated USD at list prices (rounded to 6 decimals, `null` when no
   message had a price), summed per assistant message from its own `message.model` and `usage`. `unpriced` counts
   messages with non-zero usage whose model has no price (such as `<synthetic>` or a model not in the table); their

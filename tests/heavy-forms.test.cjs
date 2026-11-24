@@ -1,5 +1,5 @@
 'use strict';
-// Command forms ported from the vids heavy-check classifier into scripts/lib/cmd.cjs (gh-heavy, step 2). Every family has the forms
+// Command forms ported from a real project's heavy-check classifier into scripts/lib/cmd.cjs (gh-heavy, step 2). Every family has the forms
 // that must be found (deny) and a neighbouring harmless command of the same shape (allow). The heavy patterns stand for a
 // project's heavyCommands. The full comparison table is docs-free: it lives with the task report (gh-heavy-forms.md).
 const test = require('node:test');

@@ -26,7 +26,8 @@ The ledger is `<project>/.claude/ghorc-out/ledger.jsonl`: one line per subagent 
 - `/ghorc:status` also runs `node "${CLAUDE_PLUGIN_ROOT}/scripts/ledger.cjs" report` (optional `--since <ISO>`, `--json`)
   and shows its output as is: per role calls, median and upper-quartile tokens and ms, mean tools, share of calls whose
   resolved model differs from the requested one; per package the rounds and the first-round verdict; the first-round
-  ACCEPT rate and cause counts. An empty ledger prints `no ledger yet`.
+  ACCEPT rate and cause counts; then the main sessions (the lead, tab workers) per kind and model with their cost, and
+  `estimated cost with sessions`. An empty ledger prints `no ledger yet`.
 - `/ghorc:status --verdict E123 1 CHANGES_REQUIRED REASONING_FAILURE [--class critical]` runs
   `node "${CLAUDE_PLUGIN_ROOT}/scripts/ledger.cjs" verdict E123 1 CHANGES_REQUIRED REASONING_FAILURE`
   (`<pkg> <round 1-9> <ACCEPT|CHANGES_REQUIRED> [cause] [--class critical|ordinary]`, class defaults to ordinary; the

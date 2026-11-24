@@ -5,19 +5,21 @@
 // `stop`    SubagentStop: totals from the agent transcript become a done line (matched to the launch by agentId),
 //           with an estimated cost at list prices (lib/prices.cjs).
 // `verdict` <pkg> <round> <ACCEPT|CHANGES_REQUIRED> [cause] [--class critical|ordinary]: appends a verdict line.
-// `report`  [--since <ISO>] [--json]: per role x model x effort, per-class and per-package aggregates.
+// `end`     SessionEnd: a totals snapshot of a main session transcript (a session line comes from session-start.cjs).
+// `report`  [--since <ISO>] [--json]: per role x model x effort, per-class and per-package aggregates; main sessions
+//           (the lead, tab workers) priced from their transcripts.
 const fs = require('node:fs');
 const path = require('node:path');
 const { readStdin, parseInput } = require('./lib/hook-io.cjs');
 const { projectRoot } = require('./lib/root.cjs');
-const { optedIn } = require('./lib/config.cjs');
+const { optedIn, load } = require('./lib/config.cjs');
 const { PRICES_AS_OF, messageCost } = require('./lib/prices.cjs');
 
 const CAUSES = ['BRIEF_OMISSION', 'SKIPPED_CHECK', 'REASONING_FAILURE', 'OTHER', 'CASCADE'];
 const VERDICTS = ['ACCEPT', 'CHANGES_REQUIRED'];
 const CLASSES = ['critical', 'ordinary'];
 const USAGE =
-  'usage: ledger.cjs hook | stop | verdict <pkg> <round 1-9> ACCEPT [--class critical|ordinary] | ' +
+  'usage: ledger.cjs hook | stop | end | verdict <pkg> <round 1-9> ACCEPT [--class critical|ordinary] | ' +
   'verdict <pkg> <round 1-9> CHANGES_REQUIRED <' +
   CAUSES.join('|') +
   '> [--class critical|ordinary] | report [--since <ISO>] [--json]';
@@ -63,9 +65,12 @@ function hookLine(input) {
   };
 }
 
-// Totals from an agent transcript (JSONL): usage of each assistant message (deduplicated by message id), tool_use
-// blocks, wall time between the first and the last timestamp. Null when unreadable or without assistant turns.
-function transcriptTotals(file) {
+// Totals from an agent or session transcript (JSONL): usage of each assistant message (deduplicated by message id), tool_use
+// blocks, wall time between the first and the last timestamp, the last session name (`-n`, a custom-title record). Null
+// when unreadable or without assistant turns. opts.seen (a Set) dedupes message ids across files (a resumed session
+// copies earlier messages); sidechain rows (subagent turns in an older transcript layout) are never counted here, so a
+// session total never repeats its subagents.
+function transcriptTotals(file, opts = {}) {
   let text;
   try {
     text = fs.readFileSync(file, 'utf8');
@@ -77,6 +82,8 @@ function transcriptTotals(file) {
   let first = null;
   let last = null;
   let anon = 0;
+  let title = null;
+  const seen = opts.seen instanceof Set ? opts.seen : null;
   for (const raw of text.split('\n')) {
     let o;
     try {
@@ -85,6 +92,8 @@ function transcriptTotals(file) {
       continue;
     }
     if (!obj(o)) continue;
+    if (o.type === 'custom-title' && typeof o.customTitle === 'string') title = o.customTitle.slice(0, 60);
+    if (o.isSidechain === true) continue;
     const t = Date.parse(o.timestamp);
     if (Number.isFinite(t)) {
       if (first === null || t < first) first = t;
@@ -92,13 +101,15 @@ function transcriptTotals(file) {
     }
     const m = o.message;
     if (o.type !== 'assistant' || !obj(m)) continue;
+    if (seen && m.id && seen.has(m.id) && !msgs.has(m.id)) continue; // counted in an earlier file
     msgs.set(m.id || `anon${anon++}`, { usage: obj(m.usage) || {}, model: strOrNull(m.model) });
     for (const b of Array.isArray(m.content) ? m.content : []) {
       if (b && b.type === 'tool_use') toolIds.add(b.id || `t${toolIds.size}`);
     }
   }
   if (!msgs.size) return null;
-  const sum = { input: 0, output: 0, cacheRead: 0, cacheCreate: 0 };
+  if (seen) for (const id of msgs.keys()) if (!id.startsWith('anon')) seen.add(id);
+  const sum ={ input: 0, output: 0, cacheRead: 0, cacheCreate: 0 };
   let cost = 0;
   let priced = 0;
   let unpriced = 0;
@@ -136,6 +147,7 @@ function transcriptTotals(file) {
     unpriced,
     models: [...models].sort(),
     cacheTtlAssumed,
+    title,
   };
 }
 
@@ -159,10 +171,40 @@ function modeStop() {
     const file = input && (strOrNull(input.agent_transcript_path) || (agentId ? own : null));
     if (file && agentId && optedIn((input && input.cwd) || process.cwd())) {
       const t = transcriptTotals(file);
-      if (t) append(ledgerPath(input.cwd), { ts: new Date().toISOString(), kind: 'done', agentId, ...t });
+      if (t) {
+        delete t.title;
+        append(ledgerPath(input.cwd), { ts: new Date().toISOString(), kind: 'done', agentId, ...t });
+      }
     }
   } catch {
     /* never block */
+  }
+  process.exit(0);
+}
+
+// A main session (the lead, a tab worker, a candidate lead): SessionStart writes a session line with the transcript path
+// Claude Code gave (never derived: ~/.claude/projects may be a link), and `report` prices that transcript lazily.
+function sessionLine(input, role) {
+  const sid = strOrNull(input.session_id);
+  const transcript = strOrNull(input.transcript_path);
+  if (!sid || !transcript || input.agent_id) return null;
+  return { ts: new Date().toISOString(), kind: 'session', session: sid, source: strOrNull(input.source), role: role || 'lead', transcript };
+}
+
+// SessionEnd: a totals snapshot of the session transcript, so the report still has the session after Claude Code
+// cleans old transcripts up. Never the text; fails silent.
+const END_MAX_BYTES = 300 * 1024 * 1024;
+function modeEnd() {
+  try {
+    const input = obj(parseInput(readStdin()));
+    const sid = input && strOrNull(input.session_id);
+    const file = input && strOrNull(input.transcript_path);
+    if (sid && file && !input.agent_id && optedIn(input.cwd || process.cwd()) && fs.statSync(file).size <= END_MAX_BYTES) {
+      const t = transcriptTotals(file);
+      if (t) append(ledgerPath(input.cwd), { ts: new Date().toISOString(), kind: 'sessionEnd', session: sid, ...t });
+    }
+  } catch {
+    /* never block the exit */
   }
   process.exit(0);
 }
@@ -228,12 +270,61 @@ function modelMatches(req, res) {
   return res === req || `-${res}-`.includes(`-${req}-`);
 }
 
-function compute(lines) {
+// Main sessions (the lead, tab workers, candidate leads): one row per session kind and model. The kind comes from the
+// session name (`-n p3-implementer` -> implementer, `-n lead-x` -> lead), else from GHORC_ROLE at start. A readable
+// transcript is priced now (it may have grown since the snapshot); a cleaned-up one falls back to the newest SessionEnd
+// snapshot. Message ids are deduplicated across sessions, oldest first, so a resumed session is not counted twice.
+function computeSessions(lines, leadPrefix) {
+  const by = new Map();
+  for (const l of lines) {
+    if ((l.kind !== 'session' && l.kind !== 'sessionEnd') || typeof l.session !== 'string') continue;
+    const s = by.get(l.session) || { session: l.session, start: null, end: null };
+    if (l.kind === 'session' && !s.start) s.start = l;
+    if (l.kind === 'sessionEnd' && (!s.end || String(l.ts) > String(s.end.ts))) s.end = l;
+    by.set(l.session, s);
+  }
+  const seen = new Set();
+  const list = [...by.values()]
+    .sort((a, b) => String((a.start || a.end).ts).localeCompare(String((b.start || b.end).ts)))
+    .map((s) => {
+      const live = s.start && s.start.transcript ? transcriptTotals(s.start.transcript, { seen }) : null;
+      const t = live || s.end;
+      if (!t) return null;
+      const name = typeof t.title === 'string' ? t.title.toLowerCase() : '';
+      const p = name ? require('./lib/tabs.cjs').parseName(name, leadPrefix) : null;
+      const kind = p && p.ok ? (p.role === 'lead' ? 'lead' : p.kind) : (s.start && s.start.role) || 'lead';
+      const models = Array.isArray(t.models) && t.models.length ? t.models.join('+') : '-';
+      return { kind, models, tokens: t.tokens && t.tokens.total, cost: numOrNull(t.cost), unpriced: numOrNull(t.unpriced) || 0, live: Boolean(live) };
+    })
+    .filter(Boolean);
+  const rows = {};
+  for (const s of list) (rows[`${s.kind} ${s.models}`] ||= []).push(s);
+  return {
+    sessions: Object.entries(rows)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, ss]) => {
+        const [kind, models] = key.split(' ');
+        return {
+          kind,
+          models,
+          sessions: ss.length,
+          tokensMedian: quantile(ss.map((s) => s.tokens), 0.5),
+          costMedian: quantile(ss.map((s) => s.cost), 0.5),
+          costTotal: sumOrNull(ss.map((s) => s.cost)),
+          fromSnapshot: ss.filter((s) => !s.live).length,
+        };
+      }),
+    sessionsCostTotal: sumOrNull(list.map((s) => s.cost)),
+    sessionsUnpriced: list.filter((s) => typeof s.cost !== 'number' || s.unpriced > 0).length,
+  };
+}
+
+function compute(lines, leadPrefix = 'lead-') {
   const verdicts = lines.filter((l) => l.kind === 'verdict');
   const done = new Map();
   for (const l of lines) if (l.kind === 'done' && l.agentId) done.set(l.agentId, l);
   const calls = lines
-    .filter((l) => l.kind !== 'verdict' && l.kind !== 'done')
+    .filter((l) => !['verdict', 'done', 'session', 'sessionEnd'].includes(l.kind))
     .map((c) => {
       if (c.kind !== 'launch' && !c.agentId) return c;
       // background (launch) or synchronous call with an agentId: totals come from the done line, else the transcript
@@ -246,11 +337,11 @@ function compute(lines) {
   // one row per role, requested model and effort: an implementer on sonnet/low and one on opus/medium are different rows,
   // so a routing change compares like with like
   const byRole = {};
-  for (const c of calls) (byRole[[c.role || 'agent', c.modelReq || '-', c.effortReq || '-'].join(' ')] ||= []).push(c);
+  for (const c of calls) (byRole[[c.role || 'agent', c.modelReq || '-', c.effortReq || '-'].join('\u0000')] ||= []).push(c);
   const roles = Object.entries(byRole)
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([key, cs]) => {
-      const [role, model, effort] = key.split(' ');
+      const [role, model, effort] = key.split('\u0000');
       const withRes = cs.filter((c) => c.modelReq && c.modelRes);
       return {
         role,
@@ -291,14 +382,18 @@ function compute(lines) {
   }
   const causes = {};
   for (const v of verdicts) if (v.cause) causes[v.cause] = (causes[v.cause] || 0) + 1;
+  const costTotal = sumOrNull(calls.map((c) => c.cost));
+  const ses = computeSessions(lines, leadPrefix);
   return {
+    ...ses,
+    costTotalAll: sumOrNull([costTotal, ses.sessionsCostTotal]),
     calls: calls.length,
     roles,
     packages,
     firstRoundAcceptRate: rate(packages),
     byClass,
     causes,
-    costTotal: sumOrNull(calls.map((c) => c.cost)),
+    costTotal,
     costCalls: calls.filter((c) => typeof c.cost === 'number').length,
     unpricedCalls: calls.filter((c) => typeof c.tokens === 'number' && (typeof c.cost !== 'number' || c.unpriced > 0)).length,
     pricesAsOf: PRICES_AS_OF,
@@ -320,6 +415,15 @@ function format(r) {
   out.push(
     `estimated cost: ${usd(r.costTotal, 2)} at list prices as of ${r.pricesAsOf} (${r.costCalls} calls priced, ${r.unpricedCalls} without a price)`,
   );
+  if (r.sessions.length) {
+    out.push('sessions (the lead, tab workers and candidate leads; their subagents are in the rows above):');
+    for (const s of r.sessions) {
+      out.push(
+        `  ${s.kind} ${s.models}: sessions=${s.sessions} tokens med=${f0(s.tokensMedian)} cost med=${usd(s.costMedian, 2)} total=${usd(s.costTotal, 2)}${s.fromSnapshot ? ` (${s.fromSnapshot} from the end snapshot)` : ''}`,
+      );
+    }
+    out.push(`estimated cost with sessions: ${usd(r.costTotalAll, 2)} (${r.sessionsUnpriced} sessions without a full price)`);
+  }
   if (r.packages.length) {
     out.push('packages:');
     for (const p of r.packages) {
@@ -362,16 +466,27 @@ function modeReport(args) {
     console.log('no ledger yet');
     return;
   }
-  const r = compute(lines);
+  let leadPrefix = 'lead-';
+  try {
+    leadPrefix = require('./lib/tabs.cjs').settings(load(process.cwd())).leadPrefix;
+  } catch {
+    /* the default prefix */
+  }
+  const r = compute(lines, leadPrefix);
   console.log(json ? JSON.stringify(r) : format(r));
 }
 
-const [mode, ...rest] = process.argv.slice(2);
-if (mode === 'hook') modeHook();
-else if (mode === 'stop') modeStop();
-else if (mode === 'verdict') modeVerdict(rest);
-else if (mode === 'report') modeReport(rest);
-else {
-  console.error(USAGE);
-  process.exit(mode === '--help' ? 0 : 2);
+module.exports = { sessionLine, append, ledgerPath, transcriptTotals, compute };
+
+if (require.main === module) {
+  const [mode, ...rest] = process.argv.slice(2);
+  if (mode === 'hook') modeHook();
+  else if (mode === 'stop') modeStop();
+  else if (mode === 'end') modeEnd();
+  else if (mode === 'verdict') modeVerdict(rest);
+  else if (mode === 'report') modeReport(rest);
+  else {
+    console.error(USAGE);
+    process.exit(mode === '--help' ? 0 : 2);
+  }
 }

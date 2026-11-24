@@ -15,8 +15,20 @@ test('built-in Explore, Plan and general-purpose are denied to the lead, with th
   for (const t of ['Explore', 'Plan', 'general-purpose']) {
     const r = guard(call(cwd, { subagent_type: t, model: 'haiku', prompt: 'x' }));
     assert.ok(isDeny(r), t);
-    assert.match(reason(r), new RegExp(`built-in ${t} agent runs on the session model`));
+    assert.match(reason(r), new RegExp(`built-in ${t} agent has no ghorc report contract`));
     assert.match(reason(r), /ghorc:scout/);
+  }
+});
+
+test('a fork and a call without subagent_type are denied, with or without model', () => {
+  const cwd = tmpProject();
+  for (const m of ['haiku', undefined]) {
+    const f = guard(call(cwd, { subagent_type: 'fork', model: m, prompt: 'x' }));
+    assert.ok(isDeny(f));
+    assert.match(reason(f), /always runs on the lead's model/);
+    const e = guard(call(cwd, { model: m, prompt: 'x' }));
+    assert.ok(isDeny(e));
+    assert.match(reason(e), /without subagent_type starts general-purpose/);
   }
 });
 

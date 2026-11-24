@@ -117,7 +117,7 @@ const SLOT_WRAPPER_PREFIX = new RegExp(
   String.raw`^node(?:\.exe)?\s+(?:--?[\w-]+(?:=\S+)?\s+)*\S*heavy-slot\.cjs\s+run\s+(?:--[A-Za-z][\w-]*(?:=(?:""|\S*)|\s+(?!--(?:\s|$))(?:""|\S+))?\s+)*--\s+`,
   'i',
 );
-// Forms from the vids classifier (E-gh-heavy): shell flow keywords, a PowerShell assignment target, a redirection or `@` in
+// Forms from a real project's classifier (E-gh-heavy): shell flow keywords, a PowerShell assignment target, a redirection or `@` in
 // front of the command, wsl, corepack, cross-env, builtin, coproc and a bare powershell/pwsh (`powershell "npm test"` has no
 // -Command in Windows PowerShell 5.1). Peeled only in the last form of variants(), so the older forms are unchanged.
 const PS_VAR = String.raw`\$(?:\{[^}]*\}|[A-Za-z_][\w:.]*)`;
@@ -267,7 +267,7 @@ const QUOTED_HC_VERB = new RegExp(String.raw`((?:^|[\s;&|(\x60{])(?:\S*[\\/])?hc
 const QUOTED_HERDR_VERB = new RegExp(String.raw`((?:^|[\s;&|(\x60{])(?:\S*[\\/])?herdr(?:\.exe)?${CLI_OPTS}\s+)(${WORD}(?:\s+${WORD})?)`, 'gi');
 const unquoteVerb = (_m, head, words) => `${head}${words.replace(/["']/g, '')}`;
 
-// Command forms the plain cut misses (E-gh-heavy, from the vids classifier). Each gives EXTRA TEXTS that are cut like the
+// Command forms the plain cut misses (E-gh-heavy, from a real project's classifier). Each gives EXTRA TEXTS that are cut like the
 // command itself and added to its segments, so an older decision never changes, only more is found. Never throws.
 const SAFE_QUOTED = /"([\w.:/\\@%+=,-]*)"|'([\w.:/\\@%+=,-]*)'/g;
 // a quoted program in command position ("C:\Program Files\nodejs\npm.cmd" test, & "npm" test): the file name alone

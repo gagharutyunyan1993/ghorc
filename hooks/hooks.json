@@ -1,5 +1,5 @@
 {
-  "description": "ghorc: read guard (Read, MCP captures; reset on Edit/Write), heavy check guard, agent guard (PreToolUse Agent|Task: model on every call, no built-in Explore/Plan/general-purpose from the lead), context guard (SessionStart compact, UserPromptSubmit, PreToolUse, Stop), capacity guard (off by default; Stop, UserPromptSubmit, SubagentStart, SubagentStop), git guard (off by default; PreToolUse Bash|PowerShell), CI retry guard (off by default; PreToolUse Bash|PowerShell and MCP retry tools), session reminder, call ledger (PostToolUse Agent, SubagentStop)",
+  "description": "ghorc: read guard (Read, MCP captures; reset on Edit/Write), heavy check guard, agent guard (PreToolUse Agent|Task: model on every call, no built-in Explore/Plan/general-purpose from the lead), context guard (SessionStart compact, UserPromptSubmit, PreToolUse, Stop), capacity guard (off by default; Stop, UserPromptSubmit, SubagentStart, SubagentStop), git guard (off by default; PreToolUse Bash|PowerShell), CI retry guard (off by default; PreToolUse Bash|PowerShell and MCP retry tools), session reminder, call ledger (PostToolUse Agent, SubagentStop; main sessions: SessionStart, SessionEnd)",
 
   "hooks": {
     "SessionStart": [
@@ -85,6 +85,13 @@
           { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/context-guard.cjs\"", "timeout": 5 },
           { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/capacity-guard.cjs\"", "timeout": 8 },
           { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/tabs-guard.cjs\"", "timeout": 8 }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/ledger.cjs\" end", "timeout": 30 }
         ]
       }
     ],

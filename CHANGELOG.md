@@ -70,6 +70,11 @@ Models and effort re-derived from Anthropic's guide "Which Claude model should y
   written within 30 minutes and after the last restart), and from `hardCap` (3) every restart is denied with "report to
   the owner". The ledger is a plain, unprotected file.
 - `scripts/lib/cmd.cjs` exports `variants()` (the wrapper-peeled forms of a segment) for the git guard.
+- Ledger: main sessions. SessionStart writes a `session` line (id, role, transcript path), SessionEnd a totals
+  snapshot; `ledger.cjs report` prices the lead, tab workers and candidate leads from their transcripts, one row per
+  session kind (from the `-n` name) and model, with message ids deduplicated across a resume and sidechain rows
+  skipped, and prints `estimated cost with sessions`. Until now only subagents were priced, while the lead is
+  usually the biggest item.
 - Agent guard (`scripts/agent-guard.cjs`, PreToolUse `Agent|Task`, on by default in opted-in projects, key
   `agentGuard.enabled`): the lead's Agent calls name a model, and the built-in `Explore`, `Plan` and `general-purpose`
   agents (which run on the session's model) are denied unless the project defines its own.
@@ -78,6 +83,16 @@ Models and effort re-derived from Anthropic's guide "Which Claude model should y
   effortGlobal` removes the top-level key and sets the others to medium.
 
 ### Changed
+- **Agent guard:** a call without `subagent_type` (it starts general-purpose) and `subagent_type: fork` (the lead's
+  whole context at the lead's model; a per-call model is ignored) are denied too; the reason for the built-in agents
+  is the missing report contract, and the session model only when no model is passed.
+- **Critic of a significant decision:** `red-team-critic` runs on opus/medium in a fresh context even for an Opus-made
+  plan; Fable/medium only for a migration, data-model or external-contract decision. The critical reviewer of Opus
+  work stays on Fable/medium; the "another model" rule is documented as ghorc's own, not the guide's.
+- `docs/models.md`: why the handoff point stays at 265K (cost per turn is flat between about 150K and 265K; fewer
+  handoffs and the 25K handoff budget decide).
+- Literal NUL bytes in `scripts/ledger.cjs` and ESC bytes in a test are written as escapes, so git and grep treat the
+  files as text.
 - **Model guide audit:** cascade failures re-run at `high` (the guide's measured form); the money and recovery
   implementer moves past high to Opus/medium with the critical reviewer on Fable/medium; scout, media and
   evidence-scout start at medium (the model's default, per the guide's row for search and summary subagents); the

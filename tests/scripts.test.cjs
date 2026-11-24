@@ -54,11 +54,11 @@ test('statusline: no effort or rate_limits - segments are omitted', () => {
 
 test('statusline: colors by band and the autocompact marker', () => {
   const at = (p, env) => runScript('statusline.cjs', { cwd: tmpProject(), model: { display_name: 'M' }, context_window: { used_percentage: p, context_window_size: 200000 } }, { env: { GHORC_STATUSLINE_PLAIN: '', NO_COLOR: '', CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: '', ...env } }).out;
-  assert.ok(at(10).includes('[32mctx 10%'));
-  assert.ok(at(55).includes('[33mctx 55%'));
-  assert.ok(at(72).includes('[31mctx 72%'));
-  assert.ok(at(85).includes('[1;31mctx 85%'));
-  assert.ok(!at(10, { NO_COLOR: '1' }).includes(''));
+  assert.ok(at(10).includes('\x1b[32mctx 10%'));
+  assert.ok(at(55).includes('\x1b[33mctx 55%'));
+  assert.ok(at(72).includes('\x1b[31mctx 72%'));
+  assert.ok(at(85).includes('\x1b[1;31mctx 85%'));
+  assert.ok(!at(10, { NO_COLOR: '1' }).includes('\x1b'));
   assert.match(at(10, { GHORC_STATUSLINE_PLAIN: '1', CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: '82' }), /→ac 82%/);
   assert.ok(!/→ac/.test(at(10, { GHORC_STATUSLINE_PLAIN: '1' })));
 });

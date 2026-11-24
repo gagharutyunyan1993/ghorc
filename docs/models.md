@@ -44,8 +44,8 @@ run the gap between Fable and Opus comes down to uncached input and output, beca
 | Investigation, a cause unclear across subsystems (ordinary packages) | `implementer` | opus / medium | high | "Everyday engineering, debugging": Opus |
 | Ordinary review, re-check of fixes | `reviewer` | sonnet / medium | high | "Repeated agent tasks: investigation, review, drafting": Sonnet at medium |
 | Critical review of Sonnet work (money, recovery, contracts, policy, hooks) | `reviewer-critical` | opus / high | a disputed P0 goes to the arbiter | Effort post: high where verification and edge cases matter |
-| Critical review of Opus work (migration, performance) | `reviewer-critical`, `model: fable` | fable / medium | a disputed P0 goes to the arbiter | The reviewer's model differs from the implementer's |
-| Critical review of Fable work | `reviewer-critical` | opus / high | a disputed P0 goes to the arbiter | The reviewer's model differs from the implementer's |
+| Critical review of Opus work (migration, performance) | `reviewer-critical`, `model: fable` | fable / medium | a disputed P0 goes to the arbiter | ghorc's own rule, not the guide's: a critical reviewer runs on another model than the implementer, and is not the weaker one; past Opus that is the guide's next model up at a lower effort |
+| Critical review of Fable work | `reviewer-critical` | opus / high | a disputed P0 goes to the arbiter | ghorc's rule (another model); Opus at high is the strongest other model |
 | Scouting: facts about code and git | `scout` | sonnet / medium | high | "Subagents that search files, read logs, or summarize": Haiku or Sonnet at the model's default; ghorc keeps Sonnet because scout facts become briefs, and a wrong fact costs a whole package |
 | Logs and test output: which cases failed, first error line | `log-reader` | haiku / medium | `scout` on sonnet | "Subagents that read logs": Haiku; a mistake is cheap to spot against the log |
 | Mechanical work with a machine check | ad hoc (brief Template 3) | haiku / medium | sonnet / low | "Classification, routing, extraction": Haiku at its default |
@@ -54,7 +54,7 @@ run the gap between Fable and Opus comes down to uncached input and output, beca
 | Architecture with clear constraints | lead or an ad hoc agent | opus / medium | high, then fable / medium | Bounded design is everyday engineering |
 | Architecture plan for a major change | ad hoc agent or the lead | fable / medium | high | "Architecture planning": Fable |
 | Dispute, arbiter, disputed P0 | ad hoc agent | fable / medium | high | "Past high, test the next model up at a lower effort" |
-| Critic of a significant decision or plan | `methodology-toolkit:red-team-critic` | opus / medium | high; fable / medium when Opus made the plan | A judgement call stays on the main model; the critic differs from the author |
+| Critic of a significant decision or plan | `methodology-toolkit:red-team-critic` | opus / medium | high; fable / medium for a migration, data-model or external-contract decision | A judgement call stays on the main model; the fresh context, not another model, makes the critic independent of an Opus author; Fable (twice Opus on uncached input and output) only where a wrong call is hardest to reverse |
 | Sourced facts for product, market or vendor questions | `methodology-toolkit:evidence-scout` | sonnet / medium | high | Search work at the model's default; the facts feed a decision, so Sonnet rather than Haiku |
 | Merge conflict, red check | `integrator` | sonnet / medium | high, then opus / medium | Conflicts are well-scoped; an unclear red cause is debugging |
 | Release (only on the owner's word) | `release` | sonnet / medium | none | A fixed procedure |
@@ -118,6 +118,14 @@ the reason for the read guard, the 25-line reports and the context thresholds. A
 minutes by default) makes the next turn write the whole context again at 1.25 times the input price (2 times with the
 1-hour TTL): at 265K tokens on Opus about $1.33, which is about 25 cached turns. A lead above `ctxPrepare` that expects a
 long wait hands off first.
+
+Why the handoff point is 265K (30% of a 1M window) and not 150K: a handoff is not free either. The old lead's closing
+turns, the new lead's first cache write (about 35K) and its orientation come to about $1 on Opus, and a new lead starts
+at 65-85K, not at zero. With cost per turn = cache-read price x (threshold + start) / 2 + handoff cost x growth per turn /
+(threshold - start), measured growth of 1.3-2K tokens per turn puts the cheapest point at about 185-210K, and the cost at
+150K and at 265K within about 10% of it. Price does not decide between them; fewer handoffs (each a chance to drop a
+nuance) and a 25K handoff budget that takes 13% of the room instead of 31% do. The lever that matters more is the
+start: every token of skill text and CLAUDE.md is read on every turn of every lead.
 
 ## Changing a row
 

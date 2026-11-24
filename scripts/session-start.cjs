@@ -17,7 +17,7 @@ if (process.argv.includes('--help')) {
       '"ghorc <version> session=<id> role=<role>", the config status, then reminders (skill ghorc:lead for the lead, ' +
       'a missing CLAUDE.md ghorc section, a /ghorc:setup hint). Output is cut at 299 characters and then ends with "+more: run ctx". ' +
       'Role: GHORC_ROLE is optional; an empty GHORC_ROLE on a main session prints role=lead, GHORC_ROLE=worker stays explicit. ' +
-      'It deletes ctx files, session state and alert offsets older than 7 days. ' +
+      'It appends a session line (session id, role, transcript path) to .claude/ghorc-out/ledger.jsonl for the cost report, and deletes ctx files, session state and alert offsets older than 7 days. ' +
       'A lead session starts scripts/watchdog.cjs detached only when watchdog.autostart is true (default false; opt in with /ghorc:setup, stop with watchdog.cjs --stop): one watchdog per project root, ' +
       'restarted when its pid is dead, its heartbeat is stale (2 intervals) or its version differs from the plugin version. ' +
       'Nothing is killed: the new pid file makes an older watchdog exit on its next poll.',
@@ -98,6 +98,15 @@ run((input) => {
   const role = roleOf();
   const cfg = load(cwd);
   const isMain = !input.agent_id;
+
+  // the ledger prices main sessions (lead, tab workers) from their transcripts: scripts/ledger.cjs report
+  try {
+    const ledger = require('./ledger.cjs');
+    const line = ledger.sessionLine(input, role);
+    if (line) ledger.append(ledger.ledgerPath(cwd), line);
+  } catch {
+    /* the ledger is optional */
+  }
 
   try {
     tmp.cleanup(root);

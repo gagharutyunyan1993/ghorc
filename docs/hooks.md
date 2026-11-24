@@ -221,28 +221,19 @@ file mtime and size in `<tmp>/ghorc-<user>/config-valid.json`.
 PreToolUse on `Agent|Task`, for the lead only (no `agent_id`, `GHORC_ROLE` not `worker`), in a project with
 `.claude/ghorc.json`, while `agentGuard.enabled` is true (the default). It denies:
 
+- A call without `subagent_type`: it starts `general-purpose`.
+- `subagent_type` `fork`: a fork inherits the lead's whole context and always runs on the lead's model (a per-call
+  `model` is ignored), so every turn costs the lead's rates.
 - `subagent_type` `Explore`, `Plan` or `general-purpose`, unless the project defines its own agent of that name in
-  `.claude/agents/<name>.md` (`/ghorc:setup` item `explore` writes a Haiku `Explore`). The guide: "the built-in Explore
-  subagent runs on your session's model"; `Plan` and `general-purpose` inherit it too, so their reading costs the
-  lead's Opus or Fable rates. The reason names `ghorc:scout` and `ghorc:log-reader`.
-- A call without `model`. A role without a model in its frontmatter (the methodology-toolkit agents, a project agent)
+  `.claude/agents/<name>.md` (`/ghorc:setup` item `explore` writes a Haiku `Explore`). They have no ghorc report
+  contract (a short report, check rules, an effort in the frontmatter), and without a `model` they run on the session's
+  model (the guide: "the built-in Explore subagent runs on your session's model"). The reason names `ghorc:scout` and
+  `ghorc:log-reader`.
+- A call without `model`. A role without a model in its frontmatter (a project agent, an agent of another plugin)
   runs on the lead's model; the call's `model` outranks the frontmatter, so the lead passes it from the Routing table.
 
-A missing `effort` is not denied. Subagents, workers and projects without a config are never judged.
-
-## agent-guard.cjs
-
-PreToolUse on `Agent|Task`, for the lead only (no `agent_id`, `GHORC_ROLE` not `worker`), in a project with
-`.claude/ghorc.json`, while `agentGuard.enabled` is true (the default). It denies:
-
-- `subagent_type` `Explore`, `Plan` or `general-purpose`, unless the project defines its own agent of that name in
-  `.claude/agents/<name>.md` (`/ghorc:setup` item `explore` writes a Haiku `Explore`). The guide: "the built-in Explore
-  subagent runs on your session's model"; `Plan` and `general-purpose` inherit it too, so their reading costs the
-  lead's Opus or Fable rates. The reason names `ghorc:scout` and `ghorc:log-reader`.
-- A call without `model`. A role without a model in its frontmatter (the methodology-toolkit agents, a project agent)
-  runs on the lead's model; the call's `model` outranks the frontmatter, so the lead passes it from the Routing table.
-
-A missing `effort` is not denied. Subagents, workers and projects without a config are never judged.
+A missing `effort` is not denied: every ghorc role has an effort in its frontmatter. Subagents, workers and projects
+without a config are never judged.
 
 ## context-guard.cjs
 
@@ -515,13 +506,19 @@ cannot be parsed is skipped, and a restart that cannot be recorded is still allo
 
 ## ledger.cjs
 
-**When it fires.** PostToolUse on `Agent` (`ledger.cjs hook`) and SubagentStop (`ledger.cjs stop`). It never denies
+**When it fires.** PostToolUse on `Agent` (`ledger.cjs hook`), SubagentStop (`ledger.cjs stop`) and SessionEnd
+(`ledger.cjs end`, timeout 30 s); `session-start.cjs` writes the session line. It never denies
 and prints nothing; any error exits 0. It writes only inside an existing project directory.
 
 **What it does.** Appends one line per subagent call to `<project>/.claude/ghorc-out/ledger.jsonl` (role, requested
 and resolved model, requested effort, tokens, duration, tool count; never the prompt or the response). A background call
 gets a `launch` line at once and a `done` line (transcript totals) from SubagentStop. The `done` line also carries an estimated USD `cost` at list prices (`scripts/lib/prices.cjs`, as of 2026-11-24), `unpriced`, `models` and `cacheTtlAssumed`; `report` prints it per role and as an `estimated cost` line. `ledger.cjs
 verdict` and `ledger.cjs report` are the lead's commands, see `/ghorc:status` and [evidence.md](evidence.md#call-ledger).
+
+**Main sessions.** SessionStart appends a `session` line for every main session in an opted-in project (the lead, a tab
+worker, a candidate lead): the session id, `GHORC_ROLE`, the hook's `source` and the transcript path Claude Code gave
+(never derived: `~/.claude/projects` may be a link). SessionEnd appends a `sessionEnd` totals snapshot of a transcript
+up to 300 MB, so the report keeps the session after Claude Code deletes old transcripts.
 
 ## session-start.cjs
 
