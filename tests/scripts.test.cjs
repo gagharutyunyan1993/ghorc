@@ -135,7 +135,8 @@ test('config: no file - defaults, found=false; broken JSON - the same', () => {
   assert.equal(config.load(cwd).readGuard.maxRepeat, 3);
   fs.mkdirSync(path.join(cwd, '.claude'));
   fs.writeFileSync(path.join(cwd, '.claude', 'ghorc.json'), '{bad');
-  assert.equal(config.load(cwd).thresholds.ctxPrepare, 120000);
+  assert.equal(config.load(cwd).thresholds.ctxPrepare, 235000, "the shipped default: autocompact 30% of 1M = ctxHandoff 265K + 35K");
+  assert.equal(config.load(cwd).thresholds.ctxHandoff, 265000);
 });
 
 test('session-start: a short reminder, under 300 characters', () => {

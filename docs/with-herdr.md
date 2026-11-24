@@ -8,7 +8,7 @@ while `herdr agent list` answers). The hooks and the skills use the same detecti
 
 | | `hc` | `herdr` |
 |---|---|---|
-| worker with a role | `hc run --bg --name n --cwd d "<path>\env.exe" GHORC_ROLE=worker claude.exe ... "<task>"` | `herdr tab create --env GHORC_ROLE=worker` + `herdr agent start` |
+| worker with a role | `hc run --bg --name n --cwd d "<path>\env.exe" GHORC_ROLE=worker claude.exe -n n --model <alias> --effort <e> <permissionArgs> "<task>"` | `herdr tab create --workspace "$HERDR_WORKSPACE_ID" --no-focus --env GHORC_ROLE=worker` + `herdr agent start` |
 | wait / read / send / close | `hc wait n` / `hc read n` / `hc send n "..."` / `hc kill n; hc rm n` | `herdr agent wait --until idle --until done --until blocked --timeout <ms>` / `read` / `herdr pane run` / close tab |
 
 **Without herdr** everything except the handoff tab works through the Agent tool: roles, hooks, status line,
@@ -18,15 +18,18 @@ the `/clear` fallback ([handoff.md](handoff.md#without-herdr)).
 **With herdr** you also get `/ghorc:handoff` into a new tab and worker sessions with their own process and effort.
 Inside herdr (`HERDR_ENV=1`) every package, every review and the integrator run as a separate herdr tab (a worker)
 with a report file; an Agent call is only for scouting up to about 5 minutes and for writing memory, because
-background agents inside the lead are invisible to the owner. Tab workers do not reach the ledger. Append `worker.permissionArgs` (default empty) to every worker start, as the candidate gets `handoff.candidatePermissionArgs`. Start
+background agents inside the lead are invisible to the owner. Tab workers do not reach the ledger. Append `worker.permissionArgs` (default `--permission-mode bypassPermissions`) to every worker start, as the candidate gets `handoff.candidatePermissionArgs`. Start
 workers with `GHORC_ROLE=worker`, so they get no lead reminder, start no watchdog, never get the lead's handoff block,
 and are treated as subagents by the heavy guard (heavy commands and agent starts denied). The variable must be set
 when the tab is created:
 
 ```
-herdr tab create --label <name> --cwd <dir> --env GHORC_ROLE=worker    # note result.root_pane.pane_id
-herdr agent start <name> --kind claude --pane <pane_id> -- --model sonnet --effort medium
+herdr tab create --workspace "$HERDR_WORKSPACE_ID" --no-focus --label <name> --cwd <dir> --env GHORC_ROLE=worker    # note result.root_pane.pane_id
+herdr agent start <name> --kind claude --pane <pane_id> -- -n <name> --model sonnet --effort medium --permission-mode bypassPermissions
 ```
+
+The tabs guard (`docs/hooks.md`) denies a start that misses the name rule, `-n <name>`, the model alias, the effort or
+the permission arguments, and shows the corrected form.
 
 `herdr agent start` types the `claude` command into an existing pane's shell, so `GHORC_ROLE=worker herdr agent start`
 (or `$env:GHORC_ROLE='worker'; herdr agent start`) sets the variable on the herdr CLI only and the session never sees

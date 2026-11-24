@@ -1,5 +1,90 @@
 # Changelog
 
+## Unreleased
+
+Models and effort re-derived from Anthropic's guide "Which Claude model should you build with?" (Nov 2026).
+
+### Added
+- `docs/models.md`: the single source of which model and start effort each role and class of work gets, the next
+  step when it falls short, and the guide row (or the reason ghorc departs from it) for every line; the escalation
+  order, the cascade, mixing models, and why the lead's context stays small.
+- Role `ghorc:log-reader` (haiku / medium): reads test output and logs, writes one line per failing case (file, test,
+  first error line verbatim) to a file; never edits, runs or diagnoses.
+- `/ghorc:setup` item `explore` (opt-in, never part of `all`): writes `<project>/.claude/agents/Explore.md` on haiku
+  from `templates/Explore.md`, because the built-in Explore runs on the session's model; an existing file is left as
+  it is, and the project-roles table of `claudemd` skips it.
+- Ledger cost estimate: `done` lines carry `cost` (USD at list prices), `models`, `unpriced` and `cacheTtlAssumed`,
+  priced per assistant message from `scripts/lib/prices.cjs` (Haiku tiered by prompt length, cache writes by TTL,
+  fast mode at 2x); `ledger.cjs report` prints cost per role and an `estimated cost` line, `--json` adds `costTotal`,
+  `costCalls`, `unpricedCalls`, `pricesAsOf`.
+- methodology-toolkit as a dependency: the ghorc marketplace lists it (a `git-subdir` source from its own repository,
+  where it stays maintained) and the ghorc entry declares `"dependencies": ["methodology-toolkit"]`, so
+  `claude plugin install ghorc@ghorc` installs both. The lead uses its `red-team-critic` as the critic of a significant
+  consultation, its `evidence-scout` for sourced product and vendor facts (both with an explicit model; routing rows in
+  `docs/models.md`) and its `methodology-driven-thinking` skill for its own judgement calls. The dependency is declared
+  in the marketplace entry only, so `--plugin-dir` runs of ghorc load without it.
+- Tabs guard (`scripts/tabs-guard.cjs`, `scripts/lib/tabs.cjs`, config `tabs`, on by default in a project that has
+  `.claude/ghorc.json`; silent everywhere else) for the lead's hc and herdr tabs. It denies a tab or worker start that breaks the rules, with the corrected form: names
+  `[a-z][a-z0-9-]{0,31}` (herdr's agent-name rule), `lead-<slug>` or `<pkg>-<role>` (`<pkg>-full|runner|train` for long-lived
+  commands); the role env (`GHORC_ROLE=worker` or `lead`); `-n <name>` so the session, terminal title and `/resume`
+  carry the tab name; `--model` as an alias (a versioned id is denied) and `--effort`; the configured permission
+  arguments; no duplicate live name; at most `tabs.maxWorkers` agent tabs; `--outlive-parent` for long-lived hc tabs.
+  For the lead it lists the live workers on every prompt and at session start (`tabs: N live (...)`) and flags BLOCKED
+  (waits on a dialog), FINISHED (result line written, tab still open: close it), STALLED (`tabs.idleMin`), OVERTIME
+  (`tabs.overtimeMin`) and OVER_LIMIT, and shows RESULT? (a result line found at first sighting), UNKNOWN (a status
+  it does not know) and BADNAME (a live agent of the project whose name breaks the rule); Stop is blocked once per
+  tab and flag while a worker is BLOCKED or FINISHED, never after HANDOFF `status: SENT` or in a candidate lead; on herdr a worker
+  turning BLOCKED shows a herdr notification once. Skill `ghorc:lead` has the new section "Tabs: open, name, watch,
+  close"; the documented start forms carry `-n <name>`. `/ghorc:status` shows the guard's settings.
+- Runner tabs for long-running processes: dev servers and watchers (`tabs.devCommands`, a default list of 20 patterns:
+  `npm run dev|start|serve|watch|preview`, vite, next/nuxt/astro dev, nodemon, `--watch` builds, `docker compose up`
+  without `-d`, artisan/rails/flask/uvicorn/runserver, `dotnet watch`, `node --watch`, `ng serve`, gatsby, hugo, storybook) are denied as direct or background commands
+  for every session on hc or herdr. The lead gets the runner-tab form (`<pkg>-runner`, then `herdr pane run`); a
+  worker or subagent is told to end BLOCKED with the command. One-shot commands (`npm run build`, `vite build`,
+  `docker compose up -d`, tests) stay allowed. The worker roles say the same.
+- herdr workspace confinement: `herdr tab create` needs `--workspace` of the lead's own workspace
+  (`$HERDR_WORKSPACE_ID`, taken from the prefix of `HERDR_PANE_ID`) and `--no-focus`, `herdr pane split` needs
+  `--no-focus`; the lead may not create, close or start anything in another workspace, nor create or close workspaces
+  (reading, prompting and sending keys to another workspace stay allowed for the owner's cross-session work); the inventory, limit and duplicate checks count
+  only the own workspace. Without it, herdr creates a tab in the UI-focused workspace, which may be another project's
+  lead's.
+- `/ghorc:setup` item `bypassPrompt` (owner decision): `skipDangerousModePermissionPrompt` = true in the user settings, so
+  the first worker started in bypassPermissions does not stop on the one-time warning dialog.
+- Verdict cause `CASCADE`: the planned re-run of a cascade failure; it never counts as a reasoning failure, and a
+  package whose first verdict carries it is left out of the first-round ACCEPT rate.
+
+### Changed
+- **Context thresholds:** `ctxPrepare` 235000 and `ctxHandoff` 265000 (were 120000 and 150000), so `/ghorc:setup` item
+  `pct` recommends autocompact at 30% of a 1M window (was 19%). The lead keeps almost twice the context; on Opus a
+  turn's cache read then costs about $0.05 instead of $0.03. On a window smaller than `ctxHandoff` + 35K set
+  `ctxHandoff` lower by hand; the recommendation is capped at 95.
+- **Permission mode:** `worker.permissionArgs` and `handoff.candidatePermissionArgs` default to
+  `["--permission-mode", "bypassPermissions"]` (were `[]`), so an unattended tab does not stop on prompts. ghorc's hooks
+  still deny in that mode (verified live: a worker's heavy check is denied under bypass). Set both to `[]` to keep
+  prompts. `SECURITY.md` has a section on it.
+- **Routing:** migrations and performance optimization go to an Opus/medium implementer with a Fable/medium critical
+  reviewer (a clear spec alone does not justify Sonnet there); a major migration to Fable/medium. Money and recovery
+  stay Sonnet/high with an Opus/high critical reviewer.
+- **Lead:** Opus/medium by default; Fable/medium for a major refactor, migration, architecture plan, many parallel
+  packages or a long unattended run (`lead.model: fable`). The lead's model changes only at a handoff (new section in
+  `ghorc:handoff`), never with `/model` in a running lead.
+- **Haiku** starts at medium (its default) and is used only where a mistake is cheap to spot: `log-reader` and
+  mechanical work with a machine check (brief Template 3).
+- **Escalation** follows the guide: verification first, then one effort level, then the next model up at medium.
+  `xhigh` and `max` are no longer used by default; the critical reviewer's `xhigh` step is replaced by the Fable
+  arbiter at medium.
+- The lead passes `model` as well as `effort` on every Agent call and does not start the built-in `Explore`, `Plan` or
+  `general-purpose` agents; work that fits one context and is one dependent chain goes to one implementer.
+- The Routing table in `ghorc:lead` gains a "next step" column; `docs/workflow.md` points to `docs/models.md` instead of
+  repeating the table.
+- **No model versions are pinned:** roles, skills, docs and config use only the aliases `haiku`, `sonnet`, `opus`,
+  `fable`, which Claude Code resolves to the newest model of each family. `/ghorc:setup` item `effort` no longer maps
+  aliases through a fixed table: it takes the full id of the lead model from the newest ctx file of the project (the
+  status line records the model each session ran on) and writes nothing until one session has run on it. The ledger's
+  price table is the one place with model ids; a model missing from it is reported as unpriced.
+
+
+
 ## 0.10.0 - 2026-11-12
 
 ### Added

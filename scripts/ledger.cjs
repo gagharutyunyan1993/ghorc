@@ -2,15 +2,17 @@
 // Call ledger: <project>/.claude/ghorc-out/ledger.jsonl, one JSON line per event.
 // `hook`    PostToolUse(Agent): a synchronous call appends a call line with totals; a background call (async_launched)
 //           appends a launch line. Never the prompt or the response text; fails silent, exit 0.
-// `stop`    SubagentStop: totals from the agent transcript become a done line (matched to the launch by agentId).
+// `stop`    SubagentStop: totals from the agent transcript become a done line (matched to the launch by agentId),
+//           with an estimated cost at list prices (lib/prices.cjs).
 // `verdict` <pkg> <round> <ACCEPT|CHANGES_REQUIRED> [cause] [--class critical|ordinary]: appends a verdict line.
 // `report`  [--since <ISO>] [--json]: per-role, per-class and per-package aggregates.
 const fs = require('node:fs');
 const path = require('node:path');
 const { readStdin, parseInput } = require('./lib/hook-io.cjs');
 const { projectRoot } = require('./lib/root.cjs');
+const { PRICES_AS_OF, messageCost } = require('./lib/prices.cjs');
 
-const CAUSES = ['BRIEF_OMISSION', 'SKIPPED_CHECK', 'REASONING_FAILURE', 'OTHER'];
+const CAUSES = ['BRIEF_OMISSION', 'SKIPPED_CHECK', 'REASONING_FAILURE', 'OTHER', 'CASCADE'];
 const VERDICTS = ['ACCEPT', 'CHANGES_REQUIRED'];
 const CLASSES = ['critical', 'ordinary'];
 const USAGE =
@@ -33,6 +35,7 @@ function append(file, obj) {
 const numOrNull = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 const strOrNull = (v) => (typeof v === 'string' && v ? v : null);
 const obj = (v) => (v && typeof v === 'object' && !Array.isArray(v) ? v : null);
+const round6 = (x) => Math.round(x * 1e6) / 1e6;
 
 function hookLine(input) {
   const ti = obj(input.tool_input) || {};
@@ -88,24 +91,50 @@ function transcriptTotals(file) {
     }
     const m = o.message;
     if (o.type !== 'assistant' || !obj(m)) continue;
-    msgs.set(m.id || `anon${anon++}`, obj(m.usage) || {});
+    msgs.set(m.id || `anon${anon++}`, { usage: obj(m.usage) || {}, model: strOrNull(m.model) });
     for (const b of Array.isArray(m.content) ? m.content : []) {
       if (b && b.type === 'tool_use') toolIds.add(b.id || `t${toolIds.size}`);
     }
   }
   if (!msgs.size) return null;
   const sum = { input: 0, output: 0, cacheRead: 0, cacheCreate: 0 };
-  for (const u of msgs.values()) {
-    sum.input += Number(u.input_tokens) || 0;
-    sum.output += Number(u.output_tokens) || 0;
-    sum.cacheRead += Number(u.cache_read_input_tokens) || 0;
-    sum.cacheCreate += Number(u.cache_creation_input_tokens) || 0;
+  let cost = 0;
+  let priced = 0;
+  let unpriced = 0;
+  let cacheTtlAssumed = false;
+  const models = new Set();
+  for (const { usage: u, model } of msgs.values()) {
+    const n = {
+      input: Number(u.input_tokens) || 0,
+      output: Number(u.output_tokens) || 0,
+      cacheRead: Number(u.cache_read_input_tokens) || 0,
+      cacheCreate: Number(u.cache_creation_input_tokens) || 0,
+    };
+    sum.input += n.input;
+    sum.output += n.output;
+    sum.cacheRead += n.cacheRead;
+    sum.cacheCreate += n.cacheCreate;
+    if (model) models.add(model);
+    // all-zero usage is neither priced nor counted as unpriced
+    if (!(n.input > 0 || n.output > 0 || n.cacheRead > 0 || n.cacheCreate > 0)) continue;
+    const c = messageCost(model, u);
+    if (!c) {
+      unpriced++;
+      continue;
+    }
+    cost += c.usd;
+    priced++;
+    if (c.ttlAssumed) cacheTtlAssumed = true;
   }
   return {
     tokens: { ...sum, total: sum.input + sum.output + sum.cacheRead + sum.cacheCreate },
     tools: toolIds.size,
     ms: first !== null && last !== null ? last - first : null,
     turns: msgs.size,
+    cost: priced ? round6(cost) : null,
+    unpriced,
+    models: [...models].sort(),
+    cacheTtlAssumed,
   };
 }
 
@@ -188,7 +217,12 @@ const mean = (values) => {
   return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null;
 };
 
-// modelReq matches modelRes when equal or when it is a dash-delimited part of it (sonnet ~ claude-sonnet-5-5).
+const sumOrNull = (values) => {
+  const v = values.filter((x) => typeof x === 'number');
+  return v.length ? round6(v.reduce((a, b) => a + b, 0)) : null;
+};
+
+// modelReq matches modelRes when equal or when it is a dash-delimited part of it (sonnet ~ claude-sonnet-<version>).
 function modelMatches(req, res) {
   return res === req || `-${res}-`.includes(`-${req}-`);
 }
@@ -204,7 +238,9 @@ function compute(lines) {
       // background (launch) or synchronous call with an agentId: totals come from the done line, else the transcript
       let d = c.agentId ? done.get(c.agentId) : null;
       if (!d && c.kind === 'launch' && c.outputFile) d = transcriptTotals(c.outputFile);
-      return d ? { ...c, tokens: d.tokens.total, ms: d.ms, tools: d.tools } : c;
+      return d
+        ? { ...c, tokens: d.tokens.total, ms: d.ms, tools: d.tools, cost: numOrNull(d.cost), unpriced: numOrNull(d.unpriced) || 0 }
+        : c;
     });
   const byRole = {};
   for (const c of calls) (byRole[c.role || 'agent'] ||= []).push(c);
@@ -221,6 +257,8 @@ function compute(lines) {
         msQ3: quantile(cs.map((c) => c.ms), 0.75),
         toolsMean: mean(cs.map((c) => c.tools)),
         modelDiffShare: withRes.length ? withRes.filter((c) => !modelMatches(c.modelReq, c.modelRes)).length / withRes.length : null,
+        costMedian: quantile(cs.map((c) => c.cost), 0.5),
+        costTotal: sumOrNull(cs.map((c) => c.cost)),
       };
     });
   const byPkg = {};
@@ -235,7 +273,11 @@ function compute(lines) {
       firstCause: first.cause || null,
     };
   });
-  const rate = (ps) => (ps.length ? ps.filter((p) => p.firstVerdict === 'ACCEPT').length / ps.length : null);
+  // A cascade package's first round was planned to fail sometimes: it stays out of the first-round rate.
+  const rate = (all) => {
+    const ps = all.filter((p) => p.firstCause !== 'CASCADE');
+    return ps.length ? ps.filter((p) => p.firstVerdict === 'ACCEPT').length / ps.length : null;
+  };
   const byClass = {};
   for (const c of CLASSES) {
     const ps = packages.filter((p) => p.class === c);
@@ -243,20 +285,35 @@ function compute(lines) {
   }
   const causes = {};
   for (const v of verdicts) if (v.cause) causes[v.cause] = (causes[v.cause] || 0) + 1;
-  return { calls: calls.length, roles, packages, firstRoundAcceptRate: rate(packages), byClass, causes };
+  return {
+    calls: calls.length,
+    roles,
+    packages,
+    firstRoundAcceptRate: rate(packages),
+    byClass,
+    causes,
+    costTotal: sumOrNull(calls.map((c) => c.cost)),
+    costCalls: calls.filter((c) => typeof c.cost === 'number').length,
+    unpricedCalls: calls.filter((c) => typeof c.tokens === 'number' && (typeof c.cost !== 'number' || c.unpriced > 0)).length,
+    pricesAsOf: PRICES_AS_OF,
+  };
 }
 
 const f0 = (n) => (n === null ? '-' : String(Math.round(n)));
 const f1 = (n) => (n === null ? '-' : (Math.round(n * 10) / 10).toString());
 const pct = (n) => (n === null ? '-' : Math.round(n * 100) + '%');
+const usd = (n, digits) => (n === null ? '-' : '$' + n.toFixed(digits));
 
 function format(r) {
   const out = [`calls: ${r.calls}`];
   for (const x of r.roles) {
     out.push(
-      `${x.role}: calls=${x.calls} tokens med=${f0(x.tokensMedian)} q3=${f0(x.tokensQ3)} ms med=${f0(x.msMedian)} q3=${f0(x.msQ3)} tools mean=${f1(x.toolsMean)} model mismatch ${pct(x.modelDiffShare)}`,
+      `${x.role}: calls=${x.calls} tokens med=${f0(x.tokensMedian)} q3=${f0(x.tokensQ3)} ms med=${f0(x.msMedian)} q3=${f0(x.msQ3)} tools mean=${f1(x.toolsMean)} model mismatch ${pct(x.modelDiffShare)} cost med=${usd(x.costMedian, 4)} total=${usd(x.costTotal, 2)}`,
     );
   }
+  out.push(
+    `estimated cost: ${usd(r.costTotal, 2)} at list prices as of ${r.pricesAsOf} (${r.costCalls} calls priced, ${r.unpricedCalls} without a price)`,
+  );
   if (r.packages.length) {
     out.push('packages:');
     for (const p of r.packages) {

@@ -33,8 +33,11 @@ function tmpProject(config) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ghorc-test-'));
   made.push(dir);
   if (config) {
+    // The context-guard mechanics tests were written at the 0.10 thresholds (120K/150K); a project config without its own
+    // thresholds keeps them, so a change of the shipped defaults does not move every fixture. Defaults are tested apart.
+    const cfg = config.thresholds === undefined ? { ...config, thresholds: { ctxPrepare: 120000, ctxHandoff: 150000 } } : config;
     fs.mkdirSync(path.join(dir, '.claude'), { recursive: true });
-    fs.writeFileSync(path.join(dir, '.claude', 'ghorc.json'), JSON.stringify(config));
+    fs.writeFileSync(path.join(dir, '.claude', 'ghorc.json'), JSON.stringify(cfg));
   }
   return dir;
 }

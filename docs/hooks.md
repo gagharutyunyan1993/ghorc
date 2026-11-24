@@ -308,6 +308,102 @@ lost during a compaction stays a phantom agent for at most 3 hours; phantoms are
 `GHORC_CAPACITY_CPU_PCT`, `GHORC_CAPACITY_FREE_GB` (instead of measuring), `GHORC_CAPACITY_HC_JSON` (the output of `hc ls --json`), `GHORC_CAPACITY_HERDR_JSON` (the output of
 `herdr agent list`), `GHORC_HC_BIN` / `GHORC_HERDR_BIN` (a program path or a JSON array `[program, ...args]` replacing `hc` / `herdr`), `GHORC_CAPACITY_LEDGER` (ledger path), `GHORC_CAPACITY_SAMPLE_MS` (one CPU interval).
 
+## tabs-guard.cjs
+
+**When it fires.** PreToolUse (`Bash|PowerShell`), UserPromptSubmit, Stop and SessionStart (`startup`, `resume`; not
+`compact`). On by default (`tabs.enabled`), but only in a project that has `.claude/ghorc.json` (`config.found`): ghorc is installed at user
+scope, so a project that never opted in is neither judged nor reported (the hook is silent there, for every rule and every session). The tab rules act for the lead only: a session with an `agent_id` or
+`GHORC_ROLE=worker` is not checked against them, because `heavy-check-guard.cjs` already denies those every agent start. The one rule
+that binds every session (lead, subagent, worker) is the dev-command rule below. Timeout
+8 s: one list call per run (`hc ls --json` or `herdr agent list`, 3 s limit; `backend.detect` decides when both backends are present, `GHORC_HC_BIN` / `GHORC_HERDR_BIN` are honoured; a tab command of the other backend skips its list rules instead of reading a second list; with both backends the herdr probe is bounded to 2.5 s before `hc ls`).
+
+**What PreToolUse denies.** Tab commands that break the policy. Every reason names the rule and ends with a
+`Corrected form:` of the command.
+- Names: a lowercase letter first, then `[a-z0-9-]`, at most 32 characters in all (herdr's agent-name rule is `[a-z][a-z0-9_-]{0,31}`; the policy is the stricter one). A lead is `capacity.leadNamePrefix` (default `lead-`) plus at least one
+  character. A worker is `<pkg>-<kind>`: kind `implementer`, `reviewer`, `reviewer-critical`, `scout`, `integrator`,
+  `release`, `consult`, `media`, `log-reader` (agent kinds) or `full`, `runner`, `train` (long-lived); `pkg` is
+  `[a-z0-9][a-z0-9-]*`; the longest kind suffix wins (`a1-reviewer-critical` is pkg `a1`).
+- `herdr tab create`: `--workspace` equal to the own workspace and `--no-focus` (see "Workspace" below); `--label` present and valid; `--env GHORC_ROLE=worker` for an agent-kind worker label, `=lead` for a lead label (a long-lived `full`, `runner`, `train` tab runs a command, not a Claude session, and needs no role);
+  the label is not the name of a live agent (this session's own tab is never a duplicate or a worker: a lead named `lead-next` may start `lead-next` again, and no hint closes it; names compare case-insensitively); an agent-kind worker label is refused when `tabs.maxWorkers` agent-kind workers of
+  the project are already live (tabs created earlier in the same command count).
+- `herdr agent start <NAME> --kind claude ... -- <claude args>` and `hc run ... claude[.exe] <args>`: NAME valid; the claude
+  args hold `--model opus|sonnet|haiku|fable` (a full or versioned id is refused: the alias follows the newest model;
+  `opus[1m]` is accepted), `--effort low|medium|high|xhigh|max`, `-n <NAME>` (or `--name`) equal to the tab name, and every element
+  of `worker.permissionArgs` (lead name: `handoff.candidatePermissionArgs`). `hc run` also needs `GHORC_ROLE=worker`
+  (`=lead` for a lead name) in front of claude (`env GHORC_ROLE=worker claude ...`), `--name`, the duplicate-name and
+  `maxWorkers` checks against `hc ls --json`, and `--outlive-parent` for kinds `full`, `runner`, `train`.
+  An `hc run` of another program gets the name, duplicate, limit and `--outlive-parent` checks only.
+- **Workspace (herdr).** The lead's own workspace is the prefix of `HERDR_PANE_ID` (`w4:p1` is in `w4`); `HERDR_WORKSPACE_ID` alone is taken as
+  it is, and when both are set and disagree, or neither is, the workspace is unknown and only presence checks apply (the form of the
+  variable is not verified on a live herdr). `herdr tab create` needs `--workspace` and `--no-focus`: with the own workspace known
+  the value is its id or a reference, and only the exact variable names count (`$HERDR_WORKSPACE_ID`, `${HERDR_WORKSPACE_ID}`,
+  `$env:HERDR_WORKSPACE_ID`, `%HERDR_WORKSPACE_ID%`, quoted or not); a single-quoted reference (the shell does not expand it) or another
+  variable name is denied, known workspace or not. Without `--workspace` herdr uses the UI-focused workspace, which can belong to another
+  project's lead, and without `--no-focus` it moves the owner's focus. `herdr pane split` needs `--no-focus`. Creating, closing and starting
+  in another workspace is denied for the lead: `herdr tab create` with a foreign `--workspace`, `herdr tab close`, `herdr pane close`,
+  `herdr pane split --pane` and `herdr agent start --pane` on an id of another workspace (the part before `:`; an unqualified id is not
+  judged), and `herdr workspace create|close` always (the owner's). Operator actions - `agent prompt|send-keys`, `pane run|send-keys|send-text|read`
+  - are not judged: the owner may ask for them. Inventory, duplicate-name and limit checks count only agents whose pane id is in the own
+  workspace (when known), besides the cwd filter; on hc only terminals whose parent is this terminal or whose cwd is in the project.
+- **Dev commands (every session in a project with a ghorc config).** `tabs.devCommands` (regexes, default list in `scripts/lib/defaults.json`)
+  matches dev servers and watchers: `npm|pnpm|yarn|bun [options] [workspace <w>] [run [options]] dev|start|serve|watch|preview` (a script name
+  ends at a space, so `dev:setup` and `start-check` are one-shot), `vite` (not `vite build`), `next dev|start`, `nuxt|nuxi|astro dev`, `nodemon`,
+  `webpack serve`, `webpack-dev-server`, `http-server`, `live-server`, also through `npx`, `pnpm exec|dlx`, `yarn dlx|exec`, `bunx`; `tsc|webpack|rollup|esbuild`
+  with `--watch` or `-w`; `jest` only with `--watch`/`--watchAll` (its `-w` is `--maxWorkers`); `vitest watch|dev` or `--watch`; `docker compose up` /
+  `docker-compose up` unless `-d`, `--detach`, `--abort-on-container-exit`, `--exit-code-from` or `--wait`; `php artisan serve`, `rails s|server`,
+  `python -m http.server`, `flask run`, `uvicorn`, `gunicorn`, `manage.py runserver`, `dotnet watch`. `--version`, `-v`, `--help`, `-h` on any of them only
+  print and stay allowed, like the one-shot commands (`npm run build`, `npm test`, `vite build`, `docker compose up -d`, `tsc`, `git log`,
+  `grep "npm run dev"`). A matching segment is denied on backend hc or herdr (backend `none`: allowed), foreground or with
+  `run_in_background`, unless it is the payload of a tab launch: `herdr pane run <pane> "<cmd>"` (quoted text is not read as a command) or
+  `hc run ... <cmd>` with a `<pkg>-runner` name (in another `hc` tab name it is denied, for the lead). The lead's reason gives the runner form
+  (herdr: `herdr tab create --workspace "$HERDR_WORKSPACE_ID" --no-focus --label <pkg>-runner --cwd <dir>`, then `herdr pane run <pane_id> "<cmd>"`;
+  hc: `hc run --bg --outlive-parent --name <pkg>-runner --cwd <dir> <cmd>`); a subagent's or worker's reason tells it to end its report
+  `BLOCKED <name>: ...` with the exact command, and the lead starts it in a runner tab. `[]` turns the rule off; a pattern that does not compile
+  is dropped (`check-config.cjs` reports it, the config stays usable). Not covered by default (extend the list): `ng serve`, `gatsby develop`,
+  `hugo server`, `npm run storybook`, `node --watch`.
+- `--help` / `-h` of these commands is allowed. `hc run` reads `--name` only: nothing in the repo says that its `-n` is the same option, so `hc run -n x` is denied as "--name is missing" until that is confirmed.
+- A value the hook cannot read (quoted, `$variable`, `<placeholder>`) is not judged. An unreadable list skips the duplicate
+  and limit rules only. Any internal error, timeout or invalid project config allows the command (the one deny of an
+  invalid config stays in `heavy-check-guard.cjs`). Denials go to the denial log under `tabs-guard`.
+
+**What it reports.** The project's worker tabs: herdr agents with a valid worker name and a cwd inside the project root (or
+`.claude/worktrees`); hc terminals that are live with a valid worker name and either `parent` equal to this terminal or a cwd
+inside the project (directories compare in one form: separators, case, a Windows long-path prefix, Git-Bash `/c/x`; inventory names compare case-insensitively, the policy for new starts stays lowercase). UserPromptSubmit and SessionStart add, only while there are live workers, one line
+`tabs: N live (<name> <status> <minutes>m, ...)` (minutes since the hook first saw the tab) and one line per flag:
+- `BLOCKED`: status `blocked`; read its screen, tell the owner, never answer a permission prompt yourself.
+- `FINISHED`: a result line counts only when the report file is not older than the first sighting of the tab (a name is reused across fix rounds, so an earlier round's report is ignored). The last non-empty line of `<project root>/.claude/ghorc-out/<name>.md` is `DONE <name>`, `BLOCKED <name>: ...`,
+  `HANDOFF <name>` or `VERDICT <ACCEPT|ACCEPT_WITH_NOTES|CHANGES_REQUIRED|BLOCKED>` while the tab is still open (a tab that is
+  `working` counts only when the report is newer than its last status change, so the report of an earlier round is not read as a
+  result). A report ending `BLOCKED <name>: ...` (or `VERDICT BLOCKED`) is shown as "BLOCKED by the worker: bring it to the owner; close the tab after the owner decides". Otherwise: accept the report and close the tab (hc: `hc kill <name>; hc rm <name>`; herdr: `herdr tab list`, then `herdr tab close <tab_id>`).
+- `STALLED`: idle (`idle` or `done`) for `tabs.idleMin` minutes with no result line (a tab whose report has a result line, old or fresh, is never stalled "without" one). `OVERTIME`: running `tabs.overtimeMin`
+  minutes and not finished. STALLED is judged on the fresh result line. Neither applies to `full`, `runner`, `train`.
+- `OVER_LIMIT`: more than `tabs.maxWorkers` agent-kind workers are live.
+- `RESULT?`: at the first sighting of a tab that is not `working` or `blocked`, its report already ends in a result line (a worker that
+  finished before this lead saw it, e.g. after a lead restart): `tabs RESULT?: <name> has a result line from <HH:MM>: if it is the current
+  round, accept it and close the tab`. Shown on that run only; it never blocks Stop, and the tab stays quiet (no OVERTIME) until its status changes.
+- `UNKNOWN`: a status that is none of `working`, `idle`, `done`, `blocked`: `tabs UNKNOWN: <name> reports status "<x>": read its screen`, so a renamed
+  status cannot hide a dialog (no Stop block).
+- `BADNAME`: a live agent of this workspace (herdr) or a claude-code terminal of this terminal or project (hc) whose name breaks the policy
+  (too long, uppercase, no `<pkg>-<kind>`): the guard neither counts nor watches it, so the line says so (this session's own tab is never listed).
+Stop blocks once per occurrence (never with `stop_hook_active`) when a tab turns `BLOCKED` or `FINISHED` and `tabs.stopBlock` is true, with the same
+lines as the reason; the state remembers which (tab, flag) already blocked, so a worker that stays blocked does not force an extra turn on every lead turn (the prompt line still shows it), and a flag that went away may block again later. Stop stays silent, and no notification is raised, once `HANDOFF.md` says `status: SENT` for this session (same helper as the context guard), and for a candidate lead before ACTIVATE: `HANDOFF.md` (at most 2 hours old) names an `old_session_id` other than this session and the `Session:` field of `STATE.md` is not this session either (the candidate changes nothing before ACTIVATE; the activated lead rewrites STATE with its own session). A held-back notification is raised by the first run that may speak. On herdr, when a worker turns `blocked` and `tabs.notify` is true, it runs
+`herdr notification show "ghorc: <name> waits" --body "..." --sound request` once per transition.
+
+**State.** `<tmp>/ghorc-<user>/tabs-<first 16 characters of the session id>.json` remembers per name `firstSeen`, `status`,
+`statusSince`, `notified` and `sb` (the flags that already blocked Stop); it is what gives runtime and idle time across hook runs. A name that leaves the list is forgotten; `tabs-*.json` files of other sessions older than 7 days are removed when a state is written.
+
+**Config** (`tabs`, [configuration.md](configuration.md)): `enabled` (true), `maxWorkers` (3, 1..20), `idleMin` (10, 1..1440),
+`overtimeMin` (45, 1..1440), `stopBlock` (true), `notify` (true), `devCommands` (regex strings, see above; validated; `[]` off). The own workspace comes from the environment (`HERDR_WORKSPACE_ID`), not from the config. Test seams: `GHORC_CAPACITY_HC_JSON` and
+`GHORC_CAPACITY_HERDR_JSON` (the text of the list; the PreToolUse checks read the list of the backend the command names, the
+reports use `hc` when its text is set, else herdr), `GHORC_TABS_NOTIFY_LOG=<file>` (appends the argv of the notification,
+program included, as one JSON line instead of running herdr), `GHORC_HC_BIN` / `GHORC_HERDR_BIN`.
+
+**Limits.** The report is only as fresh as the last hook event: a lead that works for a long time without a prompt or a stop is
+not told in between (the notification is raised at the next run too). herdr's `blocked` is read from the screen by herdr and may lag
+a Claude Code update that changes its dialogs. The runtime counts from the first sighting, so a tab that was already open when the
+lead started shows 0m. Identical repeated segments of one command line are read once, so a name opened twice in one command is
+not caught. The `herdr tab close <tab_id>` form needs the id from `herdr tab list` (its output was not captured here).
+
 ## ledger.cjs
 
 **When it fires.** PostToolUse on `Agent` (`ledger.cjs hook`) and SubagentStop (`ledger.cjs stop`). It never denies
@@ -315,7 +411,7 @@ and prints nothing; any error exits 0. It writes only inside an existing project
 
 **What it does.** Appends one line per subagent call to `<project>/.claude/ghorc-out/ledger.jsonl` (role, requested
 and resolved model, requested effort, tokens, duration, tool count; never the prompt or the response). A background call
-gets a `launch` line at once and a `done` line (transcript totals) from SubagentStop. `ledger.cjs
+gets a `launch` line at once and a `done` line (transcript totals) from SubagentStop. The `done` line also carries an estimated USD `cost` at list prices (`scripts/lib/prices.cjs`, as of 2026-11-24), `unpriced`, `models` and `cacheTtlAssumed`; `report` prints it per role and as an `estimated cost` line. `ledger.cjs
 verdict` and `ledger.cjs report` are the lead's commands, see `/ghorc:status` and [evidence.md](evidence.md#call-ledger).
 
 ## session-start.cjs

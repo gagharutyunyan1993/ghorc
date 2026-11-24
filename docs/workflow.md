@@ -20,14 +20,14 @@ prints `role=agent`. Set `GHORC_ROLE` only in two cases:
 `lead.remind: false` turns the reminder off for a plain main session; `GHORC_ROLE=lead` always gets it.
 
 Start the lead with an explicit model and effort (`lead.model`, `lead.effort`), for example
-`claude --model opus --effort medium`. Keep `CLAUDE_CODE_EFFORT_LEVEL` unset: it overrides role frontmatter and the
+`claude --model opus --effort medium` (`fable` for major work, see [models.md](models.md)). Keep `CLAUDE_CODE_EFFORT_LEVEL` unset: it overrides role frontmatter and the
 `effort` of a call.
 
 ## One package in five steps
 
 1. `/ghorc:lead` loads the lead rules.
-2. `ghorc:scout` (effort `low`) collects the facts into a file.
-3. Write the brief with `/ghorc:brief`; start `ghorc:implementer` (effort `medium`) in its own worktree.
+2. `ghorc:scout` (sonnet, effort `low`) collects the facts into a file.
+3. Write the brief with `/ghorc:brief`; start `ghorc:implementer` (sonnet, effort `medium`; opus for a migration or performance work) in its own worktree.
 4. Accept the report by diff and check output; send the diff to `ghorc:reviewer`, or to `ghorc:reviewer-critical` if
    it touches `criticalPaths`.
 5. On `ACCEPT` the lead runs `checks.full` once, in the background, on the final tree, then merges.
@@ -41,11 +41,12 @@ Tool sets: **edit** = Read, Edit, Write, Grep, Glob, Bash; **review** = Read, Gr
 | `ghorc:implementer` | sonnet / medium | 120 | edit | code, tests, documents from a brief |
 | `ghorc:reviewer` | sonnet / medium | 100 | review | ordinary diff review; writes only the review file |
 | `ghorc:scout` | sonnet / low | 40 | review | read-only facts with `file:line`, into a file |
-| `ghorc:reviewer-critical` | opus / high | 100 | review | adversarial review: money, contracts, hooks, policy |
+| `ghorc:reviewer-critical` | opus / high (fable / medium on Opus work) | 100 | review | adversarial review: money, contracts, migrations, hooks, policy |
 | `ghorc:integrator` | sonnet / medium | 100 | edit | merge conflicts, red checks on an accepted branch |
 | `ghorc:release` | sonnet / medium | 100 | edit | version, changelog, tag; only on the owner's word |
 | `ghorc:consult` | sonnet / low | 60 | Read, Write, Bash, browser MCP | asks external models in a browser |
 | `ghorc:media` | sonnet / low | 30 | Read, Grep, Write, Bash | the only subagent role that reads PDFs and images |
+| `ghorc:log-reader` | haiku / medium | 30 | Read, Grep, Glob, Write | failing cases from test output and logs, into a file |
 
 The first three are the core set; the others are for projects that need them. Browser MCP for `ghorc:consult`:
 `mcp__chrome-devtools__*`, `mcp__claude-in-chrome__*`. `ghorc:media` needs poppler (`pdftotext`, `pdftoppm`) for PDFs.
@@ -71,22 +72,28 @@ agents are namespaced by Claude Code, so they cannot collide with your own.
 
 ## Rules on one page
 
-1. The lead is Opus/medium; model and effort are set explicitly at launch (`--model opus --effort medium`); a global
-   fallback does not replace this for a role.
-2. The implementer is Sonnet/medium; money, recovery, migrations: Sonnet/high.
-3. Ordinary review and re-check of fixes of an ordinary package: Sonnet/medium. Critical review: Opus/high in round 1;
-   on a critical package the final verdict and the check of money findings are Opus/high, Sonnet checks only
-   non-critical findings.
-4. Opus again if a fix changes a money invariant.
-5. Haiku/low only for mechanical work with a machine-checkable result; not browser work, not scouting.
-6. Fable is the arbiter of a disputed question or a consultation; not the lead and not the default reviewer.
+1. The lead is Opus/medium, set explicitly at launch (`--model opus --effort medium`). For a major refactor, a
+   migration, an architecture plan, many packages in parallel or a long unattended run it is Fable/medium. The lead's
+   model changes only at a handoff, never with `/model` in a running lead (the cache belongs to the model).
+2. The implementer is Sonnet/medium for well-scoped work; money and recovery: Sonnet/high; migrations and performance
+   optimization: Opus/medium; a major migration: Fable/medium.
+3. Ordinary review and re-check of fixes of an ordinary package: Sonnet/medium. Critical review runs on a model other
+   than the implementer's: Opus/high for Sonnet or Fable work, Fable/medium for Opus work. On a critical package the
+   final verdict and the check of money findings stay with the critical reviewer; Sonnet checks only non-critical
+   findings.
+4. The critical reviewer again if a fix changes a money invariant.
+5. Haiku only where a mistake is cheap to spot: `ghorc:log-reader` and mechanical work with a machine-checkable
+   result, at medium; never code edits, never the facts a brief is written from.
+6. Fable: the lead for the cases in rule 1, the arbiter of a disputed question or a disputed P0, the architecture
+   plan of a major change, the critical reviewer of Opus work; not the default reviewer.
 7. Small things (at most 2 commands, output at most 100 lines, no package code edits) the lead does itself;
-   anything bigger goes to a file or an agent.
-8. On every Agent call the lead passes `effort` explicitly. When the implementer model equals the reviewer's default
-   model, pass `model` on the reviewer call so that they differ, and say so in the brief. Project roles in `.claude/agents/` are
-   launched instead of the `ghorc:*` roles with the same effort table.
+   anything bigger goes to a file or an agent. Work that fits one context and is one chain of dependent steps goes to
+   one implementer, not split across agents.
+8. On every Agent call the lead passes `model` and `effort` explicitly. It does not start the built-in `Explore`,
+   `Plan` or `general-purpose` agents, which run on the lead's model. Project roles in `.claude/agents/` are
+   launched instead of the `ghorc:*` roles with the same table.
 9. The lead does not read PDFs, images, transcripts, logs or files over 100 lines whole (a diff by `--stat` and by
-   file); attachments go as a file path to `ghorc:media`; PDFs are converted to text/PNG first. This is an
+   file); attachments go as a file path to `ghorc:media`, logs and test output to `ghorc:log-reader`; PDFs are converted to text/PNG first. This is an
    instruction; the hook enforces it only with `GHORC_ROLE=lead`.
 10. The lead does not write package code, does not run checks synchronously, does not poll agents.
 11. The lead reads its context with `ctx.cjs --session <id>` at a stage boundary: `ctxPrepare` - refresh STATE;
@@ -115,60 +122,50 @@ agents are namespaced by Claude Code, so they cannot collide with your own.
 
 ## Routing and effort
 
-| Class of work | Role / model | Effort |
-|---|---|---|
-| Ordinary implementation | `ghorc:implementer` | medium (high: critical area, concurrency/IPC state, cause not named) |
-| Edit by a ready pattern | `ghorc:implementer` | low |
-| Money, recovery, migrations | `ghorc:implementer` | high |
-| Architecture with clear constraints | Opus | medium (conflicting invariants: high) |
-| Ordinary review, re-check of fixes | `ghorc:reviewer` | medium |
-| Critical review (contract, policy, hook, money) | `ghorc:reviewer-critical` | high |
-| Scouting (facts about code, git) | `ghorc:scout` | low-medium |
-| Mechanical work with a machine check | Haiku | low |
-| Attachments (PDFs, screenshots) | `ghorc:media` | low |
-| Consultation with external models | `ghorc:consult` | low |
-| Dispute, arbiter | Fable | medium-high |
-| Merge conflict, red pipeline | `ghorc:integrator` | medium |
-| Release (owner's word only) | `ghorc:release` | medium |
-| Backend hc or herdr: any package, review or integrator; none: waits >~15 min or owner watches/answers | terminal worker (tab) with a report file, `--effort` explicit | - |
+The model and start effort of every class of work, the next step when it falls short, and the reason for each line
+(Anthropic's model guide, or where ghorc departs from it) are in [models.md](models.md). The operative copy is the
+Routing table of skill `ghorc:lead`. In short:
 
 | Effort | Use for |
 |---|---|
-| low | mechanical work, scouting, edits by a pattern |
-| medium | everything routine |
-| high | critical review, delicate debugging, conflicting invariants, money; name the reason |
-| xhigh / max | only manually, for a single task |
+| low | edits by a pattern, scouting, attachments, browser consultation; the first pass of a cascade |
+| medium | everything routine; the start of every Opus and Fable call and of Haiku |
+| high | money and recovery on Sonnet, critical review on Opus, a named move-up condition |
+| xhigh / max | not used; past high, the next model up at medium |
 
-Move-up conditions (one per role; the lead names it in the brief): implementer -> high on a critical area, concurrency/IPC
-state or an unnamed cause; reviewer -> high on a diff over 5 files or 300 lines (provisional) or shared state;
-scout -> medium when sources conflict; integrator -> high when the resolution changes behavior or a check stays red;
-consult/media -> medium to adjudicate conflicting answers or interpret charts and contracts; reviewer-critical -> xhigh
-only for one named task on a disputed P0 reproduction. The implementer on a critical package is Sonnet high, never Opus:
-the critical reviewer is Opus and the models must differ.
+Move-up conditions (one per role; the lead names it in the brief): implementer -> one step on concurrency/IPC state, a
+critical area or a `REASONING_FAILURE`; reviewer -> high on a diff over 5 files or 300 lines (provisional) or shared
+state; scout -> medium when sources conflict; integrator -> high when the resolution changes behavior or a check stays
+red; consult/media -> medium to adjudicate conflicting answers or interpret charts and contracts; reviewer-critical ->
+never, a disputed P0 goes to the Fable arbiter at medium; log-reader -> never, an unreadable log goes to the scout.
 
-Escalation is cause first. On CHANGES_REQUIRED with P0/P1 the lead classifies the cause: `BRIEF_OMISSION` (the brief
-lacked a fact or a check; fix the brief, same effort), `SKIPPED_CHECK` (the agent skipped a check it could run; add the
-check line, same effort), `REASONING_FAILURE` (the brief was complete; next implementer call one level up). A second
-CHANGES_REQUIRED changes the task statement or splits it. A fourth code, `OTHER` (a cause outside the three: environment, flaky check, owner change), never changes effort. The cause
-is required on CHANGES_REQUIRED and absent on ACCEPT; the verdict command takes an optional `--class critical|ordinary`. A network failure, out of memory or a wrong command never
+Escalation follows the guide: verification first, then one effort level, then the next model up at a lower effort.
+On CHANGES_REQUIRED with P0/P1 the lead classifies the cause: `BRIEF_OMISSION` (the brief lacked a fact or a check;
+fix the brief, same effort), `SKIPPED_CHECK` (the agent skipped a check it could run; add the check line, same
+effort), `REASONING_FAILURE` (the brief was complete; next implementer call one step up). A second CHANGES_REQUIRED
+changes the task statement or splits it. `OTHER` (environment, flaky check, owner change) never changes effort;
+`CASCADE` marks the planned re-run of a cascade failure (a batch with a deterministic check runs at low first and
+re-runs only the failures one step up). The cause is required on CHANGES_REQUIRED and absent on ACCEPT; the verdict
+command takes an optional `--class critical|ordinary`. A network failure, out of memory or a wrong command never
 raises effort. The lead records the verdict with `/ghorc:status --verdict <pkg> <round> <verdict> <cause>`.
 
-Effort precedence: env `CLAUDE_CODE_EFFORT_LEVEL` > per-call `effort` > frontmatter > session. Pass `effort` on every
-Agent call. Advice for `~/.claude/settings.json`: no top-level `effortLevel`; per-model medium for sonnet-5.5 and
-opus-5.5, so a call that omits effort never lands on low or high by accident.
+Precedence: effort - env `CLAUDE_CODE_EFFORT_LEVEL` > per-call `effort` > frontmatter > session; model -
+`CLAUDE_CODE_SUBAGENT_MODEL_FORCE` > per-call `model` > frontmatter > `CLAUDE_CODE_SUBAGENT_MODEL` > the lead's model.
+Keep the env variables unset and pass both on every Agent call. Advice for `~/.claude/settings.json`: no top-level
+`effortLevel`; a per-model medium for the lead model, so a saved `/effort` choice does not move every call.
 
 ## Thresholds
 
 | Value | Source | Action |
 |---|---|---|
-| 120K tokens | `thresholds.ctxPrepare` | refresh STATE at the next stage boundary |
-| 140K tokens | `thresholds.ctxWarn` (default `ctxHandoff` - 10K) | prepare the handoff; take no new package |
-| 150K tokens | `thresholds.ctxHandoff` | handoff mode: no new agent, edits only to STATE/HANDOFF; `/ghorc:handoff` |
-| 19 | `env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` | context fill percentage at which autocompaction runs |
+| 235K tokens | `thresholds.ctxPrepare` | refresh STATE at the next stage boundary |
+| 255K tokens | `thresholds.ctxWarn` (default `ctxHandoff` - 10K) | prepare the handoff; take no new package |
+| 265K tokens | `thresholds.ctxHandoff` | handoff mode: no new agent, edits only to STATE/HANDOFF; `/ghorc:handoff` |
+| 30 | `env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` | context fill percentage at which autocompaction runs |
 
 The token thresholds are enforced by the context guard hook for the lead ([handoff.md](handoff.md#the-context-guard)).
 The autocompact percentage is of the context window and must compact above `ctxHandoff`: `setup` recommends
-`ctxHandoff` + 35K as a share of the window, rounded up (19% of 1M is 190K; of 200K 93%); a value at or below
+`ctxHandoff` + 35K as a share of the window, rounded up (30% of 1M is 300K; on a 200K window set `ctxHandoff` lower by hand); a value at or below
 `ctxHandoff` is reported as wrong.
 
 ## Brief
@@ -230,15 +227,17 @@ not the conversation. While a background `full` runs, the lead waits for the not
 |---|---|---|
 | `statusLine` | `~/.claude/settings.json` | `node "<plugin>/scripts/statusline.cjs"`, `refreshInterval` 30 |
 | `statusLineStale` | `~/.claude/settings.json` | check only: older plugin-cache path; same fix as `statusLine` |
-| `pct` | global `settings.json`; `--project`: `settings.local.json` | `env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` = `"19"` (computed from `ctxHandoff` and the window) |
+| `pct` | global `settings.json`; `--project`: `settings.local.json` | `env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` = `"30"` (computed from `ctxHandoff` and the window) |
 | `idle` | `~/.claude/settings.json` | `idleCompaction` = `false` (no compaction while the lead waits) |
 | `model` (owner decision) | `~/.claude/settings.json` | `model` = `lead.model` |
-| `effort` (owner decision) | `~/.claude/settings.json` | `modelSettings.<lead model id>.effortLevel` = `lead.effort` (full id, e.g. `claude-opus-5-5`; no top-level `effortLevel`) |
+| `effort` (owner decision) | `~/.claude/settings.json` | `modelSettings.<lead model id>.effortLevel` = `lead.effort` (the full id the newest session recorded for the `lead.model` alias, read from its ctx file; nothing is written until one session has run on it; no top-level `effortLevel`) |
 | `config` | `<project>/.claude/ghorc.json` | copied from the short template if missing |
 | `claudemd` | `<project>/CLAUDE.md` | `templates/CLAUDE-section.md` appended if the marker is missing |
 | `exclude` | git `info/exclude` (via `git rev-parse --git-path`) | lines `.claude/ctx-*.json`, `.claude/ctx-*.tmp`, `.claude/ghorc-out/` |
 | `heavy` (warning) | `<project>/.claude/ghorc.json` | proposed `heavyCommands` from `package.json` scripts |
 | `watchdog` (warning) | `<project>/.claude/ghorc.json` | `watchdog.autostart` = `true`, only if you want it |
+| `bypassPrompt` (owner decision) | `~/.claude/settings.json` | `skipDangerousModePermissionPrompt` = `true`, so the first worker started in bypassPermissions does not stop on the one-time warning |
+| `explore` (warning) | `<project>/.claude/agents/Explore.md` | a project `Explore` agent on `haiku` (from `templates/Explore.md`); the built-in one runs on the lead's model. An existing file is left as it is |
 
 `heavy` proposes regexes from the script names in `package.json` of the project root and `app/` (test, e2e, build and
 lint names). It never proposes a pattern that matches `checks.fast`, and drops `test:x` when `test` is proposed.

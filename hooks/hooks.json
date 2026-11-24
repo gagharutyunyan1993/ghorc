@@ -13,6 +13,12 @@
         "hooks": [
           { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/context-guard.cjs\"", "timeout": 5 }
         ]
+      },
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/tabs-guard.cjs\"", "timeout": 8 }
+        ]
       }
     ],
     "PreToolUse": [
@@ -32,13 +38,20 @@
         "hooks": [
           { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/heavy-check-guard.cjs\"", "timeout": 5 }
         ]
+      },
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/tabs-guard.cjs\"", "timeout": 8 }
+        ]
       }
     ],
     "UserPromptSubmit": [
       {
         "hooks": [
           { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/context-guard.cjs\"", "timeout": 5 },
-          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/capacity-guard.cjs\"", "timeout": 8 }
+          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/capacity-guard.cjs\"", "timeout": 8 },
+          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/tabs-guard.cjs\"", "timeout": 8 }
         ]
       }
     ],
@@ -46,7 +59,8 @@
       {
         "hooks": [
           { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/context-guard.cjs\"", "timeout": 5 },
-          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/capacity-guard.cjs\"", "timeout": 8 }
+          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/capacity-guard.cjs\"", "timeout": 8 },
+          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/tabs-guard.cjs\"", "timeout": 8 }
         ]
       }
     ],

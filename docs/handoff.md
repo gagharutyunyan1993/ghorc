@@ -77,8 +77,8 @@ the `handoff_id` copied into it.
 2. Start the candidate in a new tab, prompt it (the skill has the full prompt text), wait for READY, read:
 
 ```
-herdr tab create --label lead-next --cwd <project root>
-herdr agent start lead-next --kind claude --pane <pane_id> -- --model opus --effort medium <permArgs>
+herdr tab create --workspace "$HERDR_WORKSPACE_ID" --no-focus --label lead-next --cwd <project root> --env GHORC_ROLE=lead
+herdr agent start lead-next --kind claude --pane <pane_id> -- -n lead-next --model opus --effort medium <permArgs>
 herdr pane run <pane_id> "Read HANDOFF.md, verify it against git, answer READY handoff=<id>; wait for ACTIVATE."
 herdr agent wait lead-next --until idle --until done --until blocked --timeout 60000
 herdr agent read lead-next
@@ -130,6 +130,6 @@ Set once in the project config and only read by the skill:
 
 - `handoff.allowSendKeysExit` (`false`): when `true`, the new lead closes the old tab itself (step 6: `/exit` through
   `herdr pane run`); otherwise the owner does it.
-- `handoff.candidatePermissionArgs` (`[]`): permission-mode arguments for the candidate, for example
-  `["--permission-mode", "acceptEdits"]`. Empty means default permissions, and the candidate may wait on a prompt.
+- `handoff.candidatePermissionArgs` (`["--permission-mode", "bypassPermissions"]`): permission-mode arguments for the candidate.
+  `[]` means default permissions, and the candidate may then wait on a prompt.
 - The new lead closes the old tab only with `allowSendKeysExit` `true` (the owner's word in the config) or the owner's word recorded in STATE.

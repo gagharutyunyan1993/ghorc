@@ -9,9 +9,9 @@
   "heavyCommands": [],
   "thresholds": {
     "_comment": "Lead context in tokens (enforced by the context guard hook): ctxPrepare - refresh STATE; ctxWarn - prepare the handoff (0 = ctxHandoff - 10000); ctxHandoff - handoff mode, hand the shift over.",
-    "ctxPrepare": 120000,
+    "ctxPrepare": 235000,
     "ctxWarn": 0,
-    "ctxHandoff": 150000
+    "ctxHandoff": 265000
   },
   "watchdog": {
     "_comment": "true: SessionStart starts the transcript watchdog (off by default; stop it with scripts/watchdog.cjs --stop).",
@@ -22,7 +22,7 @@
     "maxRepeat": 3
   },
   "lead": {
-    "_comment": "Lead model for /handoff and /ghorc:setup.",
+    "_comment": "Lead model for /handoff and /ghorc:setup: opus, or fable for a major refactor, migration or many parallel packages (docs/models.md).",
     "model": "opus"
   }
 }

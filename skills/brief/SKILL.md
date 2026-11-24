@@ -5,7 +5,7 @@ user-invocable: true
 ---
 # Brief
 
-The same structure for every role; the question changes, not the form. An ordinary brief is at most 500 words, a critical review at most 800 (a low-effort brief may add up to 100 words of checklist), over 200 lines is a task-statement error. An Agent call always carries an explicit `effort`.
+The same structure for every role; the question changes, not the form. An ordinary brief is at most 500 words, a critical review at most 800 (a low-effort brief may add up to 100 words of checklist), over 200 lines is a task-statement error. An Agent call always carries an explicit `model` and `effort` (Routing table in `ghorc:lead`).
 
 | Tag | Purpose |
 |---|---|
@@ -34,7 +34,8 @@ The same structure for every role; the question changes, not the form. An ordina
 - On a critical package, write the pre-mortem first (at most 3 ways it could pass review and still be wrong) and turn each into a check in `<steps>`.
 - Agents read `<project>/CLAUDE.md` and the config themselves; do not retell them in the brief.
 - Reports, scratch and large outputs go to `<project>/.claude/ghorc-out/` (setup git-excludes it); name it in `<report_back>`.
-- Reviewer model must differ from the implementer's; when the default would be equal, pass `model` on the Agent call and say so in `<context>`.
+- A critical reviewer's model must differ from the implementer's (ordinary review stays Sonnet whatever the implementer ran on); when the default would be equal, pass `model` on the Agent call and say so in `<context>` (Opus work: the critical reviewer runs on `fable`).
+- A `ghorc:log-reader` brief is three lines: the log path(s), the result file path and the name for the last line. No question about causes, because the role copies failures and does not diagnose.
 
 ## Template 1. Implementer (`ghorc:implementer`, medium or high)
 ```
@@ -110,7 +111,7 @@ All substantiated findings go to the review file <path under .claude/ghorc-out/>
 </report_back>
 ```
 
-## Template 3. Mechanical work (Haiku, low)
+## Template 3. Mechanical work (Haiku, medium)
 ```
 <role>You perform one mechanical operation. Do not widen the task and do not start other agents.</role>
 

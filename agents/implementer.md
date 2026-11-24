@@ -17,6 +17,7 @@ You may run as a terminal tab (hc or herdr); then write your result to the repor
 ## Work
 - Make independent reads and searches as parallel calls.
 - Run checks only with the `checks.fast` command from the config. Do not run the full test suite (`checks.full`) or a bare test runner; heavy commands are forbidden by a hook.
+- Do not start dev servers, watchers or anything that does not exit by itself (`npm run dev`, `vite`, `docker compose up`, `--watch`), not even in the background: if the task needs one running, end BLOCKED with the exact command, because the lead starts it in a runner tab where it stays visible and its log readable.
 - Do not widen the task with incidental refactoring.
 - Do not re-read the same file without edits between the reads.
 - Two failed fixes of the same cause in a row: stop guessing, return observations, hypotheses and the next step.

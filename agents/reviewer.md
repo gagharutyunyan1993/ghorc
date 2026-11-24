@@ -17,6 +17,7 @@ You may run as a terminal tab (hc or herdr); then write your result to the repor
 ## Work
 - Start from the diff (`git diff --stat`, then the files). Widen reading to the affected dependencies and calling code.
 - Do not repeat `checks.fast` if the tree is the same and clean and the result is already in the brief. Add only your own scenarios, targeted. The full suite and a bare test runner are forbidden.
+- Do not start dev servers, watchers or anything that does not exit by itself (`npm run dev`, `vite`, `docker compose up`, `--watch`), not even in the background: if the task needs one running, end BLOCKED with the exact command, because the lead starts it in a runner tab where it stays visible and its log readable.
 - For each finding: severity; `file:line`; the violated requirement; conditions; consequence; proof; minimal fix. Separate a confirmed defect from a hypothesis.
 - CHANGES_REQUIRED only for P0/P1 with `file:line` and a reproduction. Do not add new requirements to improve the architecture.
 - A finding may be marked `UNREPRODUCED` with `file:line` and reasoning when a reproduction is impossible (races, documents). It counts toward CHANGES_REQUIRED at P0/P1 only when you state why reproduction is impossible.

@@ -25,8 +25,8 @@
     "minFreeRamGb": 0
   },
   "thresholds": {
-    "ctxPrepare": 120000,
-    "ctxHandoff": 150000,
+    "ctxPrepare": 235000,
+    "ctxHandoff": 265000,
     "ctxWarn": 0
   },
   "lead": {
@@ -45,7 +45,10 @@
     "allowSendKeysExit": false,
     "pushGuard": false,
     "stickyOnCompact": false,
-    "candidatePermissionArgs": [],
+    "candidatePermissionArgs": [
+      "--permission-mode",
+      "bypassPermissions"
+    ],
     "readyTimeoutMin": 10,
     "statePath": "STATE.md",
     "handoffPath": "HANDOFF.md"
@@ -57,9 +60,42 @@
     "prefer": "hc"
   },
   "worker": {
-    "permissionArgs": []
+    "permissionArgs": [
+      "--permission-mode",
+      "bypassPermissions"
+    ]
   },
   "criticalPaths": [],
+  "tabs": {
+    "enabled": true,
+    "maxWorkers": 3,
+    "idleMin": 10,
+    "overtimeMin": 45,
+    "stopBlock": true,
+    "notify": true,
+    "devCommands": [
+      "^(?!.*\\s(?:--version|-v|--help|-h)(?=\\s|$))(?:npm|pnpm|yarn|bun)(?:\\s+(?:(?:-F|--filter|-C|--dir|--prefix|-w|--workspace|--cwd)(?:=|\\s+)\\S+|--?[\\w-]+(?:=\\S+)?))*(?:\\s+workspace\\s+\\S+)?\\s+(?:run(?:-script)?(?:\\s+(?:(?:-F|--filter|-C|--dir|--prefix|-w|--workspace|--cwd)(?:=|\\s+)\\S+|--?[\\w-]+(?:=\\S+)?))*\\s+)?(?:dev|start|serve|watch|preview)(?=\\s|$)",
+      "^(?!.*\\s(?:--version|-v|--help|-h)(?=\\s|$))vite(?!\\s+(?:build|optimize)(?=\\s|$))(?=\\s|$)",
+      "^(?!.*\\s(?:--version|-v|--help|-h)(?=\\s|$))next\\s+(?:dev|start)(?=\\s|$)",
+      "^(?!.*\\s(?:--version|-v|--help|-h)(?=\\s|$))(?:nuxt|nuxi|astro)\\s+dev(?=\\s|$)",
+      "^(?!.*\\s(?:--version|-v|--help|-h)(?=\\s|$))(?:nodemon|webpack-dev-server|http-server|live-server)(?=\\s|$)",
+      "^(?!.*\\s(?:--version|-v|--help|-h)(?=\\s|$))webpack\\s+serve(?=\\s|$)",
+      "^(?!.*\\s(?:--version|-v|--help|-h)(?=\\s|$))jest\\s(?:.*\\s)?--watch(?:All)?(?:=(?!false|0)\\S*)?(?=\\s|$)",
+      "^(?!.*\\s(?:--version|-v|--help|-h)(?=\\s|$))vitest(?:\\s+(?:watch|dev)|\\s(?:.*\\s)?--watch(?:=(?!false|0)\\S*)?)(?=\\s|$)",
+      "^(?!.*\\s(?:--version|-v|--help|-h)(?=\\s|$))(?:tsc|webpack|rollup|esbuild)\\s(?:.*\\s)?(?:--watch(?:=(?!false|0)\\S*)?|-w)(?=\\s|$)",
+      "^(?!.*\\s(?:--version|-v|--help|-h)(?=\\s|$))docker(?:-compose|\\s+compose)\\s(?:.*\\s)?up(?=\\s|$)(?!.*\\s(?:-d|--detach|--abort-on-container-exit|--exit-code-from|--wait)(?=[\\s=]|$))",
+      "^(?!.*\\s(?:--version|-v|--help|-h)(?=\\s|$))php\\s+artisan\\s+serve(?=\\s|$)",
+      "^(?!.*\\s(?:--version|-v|--help|-h)(?=\\s|$))rails\\s+(?:s|server)(?=\\s|$)",
+      "^(?!.*\\s(?:--version|-v|--help|-h)(?=\\s|$))python3?\\s+-m\\s+http\\.server(?=\\s|$)",
+      "^(?!.*\\s(?:--version|-v|--help|-h)(?=\\s|$))(?:python3?\\s+-m\\s+)?flask\\s+run(?=\\s|$)",
+      "^(?!.*\\s(?:--version|-v|--help|-h)(?=\\s|$))(?:python3?\\s+-m\\s+)?(?:uvicorn|gunicorn)(?=\\s|$)",
+      "^(?!.*\\s(?:--version|-v|--help|-h)(?=\\s|$))(?:python3?\\s+)?(?:\\S*[\\\\/])?manage\\.py\\s+runserver(?=\\s|$)",
+      "^(?!.*\\s(?:--version|-v|--help|-h)(?=\\s|$))dotnet\\s+watch(?=\\s|$)",
+      "^(?!.*\\s(?:--version|-v|--help|-h)(?=\\s|$))node\\s(?:.*\\s)?--watch(?:-path)?(?:=\\S+)?(?=\\s|$)",
+      "^(?!.*\\s(?:--version|-v|--help|-h)(?=\\s|$))(?:ng\\s+serve|gatsby\\s+develop|hugo\\s+server|storybook\\s+dev|start-storybook)(?=\\s|$)",
+      "^(?!.*\\s(?:--version|-v|--help|-h)(?=\\s|$))(?:npm|pnpm|yarn|bun)\\s+(?:run\\s+)?storybook(?=\\s|$)"
+    ]
+  },
   "capacity": {
     "enabled": false,
     "agents": 3,

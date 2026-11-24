@@ -22,7 +22,7 @@ The project config is `<project>/.claude/ghorc.json`. `/ghorc:setup` copies a sh
   },
   "heavyGuard": { "requireLeadEnv": false, "agentsWhenFree": false },
   "heavySlots": { "slots": 0, "minFreeRamGb": 0 },
-  "thresholds": { "ctxPrepare": 120000, "ctxHandoff": 150000 },
+  "thresholds": { "ctxPrepare": 235000, "ctxHandoff": 265000 },
   "lead": { "model": "opus", "effort": "medium", "remind": true },
   "watchdog": {
     "autostart": false,
@@ -33,14 +33,15 @@ The project config is `<project>/.claude/ghorc.json`. `/ghorc:setup` copies a sh
   },
   "handoff": {
     "allowSendKeysExit": false,
-    "candidatePermissionArgs": [],
+    "candidatePermissionArgs": ["--permission-mode", "bypassPermissions"],
     "readyTimeoutMin": 10,
     "statePath": "STATE.md",
     "handoffPath": "HANDOFF.md"
   },
   "review": { "maxFixRounds": 2 },
   "backend": { "prefer": "hc" },
-  "worker": { "permissionArgs": [] },
+  "worker": { "permissionArgs": ["--permission-mode", "bypassPermissions"] },
+  "tabs": { "enabled": true, "maxWorkers": 3, "idleMin": 10, "overtimeMin": 45, "stopBlock": true, "notify": true },
   "criticalPaths": [],
   "capacity": {
     "enabled": false,
@@ -102,16 +103,16 @@ equal to the id the hook sees), else `pid-<parent pid>`, so with no setup the le
 
 ### thresholds
 Lead context in tokens, enforced by the context guard hook (`scripts/context-guard.cjs`, [hooks.md](hooks.md)).
-`ctxPrepare` (120000): the guard adds an "update STATE" line. `ctxWarn` (0 = `ctxHandoff` - 10000): "prepare the
-handoff, take no new packages". `ctxHandoff` (150000): handoff mode - no new agent, edits only to `handoff.statePath`
+`ctxPrepare` (235000): the guard adds an "update STATE" line. `ctxWarn` (0 = `ctxHandoff` - 10000): "prepare the
+handoff, take no new packages". `ctxHandoff` (265000): handoff mode - no new agent, edits only to `handoff.statePath`
 and `handoff.handoffPath`, Stop blocks until STATE is newer than the flag (at most 2 times; skill `ghorc:handoff`).
 With `handoff.stickyOnCompact` a compaction starts the same mode too, whatever the token numbers say. Set
 autocompact at `ctxHandoff` + 35K or a little above, never at or below `ctxHandoff` (`/ghorc:setup` item `pct`
-recommends `ctxHandoff` + 35K as a share of the window, rounded up; 1M window: 19%), otherwise a compaction
+recommends `ctxHandoff` + 35K as a share of the window, rounded up; 1M window: 30%; on a window smaller than `ctxHandoff` + 35K, for example 200K, set `ctxHandoff` lower by hand), otherwise a compaction
 resets the counter before the guard reacts.
 
 ### lead
-`model` (`opus`) and `effort` (`medium`): used by `/ghorc:handoff` for the candidate and by `/ghorc:setup`. Effort precedence: env `CLAUDE_CODE_EFFORT_LEVEL` > per-call `effort` > role frontmatter > session; keep the variable unset and pass `effort` on every Agent call. Global advice: no top-level `effortLevel` in `~/.claude/settings.json`; per-model medium for sonnet-5.5 and opus-5.5.
+`model` (`opus`) and `effort` (`medium`): used by `/ghorc:handoff` for the candidate and by `/ghorc:setup`. `fable` is the lead model for a major refactor, a migration or many packages in parallel ([models.md](models.md)); the owner may also name it for one shift at a handoff. Effort precedence: env `CLAUDE_CODE_EFFORT_LEVEL` > per-call `effort` > role frontmatter > session; model precedence: `CLAUDE_CODE_SUBAGENT_MODEL_FORCE` > per-call `model` > role frontmatter > `CLAUDE_CODE_SUBAGENT_MODEL`; keep the variables unset and pass `model` and `effort` on every Agent call. Global advice: no top-level `effortLevel` in `~/.claude/settings.json`; per-model medium for the lead model (setup finds its full id in the ctx file of the newest session, so no version is pinned).
 `remind` (true): SessionStart reminds a main session to load skill `ghorc:lead`. Workers
 (`GHORC_ROLE=worker`) and subagents get no reminder.
 
@@ -124,8 +125,8 @@ Alerts go to `<tmp>/ghorc-<user>/alerts-<root hash>.log`; `scripts/ctx.cjs --ses
 
 ### handoff
 Standing owner permissions for `/ghorc:handoff`. `allowSendKeysExit` (false): the new lead may send `/exit` to the old
-tab through herdr. `candidatePermissionArgs` (`[]`): permission-mode arguments for the candidate, for example
-`["--permission-mode", "acceptEdits"]`. `readyTimeoutMin` (10): minutes the old lead waits for READY (polled every
+tab through herdr. `candidatePermissionArgs` (`["--permission-mode", "bypassPermissions"]`): permission-mode arguments for the candidate;
+`[]` starts it with default permissions, `["--permission-mode", "acceptEdits"]` with edits only. `readyTimeoutMin` (10): minutes the old lead waits for READY (polled every
 60 s). `statePath` and `handoffPath`: the STATE and HANDOFF files. `pushGuard` (false): in handoff mode the hook denies
 `herdr agent start` from the lead while a branch named in STATE `in_flight` (`branch: <name>`) is ahead of or missing
 on `origin` (`node scripts/unpushed.cjs [--branches a,b]` lists them: local refs, no network, exit 1 when any); no
@@ -145,9 +146,12 @@ branch in a linked worktree keeps `HANDOFF.md` there, not in the main checkout);
 project root, as before. Off or absent: a compaction changes nothing and Stop
 behaves as in 0.7.0.
 
-`candidatePermissionArgs` can bypass permission prompts (for example `--dangerously-skip-permissions`), so setting it is
-the project's explicit decision. `setup.cjs --check` prints an information line saying whether it is set;
-`setup.cjs --apply` never writes it.
+By default the candidate, like every worker, starts in bypassPermissions: an unattended tab must not stop on prompts.
+The hooks still deny in that mode (verified: a worker's heavy check is denied under `--permission-mode
+bypassPermissions`), deny rules still apply, and critical-path removals and `AskUserQuestion` still stop the session.
+To keep prompts, set the key to `[]` or to `acceptEdits` in the project config. `/ghorc:setup` item `bypassPrompt`
+(owner decision) sets `skipDangerousModePermissionPrompt` so the first bypass start does not stop on the one-time
+warning. `setup.cjs --check` prints an information line saying whether the project sets the key.
 
 ### backend
 `prefer` (`"hc"`): which terminal backend wins when both are present in a session (`HC_TERMINAL_ID` set and `HERDR_ENV=1`
@@ -156,10 +160,26 @@ backend present that one is used whatever the key says, and with `"herdr"` a her
 `hc`. Any other value fails `check-config.cjs`. `node scripts/backend.cjs` prints the answer.
 
 ### worker
-`permissionArgs` (`[]`): permission arguments for terminal workers the lead starts, for example
-`["--dangerously-skip-permissions"]` or `["--permission-mode", "acceptEdits"]`; an array of strings, validated by
-`check-config.cjs`. The key is the project's explicit decision (it can bypass permission prompts), like
-`handoff.candidatePermissionArgs`; `setup.cjs --apply` never writes it. No hook reads it; it is the one place for the permission arguments of the commands that start workers.
+`permissionArgs` (`["--permission-mode", "bypassPermissions"]`): permission arguments for terminal workers the lead starts; `[]` for default
+permissions or `["--permission-mode", "acceptEdits"]` for edits only; an array of strings, validated by
+`check-config.cjs`. Same default and same notes as `handoff.candidatePermissionArgs`; `setup.cjs --apply` never writes
+it. The tabs guard checks that every worker start carries it.
+
+### tabs
+The tabs guard (`scripts/tabs-guard.cjs`, [hooks.md](hooks.md)) for the lead's terminal tabs on hc or herdr.
+`enabled` (true): off, the guard neither denies nor reports. `maxWorkers` (3, 1..20): agent tabs allowed at once
+(long-lived `full`, `runner`, `train` tabs do not count); a start beyond it is denied. `idleMin` (10): minutes idle
+without a result line before a worker is reported STALLED. `overtimeMin` (45): minutes of runtime before it is reported
+OVERTIME (the stop-loss of an agent). `stopBlock` (true): Stop is blocked once while a worker is BLOCKED or FINISHED but
+still open. `notify` (true): on herdr, a worker turning BLOCKED shows a herdr notification once. `devCommands` (array of regex
+strings; default list in `scripts/lib/defaults.json`; each must compile, `[]` turns the rule off): dev servers and watchers
+(`npm run dev|start|serve|watch`, `vite`, `next dev`, `docker compose up` without `-d`, `tsc --watch`, `flask run`, ...) are denied in
+every session on hc and herdr unless started in a `<pkg>-runner` tab; one-shot commands (`npm run build`, `npm test`, `vite build`,
+`docker compose up -d`) are not matched; a pattern that does not compile is dropped and reported by `check-config.cjs`. On herdr the
+lead's tab commands stay in its own workspace (the prefix of `HERDR_PANE_ID`): `herdr tab create` needs `--workspace` of the own workspace
+(the exact `$HERDR_WORKSPACE_ID` or its id) and `--no-focus`, and the lead may not create, close or start in another workspace. The whole guard
+acts only in a project that has `.claude/ghorc.json`. The naming, model,
+effort and permission rules it enforces are in skill `ghorc:lead`, section "Tabs".
 
 ### review
 `maxFixRounds` (2): fix rounds per package before the lead stops resending the implementer. After that comes a cheap
@@ -174,7 +194,7 @@ Project roles: if the project has `.claude/agents/*.md`, `setup --check` lists t
 `--apply claudemd` appends a table of them (name, model / effort from the frontmatter, first sentence of the
 description) under the roles table of the CLAUDE.md section. Those roles take precedence over the `ghorc:*` roles for
 the same purpose; the lead launches them by name with explicit `model` and `effort`, and the critical reviewer may be
-the project's own role at opus / high. Without `.claude/agents/` nothing changes.
+the project's own role at opus / high (fable / medium on work implemented by Opus). Without `.claude/agents/` nothing changes.
 
 ### capacity
 The capacity guard (`scripts/capacity-guard.cjs`, [hooks.md](hooks.md#capacity-guardcjs)) keeps an idle lead working.

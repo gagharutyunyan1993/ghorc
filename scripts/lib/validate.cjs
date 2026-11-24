@@ -26,9 +26,32 @@ function checkCapacity(c, problems) {
   if (step > 0 && capPct > 0 && step > capPct) problems.push(`capacity.weeklyAgentsStepPct (${step}) must not exceed capacity.weeklyCapPct (${capPct})`);
 }
 
+// tabs: maxWorkers 1..20 (integer), idleMin and overtimeMin 1..1440. Wrong types are reported by the generic check.
+function checkTabs(c, problems) {
+  const range = { maxWorkers: [1, 20], idleMin: [1, 1440], overtimeMin: [1, 1440] };
+  for (const [k, [lo, hi]] of Object.entries(range)) {
+    const v = c[k];
+    if (typeof v !== 'number') continue;
+    if (!Number.isFinite(v) || !Number.isInteger(v) || v < lo || v > hi) problems.push(`tabs.${k}: ${v} must be a whole number in ${lo}..${hi}`);
+  }
+  // devCommands: regexes of long-running commands that only a runner tab may start; [] turns the rule off
+  if (Array.isArray(c.devCommands)) {
+    c.devCommands.forEach((p, i) => {
+      if (typeof p !== 'string') return problems.push(`tabs.devCommands[${i}]: not a string`);
+      if (p === '') return problems.push(`tabs.devCommands[${i}]: an empty pattern matches everything`);
+      try {
+        new RegExp(p, 'i');
+      } catch (e) {
+        problems.push(`tabs.devCommands[${i}]: regex does not compile (${e.message})`);
+      }
+    });
+  }
+}
+
 // Returns { path, problems: string[], fatal: string[] }. path=null means there is no file (not an error).
 // fatal = the problems that make the config unusable (everything except unknown keys).
-const isFatal = (p) => !p.startsWith('unknown key');
+// (a bad element of tabs.devCommands is reported but does not make the config unusable: the guard drops that one pattern)
+const isFatal = (p) => !p.startsWith('unknown key') && !/^tabs\.devCommands\[\d+\]:/.test(p);
 function result(path, problems) {
   return { path, problems, fatal: problems.filter(isFatal) };
 }
@@ -79,6 +102,7 @@ function checkFile(file) {
     });
   }
   if (isObj(data.capacity)) checkCapacity(data.capacity, problems);
+  if (isObj(data.tabs)) checkTabs(data.tabs, problems);
   if (Array.isArray(data.heavyCommands)) {
     data.heavyCommands.forEach((p, i) => {
       if (typeof p !== 'string') return problems.push(`heavyCommands[${i}]: not a string`);

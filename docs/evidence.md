@@ -41,6 +41,9 @@ Claim template: "[X]% lower estimated API cost per accepted package, counting wo
 - **How:** sum input, cache creation, cache read and output tokens per model from every transcript of the package,
   multiply by the public API prices of each model on the day of the run, and divide by the number of accepted
   packages. Failed and retried attempts stay in the sum. State the prices used next to the result.
+- **Ledger:** `ledger.cjs report` now gives this estimate per subagent run (see [Call ledger](#call-ledger)), at the list
+  prices in `scripts/lib/prices.cjs` (as of 2026-11-24). The lead session itself and terminal tab workers are not in the
+  ledger, so their cost still has to be summed by hand from their transcripts and added.
 - **Limit:** on a subscription plan this is an estimate of relative load, not money spent.
 
 ## Call ledger
@@ -54,16 +57,30 @@ Claim template: "[X]% lower estimated API cost per accepted package, counting wo
   `{isAsync:true, status:"async_launched", agentId, outputFile, ...}` and no totals, so the hook writes a `launch` line
   (same fields, plus `outputFile`, no totals). The SubagentStop hook (`ledger.cjs stop`) reads the transcript path
   (`agent_transcript_path` or `transcript_path`) and `agent_id` from its payload and appends a `done` line:
-  `{agentId, tokens:{input, output, cacheRead, cacheCreate, total}, tools, ms, turns}`, summed from each assistant
-  message's `usage` (once per message id); a payload without those fields writes nothing. `report` joins `launch` and
+  `{agentId, tokens:{input, output, cacheRead, cacheCreate, total}, tools, ms, turns, cost, unpriced, models,
+  cacheTtlAssumed}`, summed from each assistant message's `usage` (once per message id); a payload without those fields
+  writes nothing. `report` joins `launch` and
   `done` by `agentId`; a launch without a done line is read lazily from its `outputFile`, if the file exists.
+- **Cost fields of a `done` line.** `cost` is the estimated USD at list prices (rounded to 6 decimals, `null` when no
+  message had a price), summed per assistant message from its own `message.model` and `usage`. `unpriced` counts
+  messages with non-zero usage whose model has no price (such as `<synthetic>` or a model not in the table); their
+  tokens are in `tokens` but not in `cost`. `models` lists the distinct model ids seen. `cacheTtlAssumed` is true when
+  a priced message wrote cache tokens without the 5-minute / 1-hour split in `usage.cache_creation`, and all of them were
+  priced at the 5-minute rate (1.25 x input; the 1-hour rate is 2 x). Prices live in `scripts/lib/prices.cjs`
+  (USD per 1M tokens, date in `PRICES_AS_OF`, now 2026-11-24); Haiku has two tiers by the prompt length of each request
+  (input + cache read + cache creation, up to 100000 tokens or above). No price is invented for other models. A
+  synchronous call line has no per-message data, so it has no cost.
 - **Verdict line** (the lead): `{ts, kind:"verdict", pkg, round, verdict, cause}` through
   `ledger.cjs verdict <pkg> <round 1-9> <ACCEPT|CHANGES_REQUIRED> [cause] [--class critical|ordinary]`; the cause
-  (`BRIEF_OMISSION|SKIPPED_CHECK|REASONING_FAILURE|OTHER`) is required for CHANGES_REQUIRED and absent for ACCEPT.
+  (`BRIEF_OMISSION|SKIPPED_CHECK|REASONING_FAILURE|OTHER|CASCADE`) is required for CHANGES_REQUIRED and absent for ACCEPT.
 - **Report** (`ledger.cjs report`, `/ghorc:status`): per role calls, median and upper-quartile tokens and ms, mean
   tools, share of calls where the resolved model really differs from the requested one (`sonnet` matches
-  `claude-sonnet-5-5`: a dash-delimited part counts); per package rounds and first-round verdict; first-round ACCEPT
-  rate overall and per class (critical, ordinary); cause counts.
+  `claude-sonnet-<version>`: a dash-delimited part counts); per package rounds and first-round verdict; first-round ACCEPT
+  rate overall and per class (critical, ordinary); cause counts. Each role line ends with
+  `cost med=$<x> total=$<y>` (`-` without a priced call), and a line
+  `estimated cost: $<total> at list prices as of <date> (<n> calls priced, <m> without a price)` follows the roles.
+  `--json` adds `costMedian` / `costTotal` per role and `costTotal`, `costCalls`, `unpricedCalls`, `pricesAsOf` on top.
+  `m` counts calls that have totals but no cost, or some unpriced messages.
 - **Unverified:** `tokens` and `usage` of a synchronous call may cover only the final API request of the subagent, not
   the whole run. The transcript totals of a `done` line (and of a call with a matching `done` line) cover every
   assistant message. Compare the two on the first 10 calls before trusting the synchronous figures.

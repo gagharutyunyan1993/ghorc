@@ -48,6 +48,14 @@ claude plugin marketplace add gagharutyunyan1993/ghorc
 claude plugin install ghorc@ghorc
 ```
 
+The install also brings [methodology-toolkit](https://github.com/gagharutyunyan1993/methodology-toolkit) (the critic,
+evidence scout and decision methods the lead uses), as a dependency from the same marketplace. If you already have it
+from its own marketplace, keep one copy: two copies of one plugin load, but only one runs its hooks.
+
+Workers and candidate leads start with `--permission-mode bypassPermissions` by default, so a tab never waits on a
+permission prompt; ghorc's hooks still deny in that mode. Set `worker.permissionArgs` and
+`handoff.candidatePermissionArgs` to `[]` to keep prompts ([configuration](docs/configuration.md#worker)).
+
 Then, in a session inside your project, run `/ghorc:setup`. It checks the status line, the autocompact threshold,
 `.claude/ghorc.json`, the `CLAUDE.md` section and the git exclude, proposes `heavyCommands` from your `package.json`
 scripts, and applies only the items you confirm. To try ghorc for one session without installing:
@@ -99,15 +107,19 @@ Details: [docs/hooks.md](docs/hooks.md) and [docs/workflow.md](docs/workflow.md)
 
 ## Roles
 
-Called as `ghorc:<role>`. The lead passes `effort` on every call and names the move-up condition when it
-raises one; effort choices are measured, not guessed (see [docs/evidence.md](docs/evidence.md)).
+Called as `ghorc:<role>`. The lead passes `model` and `effort` on every call and names the move-up condition when
+it raises one. The starting choices follow Anthropic's model guide and are explained row by row in
+[docs/models.md](docs/models.md); a row changes only when the ledger measures a reason to (see
+[docs/evidence.md](docs/evidence.md)). The lead itself is Opus/medium, or Fable/medium for a major refactor or
+migration, and changes model only at a handoff.
 
 | Role | Model / effort | Purpose |
 |---|---|---|
-| `implementer` | sonnet / medium | code, tests and documents from a brief |
+| `implementer` | sonnet / medium (opus for migrations and performance work) | code, tests and documents from a brief |
 | `reviewer` | sonnet / medium | ordinary diff review; writes a review file with a verdict |
 | `scout` | sonnet / low | read-only facts with `file:line`, written to a file |
-| `reviewer-critical` (advanced) | opus / high | adversarial review of paths listed in `criticalPaths` |
+| `log-reader` | haiku / medium | failing cases from test output and logs, written to a file |
+| `reviewer-critical` (advanced) | opus / high (fable on Opus work) | adversarial review of `criticalPaths` |
 | `media` (advanced) | sonnet / low | the only subagent role that reads PDFs and images |
 | `consult` (advanced) | sonnet / low | asks external models in a browser (needs a browser MCP) |
 
@@ -144,6 +156,7 @@ claude plugin marketplace remove ghorc
 ## Docs
 
 - [docs/workflow.md](docs/workflow.md): the lead/worker cycle, roles, briefs, reports and acceptance
+- [docs/models.md](docs/models.md): which model and effort each role and class of work gets, and why
 - [docs/hooks.md](docs/hooks.md): each hook, the status line, the watchdog and the scripts
 - [docs/configuration.md](docs/configuration.md): every key of `.claude/ghorc.json`
 - [docs/handoff.md](docs/handoff.md): handing the lead shift to a fresh session
