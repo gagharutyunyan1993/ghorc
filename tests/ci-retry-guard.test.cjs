@@ -161,3 +161,12 @@ test('validator: ciRetry ranges and git.protectedBranches', () => {
   assert.match(bad, /git\.protectedBranches\[0\]/);
   assert.match(validate.check(tmpProject({ git: { guard: 'yes' } })).fatal.join('\n'), /git\.guard: expected boolean/);
 });
+
+test('help only right after the verb: a --help further on is a value or a file name and does not skip the count', () => {
+  const cwd = tmpProject(ON);
+  assert.ok(!isDeny(guard(bash(cwd, 'glab ci retry --help'))));
+  assert.ok(!isDeny(guard(bash(cwd, 'gh run rerun -h'))));
+  const first = guard(bash(cwd, 'glab ci retry 123 > --help'));
+  assert.ok(!isDeny(first), 'the free retry is used and recorded');
+  assert.ok(isDeny(guard(bash(cwd, 'gh run rerun 77 --job --help'))), 'the second restart is counted, --help is the --job value');
+});

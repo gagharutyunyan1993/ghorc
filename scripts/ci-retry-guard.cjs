@@ -21,7 +21,7 @@ if (process.argv.includes('--help')) {
     'ci-retry-guard.cjs: PreToolUse hook on Bash|PowerShell and on MCP tools named mcp__*retry_pipeline|retry_job|play_job|rerun|retry*, ' +
       'opt-in (ciRetry.enabled, default false; silent in a project without .claude/ghorc.json). Commands that restart CI: ' +
       'glab ci|pipe|pipeline retry|run|trigger, gh run rerun, gh workflow run, and glab api / gh api calls to a ' +
-      '.../pipelines|jobs|runs/<id>/retry|play|rerun|rerun-failed-jobs endpoint (--help passes). Every allowed restart is appended to ' +
+      '.../pipelines|jobs|runs/<id>/retry|play|rerun|rerun-failed-jobs endpoint (--help or -h right after the verb passes). Every allowed restart is appended to ' +
       '<project root>/.claude/ghorc-out/ci-retry-ledger.jsonl ({ts, command, session, tool}). Within ciRetry.windowHours (24): ' +
       'the first ciRetry.freeRetries (1) restarts are allowed; after that a restart is allowed only when ' +
       '<project root>/.claude/ghorc-out/ci-retry-reason.md was written within the last 30 minutes and after the last restart ' +
@@ -32,14 +32,15 @@ if (process.argv.includes('--help')) {
   process.exit(0);
 }
 
-const NO_HELP = String.raw`(?!.*\s(?:--help|-h)(?=\s|$))`;
+// help only right after the verb (`glab ci retry --help`): a --help further on can be an option value or a file name
+const HELP_NEXT = String.raw`(?!\s+(?:--help|-h)(?:\s|$))`;
 // options before the subcommand, with or without a value: glab -R group/project ci retry
 const OPTS = String.raw`(?:\s+--?[\w-]+(?:=\S+|\s+[^\s-]\S*)?)*`;
 const RESTART = [
-  new RegExp(String.raw`^${NO_HELP}glab${OPTS}\s+(?:ci|pipe|pipeline)${OPTS}\s+(?:retry|run|trigger)(?=\s|$)`, 'i'),
-  new RegExp(String.raw`^${NO_HELP}gh${OPTS}\s+(?:run${OPTS}\s+rerun|workflow${OPTS}\s+run)(?=\s|$)`, 'i'),
+  new RegExp(String.raw`^glab${OPTS}\s+(?:ci|pipe|pipeline)${OPTS}\s+(?:retry|run|trigger)(?=\s|$)${HELP_NEXT}`, 'i'),
+  new RegExp(String.raw`^gh${OPTS}\s+(?:run${OPTS}\s+rerun|workflow${OPTS}\s+run)(?=\s|$)${HELP_NEXT}`, 'i'),
   // the REST endpoints behind them: GitLab pipelines/:id/retry, jobs/:id/retry|play; GitHub actions runs/:id/rerun(-failed-jobs)
-  new RegExp(String.raw`^${NO_HELP}(?:glab|gh)${OPTS}\s+api\s.*?\/(?:pipelines|jobs|runs)\/\S+?\/(?:retry|play|rerun|rerun-failed-jobs)(?=[\s?]|$)`, 'i'),
+  new RegExp(String.raw`^(?:glab|gh)${OPTS}\s+api\s.*?\/(?:pipelines|jobs|runs)\/\S+?\/(?:retry|play|rerun|rerun-failed-jobs)(?=[\s?]|$)`, 'i'),
 ];
 const MCP_RESTART = /^mcp__.*(?:retry_pipeline|retry_job|play_job|rerun|retry)/i;
 

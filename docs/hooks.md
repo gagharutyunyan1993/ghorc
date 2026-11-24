@@ -429,14 +429,14 @@ workers and subagents (`agent_id` and `GHORC_ROLE` are not read).
   `:main`), compared without case; also `--all`, `--mirror` and `--branches`, which would push it too.
 - Push without an explicit remote and branch: bare `git push`, `git push origin`, the refspecs `HEAD` and `@`, and a
   refspec with `$`, `*`, a backtick or braces (a variable, a glob or a substitution). `git push origin --tags` passes.
-- Writing `core.hooksPath` or `alias.*` with `git config` (a value given, `set`, `unset`, `--unset`, `--add`,
-  `--replace-all`, removing or renaming the `core` or `alias` section) and `git -c core.hooksPath=...` or
-  `git -c alias.<name>=...` (also `--config-env`) on any git command: a new hooks path switches the hooks off, and an
-  alias can hide `push --force` from this guard.
+- Writing `core.hooksPath`, `alias.*`, `include.path` or `includeIf.<condition>.path` with `git config` (a value given, `set`, `unset`, `--unset`, `--add`,
+  `--replace-all`, removing or renaming the `core`, `alias`, `include` or `includeIf` section) and the same keys in `git -c` (also
+  `--config-env`) on any git command: a new hooks path switches the hooks off, an alias can hide `push --force` from
+  this guard, and an included config file can set either.
 
 **What passes.** Everything else: `git push origin feat/x`, `git push -u origin feat/x`, `git push origin HEAD:feat/x`,
-reading config (`git config core.hooksPath`, `--get`, `--list`), `git -c user.name=x ...`, and any command with
-`--help` or `-h` (`git help push` too).
+reading config (`git config core.hooksPath`, `--get`, `--list`), `git -c user.name=x ...`, and a help request: `--help` or `-h` as the first word after the subcommand (`git push --help`, `git help push`); further on it
+may be an option value (`git commit -m --help`) and does not count.
 
 **How it reads a command.** The same segment cutter as the heavy-check guard (`scripts/lib/cmd.cjs`): segments split on
 `&&`, `||`, `;`, `|`, `&`, newlines and substitutions; shell wrappers (`bash -c "..."`, `cmd /c`, `powershell -Command`,
@@ -461,7 +461,7 @@ plain command; branch protection on the server is the real wall for the default 
 **What counts as a restart.** `glab ci|pipe|pipeline retry|run|trigger` (options such as `-R group/project` may stand
 before or after `ci`), `gh run rerun`, `gh workflow run`, `glab api` / `gh api` calls to a
 `.../pipelines|jobs|runs/<id>/retry|play|rerun|rerun-failed-jobs` endpoint, and every call of a matching MCP tool. A
-command with `--help` or `-h` is not counted. Segments are cut like for the heavy-check guard (`cd app && glab ci retry 1`
+command with `--help` or `-h` right after the verb is not counted (further on it may be an option value). Segments are cut like for the heavy-check guard (`cd app && glab ci retry 1`
 counts); one command line with several restarts counts once.
 
 **What it does.** Every allowed restart appends one line `{ts, command, session, tool}` (plus `reason: true` when a

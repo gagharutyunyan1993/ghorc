@@ -52,9 +52,11 @@ const CFG_VAL = new Set(['-f', '--file', '--blob', '--type', '--default', '--com
 const CFG_WRITE_VERBS = new Set(['set', 'unset', 'replace-all', 'rename-section', 'remove-section', 'edit']);
 const CFG_VERBS = new Set([...CFG_WRITE_VERBS, 'get', 'get-all', 'list', 'get-regexp', 'get-urlmatch', 'get-color', 'get-colorbool']);
 
+// core.hooksPath and aliases change what a git command runs; include.path / includeIf.<cond>.path pull in another config file
+// that may set them
 const guardedKey = (k) => {
   const key = String(k).toLowerCase();
-  return key === 'core.hookspath' || key.startsWith('alias.');
+  return key === 'core.hookspath' || key.startsWith('alias.') || key === 'include.path' || (key.startsWith('includeif.') && key.endsWith('.path'));
 };
 
 // Words of one command segment; a redirection (2>, >file, *>&1) and its target are dropped.
@@ -152,7 +154,7 @@ function configRule(args) {
   const verb = pos.length && CFG_VERBS.has(pos[0]) ? pos.shift() : null;
   const key = String(pos[0] || '').toLowerCase();
   if (sectionOp || verb === 'remove-section' || verb === 'rename-section') {
-    return ['core', 'alias'].includes(key.split('.')[0]) ? 'config' : null;
+    return ['core', 'alias', 'include', 'includeif'].includes(key.split('.')[0]) ? 'config' : null;
   }
   if (read || !guardedKey(key)) return null;
   const write = flagWrite || (verb !== null && CFG_WRITE_VERBS.has(verb)) || pos[1] !== undefined;
@@ -175,7 +177,8 @@ function gitRule(t, protectedList) {
   }
   const sub = String(t[i] || '').toLowerCase();
   const args = t.slice(i + 1);
-  if (args.includes('--help') || (args.includes('-h') && sub !== 'config')) return null;
+  // help only as the first word after the subcommand: further on, --help can be the value of an option (-m --help)
+  if (args[0] === '--help' || (args[0] === '-h' && sub !== 'config')) return null;
   if (sub === 'config') return configRule(args);
   if (!NOVERIFY_SUBS.has(sub)) return null;
   const o = options(sub, args);

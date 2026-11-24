@@ -154,3 +154,16 @@ test('hooks.json registers git-guard on Bash|PowerShell; --help prints', () => {
   assert.equal(r.code, 0);
   assert.match(r.out, /git-guard\.cjs: PreToolUse/);
 });
+
+test('include.path and includeIf.*.path count as guarded keys; help is only the first word after the subcommand', () => {
+  const cwd = tmpProject(ON);
+  for (const c of [
+    'git config include.path /tmp/evil.cfg',
+    'git config --global includeIf.gitdir:~/x/.path /tmp/evil.cfg',
+    'git -c include.path=/tmp/evil.cfg status',
+    'git config --remove-section include',
+    'git commit -m --help --no-verify',
+    'git push origin main -h',
+  ]) assert.ok(isDeny(guard(cwd, c)), c);
+  for (const c of ['git config --get include.path', 'git push --help', 'git commit -h', 'git config -h']) assert.ok(!isDeny(guard(cwd, c)), c);
+});
