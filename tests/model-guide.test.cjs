@@ -25,7 +25,7 @@ test('setup explore: a WARN item, not part of all; apply writes a haiku Explore,
     const proj = tmpProject({});
     const run = (...a) => runScript('setup.cjs', '', { args: [...a, '--cwd', proj], env }).out;
     const file = path.join(proj, '.claude', 'agents', 'Explore.md');
-    assert.match(run('--check'), /WARN\s+explore \[project\]: "built-in \(runs on the lead model\)"/);
+    assert.match(run('--check'), /WARN\s+explore \[project\]: "built-in \(runs on the session model\)"/);
     run('--apply', 'all');
     assert.equal(fs.existsSync(file), false, 'all does not write Explore');
     const out = run('--apply', 'explore');
@@ -129,5 +129,26 @@ test('setup pct: the shipped thresholds recommend 30% of a 1M window', () => {
     const proj = bareProject(); // no project config: the shipped defaults (ctxHandoff 265K)
     const out = runScript('setup.cjs', '', { args: ['--check', '--cwd', proj], env }).out;
     assert.match(out, /MISSING pct \[global\]: null -> "30"/);
+  });
+});
+
+test('setup model: the global model stays opus for a fable lead; effortGlobal finds and clears effort leaks', () => {
+  withHome((env) => {
+    const proj = tmpProject({ lead: { model: 'fable', effort: 'medium' } });
+    const file = path.join(env.GHORC_HOME, '.claude', 'settings.json');
+    const run = (...a) => runScript('setup.cjs', '', { args: [...a, '--cwd', proj], env }).out;
+    assert.match(run('--check'), /ok\s+model \[global\].*-> "opus"/, 'unset is the account default');
+    fs.writeFileSync(file, JSON.stringify({ model: 'fable', effortLevel: 'xhigh', modelSettings: { 'claude-sonnet-5-5': { effortLevel: 'high' }, 'claude-haiku-5-5': { effortLevel: 'medium' } } }));
+    assert.match(run('--check'), /MISSING model \[global\] \(owner decision\): "fable" -> "opus"/);
+    assert.match(run('--check'), /WARN\s+effortGlobal \[global\]: "effortLevel=xhigh; claude-sonnet-5-5=high"/);
+    run('--apply', 'all');
+    let s = JSON.parse(fs.readFileSync(file, 'utf8'));
+    assert.equal(s.effortLevel, 'xhigh', 'all never touches effort leaks');
+    run('--apply', 'effortGlobal');
+    s = JSON.parse(fs.readFileSync(file, 'utf8'));
+    assert.equal(s.effortLevel, undefined);
+    assert.equal(s.modelSettings['claude-sonnet-5-5'].effortLevel, 'medium');
+    assert.equal(s.modelSettings['claude-haiku-5-5'].effortLevel, 'medium');
+    assert.match(run('--check'), /ok\s+effortGlobal/);
   });
 });

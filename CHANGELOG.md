@@ -70,8 +70,24 @@ Models and effort re-derived from Anthropic's guide "Which Claude model should y
   written within 30 minutes and after the last restart), and from `hardCap` (3) every restart is denied with "report to
   the owner". The ledger is a plain, unprotected file.
 - `scripts/lib/cmd.cjs` exports `variants()` (the wrapper-peeled forms of a segment) for the git guard.
+- Agent guard (`scripts/agent-guard.cjs`, PreToolUse `Agent|Task`, on by default in opted-in projects, key
+  `agentGuard.enabled`): the lead's Agent calls name a model, and the built-in `Explore`, `Plan` and `general-purpose`
+  agents (which run on the session's model) are denied unless the project defines its own.
+- Setup item `effortGlobal` (warning, owner decision): a top-level `effortLevel` and per-model values above medium for
+  models other than the lead's make every session and subagent without an explicit effort run high; `--apply
+  effortGlobal` removes the top-level key and sets the others to medium.
 
 ### Changed
+- **Model guide audit:** cascade failures re-run at `high` (the guide's measured form); the money and recovery
+  implementer moves past high to Opus/medium with the critical reviewer on Fable/medium; scout, media and
+  evidence-scout start at medium (the model's default, per the guide's row for search and summary subagents); the
+  critical review of Opus work runs on Fable at medium and the closure check at medium; brief Template 3 (Haiku) never
+  produces a code diff; log-reader stays under 100K tokens of input (Haiku's price tier); the lead's effort and fast
+  mode change only at a handoff, like its model; setup item `model` recommends `opus` as the global model even for a
+  Fable lead (the lead starts with `--model`); a routing change follows the guide's method (same tasks, 2-3 effort
+  levels, a single-model baseline, not lower on score and lower on cost, then a shadow run); the tabs guard's
+  corrected form takes model and effort from the role in the tab name. Docs: alias caveats outside the Anthropic
+  API, Fable and Opus share the cache-read price, the cache TTL cost of a long pause.
 - **ctx files out of the project:** the status line writes `<os tmp>/ghorc-<user>/ctx/<root hash>/ctx-<session>.json`
   instead of `<project>/.claude/ctx-<session>.json`; the context guard, `ctx.cjs`, the capacity guard and setup read
   there. Session start deletes the old project files whatever their age (in projects with `.claude/ghorc.json`); in

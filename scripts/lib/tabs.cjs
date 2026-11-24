@@ -379,8 +379,29 @@ function suggestName(label, role) {
 
 // Violations of the claude arguments (model alias, effort, -n equal to the tab name, permission args) and the fixed list.
 // name: the tab name (a suggestion when it is not valid); cmp: whether -n is compared with it.
-function checkClaudeArgs(args, name, cmp, permArgs, v) {
+// The start row of the Routing table (skill ghorc:lead) by the role a tab name carries: the corrected form of a start
+// that misses --model or --effort uses it, so a pasted fix never puts a Sonnet role on Opus.
+const ROLE_ROW = {
+  lead: ['opus', 'medium'],
+  implementer: ['sonnet', 'medium'],
+  reviewer: ['sonnet', 'medium'],
+  'reviewer-critical': ['opus', 'high'],
+  scout: ['sonnet', 'medium'],
+  integrator: ['sonnet', 'medium'],
+  release: ['sonnet', 'medium'],
+  consult: ['sonnet', 'low'],
+  media: ['sonnet', 'medium'],
+  'log-reader': ['haiku', 'medium'],
+};
+function roleRow(name, leadPrefix) {
+  const p = name ? parseName(String(name).toLowerCase(), leadPrefix) : null;
+  if (!p || !p.ok) return ['sonnet', 'medium'];
+  return ROLE_ROW[p.role === 'lead' ? 'lead' : p.kind] || ['sonnet', 'medium'];
+}
+
+function checkClaudeArgs(args, name, cmp, permArgs, v, leadPrefix = 'lead-') {
   const fixed = args.slice();
+  const [rowModel, rowEffort] = roleRow(name, leadPrefix);
   const val = (names) => {
     for (let i = 0; i < args.length; i++) {
       const t = args[i];
@@ -399,19 +420,19 @@ function checkClaudeArgs(args, name, cmp, permArgs, v) {
   const model = val(['--model']);
   if (!model) {
     v.push('--model is missing: pass --model <opus|sonnet|haiku|fable> (an alias follows the newest model)');
-    fixed.unshift('--model', 'opus');
+    fixed.unshift('--model', rowModel);
   } else if (!unknownValue(model.v) && !new RegExp(`^(?:${MODELS.join('|')})(?:\\[1m\\])?$`, 'i').test(model.v)) {
     const a = alias(model.v);
     v.push(`--model ${model.v} is not an alias: use ${a || 'opus, sonnet, haiku or fable'} (the alias follows the newest model; a full or versioned id does not)`);
-    set(model, a || 'opus');
+    set(model, a || rowModel);
   }
   const effort = val(['--effort']);
   if (!effort) {
     v.push('--effort is missing: pass --effort <low|medium|high|xhigh|max>');
-    fixed.push('--effort', 'medium');
+    fixed.push('--effort', rowEffort);
   } else if (!unknownValue(effort.v) && !EFFORTS.includes(effort.v.toLowerCase())) {
     v.push(`--effort ${effort.v} is not one of ${EFFORTS.join(', ')}`);
-    set(effort, 'medium');
+    set(effort, rowEffort);
   }
   const nm = val(['-n', '--name']);
   if (!nm) {
@@ -552,7 +573,7 @@ function checkParsed(p, ctx) {
     }
     if (isClaude) {
       const before = v.length;
-      const fixedArgs = checkClaudeArgs(p.args, name, known, known ? (roleOf(name) === 'lead' ? s.leadPerm : s.workerPerm) : s.workerPerm, v);
+      const fixedArgs = checkClaudeArgs(p.args, name, known, known ? (roleOf(name) === 'lead' ? s.leadPerm : s.workerPerm) : s.workerPerm, v, s.leadPrefix);
       if (v.length > before || v.length) fixed = [...(p.dd >= 0 ? tk.slice(0, p.dd + 1) : [...tk, '--']), ...fixedArgs];
     } else if (v.length) fixed = tk;
   } else if (p.type === 'herdr-other') {
@@ -615,7 +636,7 @@ function checkParsed(p, ctx) {
         v.push(`GHORC_ROLE=${role} is missing in front of claude (hc run has no --env): env GHORC_ROLE=${role} claude ...`);
         envRole = role;
       }
-      fixedArgs = checkClaudeArgs(p.args, name, known, role === 'lead' ? s.leadPerm : s.workerPerm, v);
+      fixedArgs = checkClaudeArgs(p.args, name, known, role === 'lead' ? s.leadPerm : s.workerPerm, v, s.leadPrefix);
     }
     if (v.length) {
       let head = tk.slice(0, p.progIdx);

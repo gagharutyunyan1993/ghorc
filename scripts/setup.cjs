@@ -372,9 +372,9 @@ function check(cwd, opts = {}) {
     owner: true,
     what: `${settingsFile}: model`,
     current: settings.model ?? null,
-    recommended: lead.model ?? 'opus',
-    why: 'matches lead.model in ghorc.json (owner decision)',
-    ok: settings.model === (lead.model ?? 'opus'),
+    recommended: 'opus',
+    why: 'the global model is the model of every session on the machine (other projects, your own sessions, a worker started without --model); the lead starts with --model <lead.model>, so the global stays opus even for a Fable lead (owner decision)',
+    ok: settings.model === undefined || settings.model === 'opus',
   });
   const leadAlias = lead.model ?? 'opus';
   const leadId = fullModelId(leadAlias, root);
@@ -391,6 +391,29 @@ function check(cwd, opts = {}) {
     ok: effortOk(settings, leadId, lead.effort ?? 'medium'),
     // ok without a per-model value, but an explicit apply still writes it
     writeAnyway: Boolean(leadId) && perModelEffort(settings, leadId) !== (lead.effort ?? 'medium'),
+  });
+
+  // Global effort that leaks into sessions and subagents with no explicit effort: a top-level effortLevel (it applies to every
+  // model without its own entry, Haiku included) and per-model values above medium for models other than the lead's.
+  const HIGH = new Set(['high', 'xhigh', 'max']);
+  const msAll = settings.modelSettings && typeof settings.modelSettings === 'object' ? settings.modelSettings : {};
+  const highOthers = Object.keys(msAll).filter((id) => id !== leadId && msAll[id] && HIGH.has(String(msAll[id].effortLevel)));
+  const leaks = [
+    ...(settings.effortLevel !== undefined ? [`effortLevel=${settings.effortLevel}`] : []),
+    ...highOthers.map((id) => `${id}=${msAll[id].effortLevel}`),
+  ];
+  add({
+    id: 'effortGlobal',
+    scope: 'user',
+    warn: true,
+    applicable: true,
+    owner: true,
+    what: `${settingsFile}: top-level effortLevel, modelSettings.<other models>.effortLevel`,
+    current: leaks.length ? leaks.join('; ') : 'none',
+    recommended: 'no top-level effortLevel; other models at medium (apply: --apply effortGlobal)',
+    why: 'every session and subagent that names no effort runs at these levels: a top-level value covers every model without its own entry (Haiku too), and high costs about 1.4 times medium (owner decision; ghorc passes effort on every call anyway)',
+    ok: leaks.length === 0,
+    highOthers,
   });
 
   // The permission mode of tab workers and candidate leads is the owner's choice, asked at setup: no default bypass.
@@ -511,7 +534,7 @@ function check(cwd, opts = {}) {
     why: 'the watchdog is a detached background process that warns about transcripts that grow without bound; stop it with scripts/watchdog.cjs --stop',
     ok: wdOn,
   });
-  // Project Explore agent on haiku: the built-in Explore runs on the session model (the lead's Opus or Fable).
+  // Project Explore agent on haiku: the built-in Explore runs on the session model (the guide; capped at Opus on the API).
   const explore = projectRoles(root).find((r) => r.name === 'Explore');
   add({
     id: 'explore',
@@ -519,7 +542,7 @@ function check(cwd, opts = {}) {
     warn: true,
     applicable: true,
     what: `${path.join(root, '.claude', 'agents', 'Explore.md')}: project Explore agent`,
-    current: explore ? `${explore.model} / ${explore.effort}` : 'built-in (runs on the lead model)',
+    current: explore ? `${explore.model} / ${explore.effort}` : 'built-in (runs on the session model)',
     recommended: 'haiku / medium (opt-in; apply: --apply explore)',
     why: 'the built-in Explore runs on the session model, so a lead that starts it reads at Opus rates; ghorc leads use ghorc:scout instead',
     ok: Boolean(explore),
@@ -603,6 +626,15 @@ function apply(cwd, ids, opts = {}) {
       } else if (it.id === 'idle') {
         set('idleCompaction', settings.idleCompaction, false);
         settings.idleCompaction = false;
+      } else if (it.id === 'effortGlobal') {
+        if (settings.effortLevel !== undefined) {
+          set('effortLevel', settings.effortLevel, '(removed)');
+          delete settings.effortLevel;
+        }
+        for (const id of it.highOthers) {
+          set(`modelSettings.${id}.effortLevel`, settings.modelSettings[id].effortLevel, 'medium');
+          settings.modelSettings[id] = { ...settings.modelSettings[id], effortLevel: 'medium' };
+        }
       } else if (it.id === 'bypassPrompt') {
         set('skipDangerousModePermissionPrompt', settings.skipDangerousModePermissionPrompt, true);
         settings.skipDangerousModePermissionPrompt = true;
@@ -753,12 +785,12 @@ if (require.main === module) {
   if (args.includes('--help') || (!args.includes('--check') && !args.includes('--apply') && !args.includes('--restore'))) {
     console.log(
       'setup.cjs --check [--project] [--cwd <dir>]: report each setup item (scope, current -> recommended, why) as human lines plus a final JSON line. ' +
-        'Items marked WARN (heavy, watchdog, explore, permissions, bypassPrompt, and the opt-in guards capacity, heavySlots, pushGuard, stickyOnCompact, gitGuard, ciRetry) never make the setup unclean and are applied only when named (not by "all"); ' +
+        'Items marked WARN (heavy, watchdog, explore, permissions, bypassPrompt, effortGlobal, and the opt-in guards capacity, heavySlots, pushGuard, stickyOnCompact, gitGuard, ciRetry) never make the setup unclean and are applied only when named (not by "all"); ' +
         'heavy prints a proposed regex list from the package.json scripts (root and app/). --status adds the role, guards, watchdog and recent denials.\n' +
-        'setup.cjs --apply <all|statusLine,statusLineStale,pct,idle,model,effort,permissions,bypassPrompt,config,claudemd,exclude,heavy,watchdog,explore,capacity,heavySlots,pushGuard,stickyOnCompact,gitGuard,ciRetry> [--mode <bypass|acceptEdits|prompts>] [--project] [--cwd <dir>]: apply the chosen items; ' +
+        'setup.cjs --apply <all|statusLine,statusLineStale,pct,idle,model,effort,effortGlobal,permissions,bypassPrompt,config,claudemd,exclude,heavy,watchdog,explore,capacity,heavySlots,pushGuard,stickyOnCompact,gitGuard,ciRetry> [--mode <bypass|acceptEdits|prompts>] [--project] [--cwd <dir>]: apply the chosen items; ' +
         'backs up ~/.claude/settings.json first, touches only the listed keys and prints a diff. ' +
         'pct is written GLOBALLY (every project) unless --project, which writes <root>/.claude/settings.local.json instead. ' +
-        'model, effort, permissions and bypassPrompt are owner-level decisions: name them only after the owner says yes; permissions needs --mode (bypass: no permission prompts in tab workers and candidate leads; acceptEdits; prompts: []). GHORC_HOME overrides the home directory. ' +
+        'model, effort, effortGlobal, permissions and bypassPrompt are owner-level decisions: name them only after the owner says yes; permissions needs --mode (bypass: no permission prompts in tab workers and candidate leads; acceptEdits; prompts: []). GHORC_HOME overrides the home directory. ' +
         'Applying statusLine saves the replaced status line (once) in ~/.claude/ghorc-statusline-backup.json; ' +
         'setup.cjs --restore statusline puts it back (or removes the key when there was none) and deletes the backup. ' +
         '--check prints "statusline: ghorc (previous saved)", "ghorc", "other" or "none". ' +

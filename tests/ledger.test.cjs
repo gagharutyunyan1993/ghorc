@@ -280,7 +280,7 @@ test('report: median, upper quartile, accept rate on a 5-line fixture', () => {
   assert.deepEqual(j.causes, { BRIEF_OMISSION: 1 });
   assert.deepEqual(j.packages.find((p) => p.pkg === 'E2'), { pkg: 'E2', class: 'ordinary', rounds: 2, firstVerdict: 'CHANGES_REQUIRED', firstCause: 'BRIEF_OMISSION' });
   const text = run().out;
-  assert.match(text, /ghorc:implementer: calls=5 tokens med=300 q3=400/);
+  assert.match(text, /ghorc:implementer \S+: calls=5 tokens med=300 q3=400/);
   assert.match(text, /first-round ACCEPT rate: 50% \(2 packages\)/);
   // --since drops the call lines (all earlier than 11:00) and keeps verdicts
   const since = JSON.parse(run('--since', '2026-10-16T10:30:00Z', '--json').out);

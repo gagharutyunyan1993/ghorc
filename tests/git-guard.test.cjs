@@ -167,3 +167,9 @@ test('include.path and includeIf.*.path count as guarded keys; help is only the 
   ]) assert.ok(isDeny(guard(cwd, c)), c);
   for (const c of ['git config --get include.path', 'git push --help', 'git commit -h', 'git config -h']) assert.ok(!isDeny(guard(cwd, c)), c);
 });
+
+test('rename-section is judged by both names', () => {
+  const cwd = tmpProject(ON);
+  for (const c of ['git config --rename-section foo alias', 'git config rename-section x include', 'git config --rename-section alias foo']) assert.ok(isDeny(guard(cwd, c)), c);
+  assert.ok(!isDeny(guard(cwd, 'git config --rename-section foo bar')));
+});

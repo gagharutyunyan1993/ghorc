@@ -216,6 +216,34 @@ It prints `config: <path>`, any `ERROR:` lines (invalid JSON, unknown key, wrong
 denies as above; an unknown key alone prints `config warning:` and denies nothing. Validation results are cached by
 file mtime and size in `<tmp>/ghorc-<user>/config-valid.json`.
 
+## agent-guard.cjs
+
+PreToolUse on `Agent|Task`, for the lead only (no `agent_id`, `GHORC_ROLE` not `worker`), in a project with
+`.claude/ghorc.json`, while `agentGuard.enabled` is true (the default). It denies:
+
+- `subagent_type` `Explore`, `Plan` or `general-purpose`, unless the project defines its own agent of that name in
+  `.claude/agents/<name>.md` (`/ghorc:setup` item `explore` writes a Haiku `Explore`). The guide: "the built-in Explore
+  subagent runs on your session's model"; `Plan` and `general-purpose` inherit it too, so their reading costs the
+  lead's Opus or Fable rates. The reason names `ghorc:scout` and `ghorc:log-reader`.
+- A call without `model`. A role without a model in its frontmatter (the methodology-toolkit agents, a project agent)
+  runs on the lead's model; the call's `model` outranks the frontmatter, so the lead passes it from the Routing table.
+
+A missing `effort` is not denied. Subagents, workers and projects without a config are never judged.
+
+## agent-guard.cjs
+
+PreToolUse on `Agent|Task`, for the lead only (no `agent_id`, `GHORC_ROLE` not `worker`), in a project with
+`.claude/ghorc.json`, while `agentGuard.enabled` is true (the default). It denies:
+
+- `subagent_type` `Explore`, `Plan` or `general-purpose`, unless the project defines its own agent of that name in
+  `.claude/agents/<name>.md` (`/ghorc:setup` item `explore` writes a Haiku `Explore`). The guide: "the built-in Explore
+  subagent runs on your session's model"; `Plan` and `general-purpose` inherit it too, so their reading costs the
+  lead's Opus or Fable rates. The reason names `ghorc:scout` and `ghorc:log-reader`.
+- A call without `model`. A role without a model in its frontmatter (the methodology-toolkit agents, a project agent)
+  runs on the lead's model; the call's `model` outranks the frontmatter, so the lead passes it from the Routing table.
+
+A missing `effort` is not denied. Subagents, workers and projects without a config are never judged.
+
 ## context-guard.cjs
 
 **When it fires.** SessionStart (matcher `compact`), UserPromptSubmit, PreToolUse on every tool, and Stop; for the lead

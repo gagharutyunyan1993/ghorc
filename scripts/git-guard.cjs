@@ -154,7 +154,9 @@ function configRule(args) {
   const verb = pos.length && CFG_VERBS.has(pos[0]) ? pos.shift() : null;
   const key = String(pos[0] || '').toLowerCase();
   if (sectionOp || verb === 'remove-section' || verb === 'rename-section') {
-    return ['core', 'alias', 'include', 'includeif'].includes(key.split('.')[0]) ? 'config' : null;
+    // both names: renaming a harmless section to alias or include creates guarded keys
+    const guardedSection = (n) => ['core', 'alias', 'include', 'includeif'].includes(String(n || '').toLowerCase().split('.')[0]);
+    return guardedSection(key) || guardedSection(pos[1]) ? 'config' : null;
   }
   if (read || !guardedKey(key)) return null;
   const write = flagWrite || (verb !== null && CFG_WRITE_VERBS.has(verb)) || pos[1] !== undefined;

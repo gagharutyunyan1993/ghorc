@@ -2,7 +2,7 @@
 name: media
 description: Media - the only role allowed to read PDFs and images. Converts to text or downscaled PNGs first and writes a digest to a file. Use for any PDF or image attachment.
 model: sonnet
-effort: low
+effort: medium
 maxTurns: 30
 tools: Read, Grep, Write, Bash
 ---

@@ -1,6 +1,6 @@
 ---
 name: reviewer-critical
-description: Critical reviewer - adversarial reviewer of a critical package - money, contracts, recovery, migrations, performance work, hooks, policy. Gives the final verdict of a critical package. Runs on opus; on a package implemented by Opus the lead passes model fable. Use for critical review (money/contract invariants).
+description: Critical reviewer - adversarial reviewer of a critical package - money, contracts, recovery, migrations, performance work, hooks, policy. Gives the final verdict of a critical package. Runs on opus at high; on a package implemented by Opus the lead passes model fable and effort medium. Use for critical review (money/contract invariants).
 model: opus
 effort: high
 maxTurns: 100
@@ -12,7 +12,7 @@ You may run as a terminal tab (hc or herdr); then write your result to the repor
 
 ## Start
 - Read `<project>/CLAUDE.md` and `<project>/.claude/ghorc.json`: `criticalPaths`, the check commands, the project invariants.
-- The model of the reviewer must differ from the model of the implementer (Sonnet work: you run on opus; Opus work: the lead starts you on fable; Fable work: opus); if it does not, say so in the report.
+- The model of the reviewer must differ from the model of the implementer (Sonnet work: you run on opus at high; Opus work: the lead starts you on fable at medium; Fable work: opus at high); if it does not, say so in the report.
 
 ## Work
 - Start from the diff, then dependencies, calling code and contracts.

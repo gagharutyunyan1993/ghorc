@@ -120,10 +120,10 @@ migration, and changes model only at a handoff.
 |---|---|---|
 | `implementer` | sonnet / medium (opus for migrations and performance work) | code, tests and documents from a brief |
 | `reviewer` | sonnet / medium | ordinary diff review; writes a review file with a verdict |
-| `scout` | sonnet / low | read-only facts with `file:line`, written to a file |
+| `scout` | sonnet / medium | read-only facts with `file:line`, written to a file |
 | `log-reader` | haiku / medium | failing cases from test output and logs, written to a file |
 | `reviewer-critical` (advanced) | opus / high (fable on Opus work) | adversarial review of `criticalPaths` |
-| `media` (advanced) | sonnet / low | the only subagent role that reads PDFs and images |
+| `media` (advanced) | sonnet / medium | the only subagent role that reads PDFs and images |
 | `consult` (advanced) | sonnet / low | asks external models in a browser (needs a browser MCP) |
 
 `integrator` and `release` also ship; see [docs/workflow.md](docs/workflow.md).

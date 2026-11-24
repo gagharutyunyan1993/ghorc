@@ -34,7 +34,7 @@ The same structure for every role; the question changes, not the form. An ordina
 - On a critical package, write the pre-mortem first (at most 3 ways it could pass review and still be wrong) and turn each into a check in `<steps>`.
 - Agents read `<project>/CLAUDE.md` and the config themselves; do not retell them in the brief.
 - Reports, scratch and large outputs go to `<project>/.claude/ghorc-out/` (setup git-excludes it); name it in `<report_back>`.
-- A critical reviewer's model must differ from the implementer's (ordinary review stays Sonnet whatever the implementer ran on); when the default would be equal, pass `model` on the Agent call and say so in `<context>` (Opus work: the critical reviewer runs on `fable`).
+- A critical reviewer's model must differ from the implementer's (ordinary review stays Sonnet whatever the implementer ran on); when the default would be equal, pass `model` and `effort` on the Agent call and say so in `<context>` (Opus work: the critical reviewer runs on `fable` at `medium`, never at the frontmatter's `high`).
 - A `ghorc:log-reader` brief is three lines: the log path(s), the result file path and the name for the last line. No question about causes, because the role copies failures and does not diagnose.
 
 ## Template 1. Implementer (`ghorc:implementer`, medium or high)
@@ -74,7 +74,7 @@ SHA; behavior change; acceptance map (one line per acceptance item, PASS/FAIL/UN
 </report_back>
 ```
 
-## Template 2. Critical reviewer (`ghorc:reviewer-critical`, high, round 1)
+## Template 2. Critical reviewer (`ghorc:reviewer-critical`, round 1; effort from the Routing table: opus / high, fable / medium)
 ```
 <role>You are the adversarial reviewer of <ID>. You do not change product files and you spawn no subagents.</role>
 
@@ -119,7 +119,7 @@ All substantiated findings go to the review file <path under .claude/ghorc-out/>
 
 <read_first>Input: <specific files or data>.</read_first>
 
-<you_own>Result: <format, or the allowed diff / output file path>.</you_own>
+<you_own>Result: <a data or output file path and its format>; never a diff to code, because Haiku does not edit code (a change to a non-code file only when a command checks it).</you_own>
 
 <steps>
 1. Do: <an unambiguous operation>.

@@ -1296,3 +1296,13 @@ test('NOWAIT: workers working and no background wait in the Stop input: one bloc
   const w = project();
   assert.equal(mon(w, 'Stop', { GHORC_CAPACITY_HERDR_JSON: hdr([agent('a1-implementer', 'idle', w.cwd)]) }, none).out.trim(), '');
 });
+
+test('corrected form: model and effort come from the role in the name, never a blanket opus', () => {
+  const p = project();
+  const fix = (name) => reasonOf(pre(p, START(name, `-n ${name} ${PERM}`)));
+  assert.match(fix('a-reviewer'), /Corrected form: .*--model sonnet .*--effort medium/);
+  assert.match(fix('a-reviewer-critical'), /--model opus .*--effort high/);
+  assert.match(fix('a-log-reader'), /--model haiku .*--effort medium/);
+  assert.match(fix('a-consult'), /--model sonnet .*--effort low/);
+  assert.match(fix('lead-next'), /--model opus .*--effort medium/);
+});

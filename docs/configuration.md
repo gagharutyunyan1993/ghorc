@@ -201,6 +201,14 @@ description) under the roles table of the CLAUDE.md section. Those roles take pr
 the same purpose; the lead launches them by name with explicit `model` and `effort`, and the critical reviewer may be
 the project's own role at opus / high (fable / medium on work implemented by Opus). Without `.claude/agents/` nothing changes.
 
+### agentGuard
+`enabled` (true): the agent guard ([hooks.md](hooks.md#agent-guardcjs)) denies the lead the built-in `Explore`, `Plan` and
+`general-purpose` agents and any Agent call without `model`. `false` turns it off.
+
+### agentGuard
+`enabled` (true): the agent guard ([hooks.md](hooks.md#agent-guardcjs)) denies the lead the built-in `Explore`, `Plan` and
+`general-purpose` agents and any Agent call without `model`. `false` turns it off.
+
 ### capacity
 The capacity guard (`scripts/capacity-guard.cjs`, [hooks.md](hooks.md#capacity-guardcjs)) keeps an idle lead working.
 Off by default. `enabled` (false): switch the hook on. `agents` (3): the ceiling; Stop demands more work while the

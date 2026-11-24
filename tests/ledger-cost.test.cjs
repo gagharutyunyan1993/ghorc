@@ -125,7 +125,7 @@ test('report: estimated cost line, per-role cost, --json totals', () => {
   assert.equal(j.roles[0].costMedian, 0.5);
   assert.equal(j.roles[0].costTotal, 1);
   const text = report(dir).out;
-  assert.match(text, /ghorc:implementer: calls=4 .* model mismatch 0% cost med=\$0\.5000 total=\$1\.00/);
+  assert.match(text, /ghorc:implementer opus\/high: calls=4.* model mismatch 0% cost med=\$0\.5000 total=\$1\.00/);
   assert.match(text, new RegExp(`estimated cost: \\$1\\.00 at list prices as of ${PRICES_AS_OF} \\(2 calls priced, 1 without a price\\)`));
 });
 

@@ -114,5 +114,8 @@
     "freeRetries": 1,
     "hardCap": 3,
     "windowHours": 24
+  },
+  "agentGuard": {
+    "enabled": true
   }
 }

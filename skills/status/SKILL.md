@@ -40,4 +40,4 @@ Cause codes:
 - `REASONING_FAILURE`: the brief was complete and the agent reasoned wrong (the only cause that raises effort as a correction).
 - `OTHER`: none of the above (network, out of memory, wrong command; never raises effort).
 - `CASCADE`: a planned re-run of a package that failed its deterministic check at low effort in a cascade batch; it
-  goes one step up as a planned step, not a correction, and is left out of the first-round ACCEPT rate.
+  goes to high as a planned step, not a correction, and is left out of the first-round ACCEPT rate.

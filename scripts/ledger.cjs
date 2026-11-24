@@ -5,7 +5,7 @@
 // `stop`    SubagentStop: totals from the agent transcript become a done line (matched to the launch by agentId),
 //           with an estimated cost at list prices (lib/prices.cjs).
 // `verdict` <pkg> <round> <ACCEPT|CHANGES_REQUIRED> [cause] [--class critical|ordinary]: appends a verdict line.
-// `report`  [--since <ISO>] [--json]: per-role, per-class and per-package aggregates.
+// `report`  [--since <ISO>] [--json]: per role x model x effort, per-class and per-package aggregates.
 const fs = require('node:fs');
 const path = require('node:path');
 const { readStdin, parseInput } = require('./lib/hook-io.cjs');
@@ -243,14 +243,19 @@ function compute(lines) {
         ? { ...c, tokens: d.tokens.total, ms: d.ms, tools: d.tools, cost: numOrNull(d.cost), unpriced: numOrNull(d.unpriced) || 0 }
         : c;
     });
+  // one row per role, requested model and effort: an implementer on sonnet/low and one on opus/medium are different rows,
+  // so a routing change compares like with like
   const byRole = {};
-  for (const c of calls) (byRole[c.role || 'agent'] ||= []).push(c);
+  for (const c of calls) (byRole[[c.role || 'agent', c.modelReq || '-', c.effortReq || '-'].join(' ')] ||= []).push(c);
   const roles = Object.entries(byRole)
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([role, cs]) => {
+    .map(([key, cs]) => {
+      const [role, model, effort] = key.split(' ');
       const withRes = cs.filter((c) => c.modelReq && c.modelRes);
       return {
         role,
+        model,
+        effort,
         calls: cs.length,
         tokensMedian: quantile(cs.map((c) => c.tokens), 0.5),
         tokensQ3: quantile(cs.map((c) => c.tokens), 0.75),
@@ -309,7 +314,7 @@ function format(r) {
   const out = [`calls: ${r.calls}`];
   for (const x of r.roles) {
     out.push(
-      `${x.role}: calls=${x.calls} tokens med=${f0(x.tokensMedian)} q3=${f0(x.tokensQ3)} ms med=${f0(x.msMedian)} q3=${f0(x.msQ3)} tools mean=${f1(x.toolsMean)} model mismatch ${pct(x.modelDiffShare)} cost med=${usd(x.costMedian, 4)} total=${usd(x.costTotal, 2)}`,
+      `${x.role} ${x.model}/${x.effort}: calls=${x.calls} tokens med=${f0(x.tokensMedian)} q3=${f0(x.tokensQ3)} ms med=${f0(x.msMedian)} q3=${f0(x.msQ3)} tools mean=${f1(x.toolsMean)} model mismatch ${pct(x.modelDiffShare)} cost med=${usd(x.costMedian, 4)} total=${usd(x.costTotal, 2)}`,
     );
   }
   out.push(

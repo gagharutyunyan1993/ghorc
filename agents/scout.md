@@ -2,7 +2,7 @@
 name: scout
 description: Scout - read-only agent: facts about code, documents and git history with exact file:line, result written to a file. Use before writing a brief, to learn what exists without changing it.
 model: sonnet
-effort: low
+effort: medium
 maxTurns: 40
 tools: Read, Grep, Glob, Bash, Write
 ---

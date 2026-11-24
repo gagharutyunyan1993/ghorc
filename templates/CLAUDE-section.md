@@ -11,11 +11,11 @@ optional: a plain main session is the lead.
 | `ghorc:implementer` | sonnet / medium (money, recovery - high; migrations, performance - opus / medium) | code, tests, documents from a brief |
 | `ghorc:reviewer` | sonnet / medium | ordinary diff review |
 | `ghorc:reviewer-critical` | opus / high (fable / medium on Opus work) | critical review, final verdict of a critical package |
-| `ghorc:scout` | sonnet / low | facts with `file:line` written to a file |
+| `ghorc:scout` | sonnet / medium | facts with `file:line` written to a file |
 | `ghorc:integrator` | sonnet / medium | merge conflicts, red checks |
 | `ghorc:release` | sonnet / medium | release, only on the owner's word |
 | `ghorc:consult` | sonnet / low | consultations with external models |
-| `ghorc:media` | sonnet / low | the only role for PDFs and images |
+| `ghorc:media` | sonnet / medium | the only role for PDFs and images |
 | `ghorc:log-reader` | haiku / medium | failing cases from test output and logs |
 
 Project roles: if `.claude/agents/*.md` exist, they take precedence over the plugin roles above for the same purpose;

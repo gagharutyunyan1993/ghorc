@@ -40,12 +40,12 @@ Tool sets: **edit** = Read, Edit, Write, Grep, Glob, Bash; **review** = Read, Gr
 |---|---|---|---|---|
 | `ghorc:implementer` | sonnet / medium | 120 | edit | code, tests, documents from a brief |
 | `ghorc:reviewer` | sonnet / medium | 100 | review | ordinary diff review; writes only the review file |
-| `ghorc:scout` | sonnet / low | 40 | review | read-only facts with `file:line`, into a file |
+| `ghorc:scout` | sonnet / medium | 40 | review | read-only facts with `file:line`, into a file |
 | `ghorc:reviewer-critical` | opus / high (fable / medium on Opus work) | 100 | review | adversarial review: money, contracts, migrations, hooks, policy |
 | `ghorc:integrator` | sonnet / medium | 100 | edit | merge conflicts, red checks on an accepted branch |
 | `ghorc:release` | sonnet / medium | 100 | edit | version, changelog, tag; only on the owner's word |
 | `ghorc:consult` | sonnet / low | 60 | Read, Write, Bash, browser MCP | asks external models in a browser |
-| `ghorc:media` | sonnet / low | 30 | Read, Grep, Write, Bash | the only subagent role that reads PDFs and images |
+| `ghorc:media` | sonnet / medium | 30 | Read, Grep, Write, Bash | the only subagent role that reads PDFs and images |
 | `ghorc:log-reader` | haiku / medium | 30 | Read, Grep, Glob, Write | failing cases from test output and logs, into a file |
 
 The first three are the core set; the others are for projects that need them. Browser MCP for `ghorc:consult`:
@@ -108,7 +108,7 @@ agents are namespaced by Claude Code, so they cannot collide with your own.
     report quotes that SHA; if incomplete, find the cause first and restart only the failed phase.
 17. Review limit is 2 fix rounds (`review.maxFixRounds`), then a cheap closure check, not a full re-review: input is the
     basis of each taken finding, the fix diff, the surrounding code and the test; output is closed or not closed with
-    evidence per finding plus a scan of the fix diff for new P0/P1 (Sonnet/low, a critical package Opus/high). A full
+    evidence per finding plus a scan of the fix diff for new P0/P1 (the same reviewer on an ordinary package; on a critical package the critical reviewer's model at medium). A full
     re-review only when the fixes went beyond the findings and changed behaviour. P0/P1 open after round 2: blocked,
     the lead narrows the task. A second `CHANGES_REQUIRED` means the lead rewrites the task instead of resending it.
 18. There is no sub-lead. Inside a terminal backend (hc or herdr) every package, review and the integrator run as a tab with a report file;
@@ -128,7 +128,7 @@ Routing table of skill `ghorc:lead`. In short:
 
 | Effort | Use for |
 |---|---|
-| low | edits by a pattern, scouting, attachments, browser consultation; the first pass of a cascade |
+| low | edits by a pattern, browser consultation; the first pass of a cascade |
 | medium | everything routine; the start of every Opus and Fable call and of Haiku |
 | high | money and recovery on Sonnet, critical review on Opus, a named move-up condition |
 | xhigh / max | not used; past high, the next model up at medium |
@@ -145,7 +145,7 @@ fix the brief, same effort), `SKIPPED_CHECK` (the agent skipped a check it could
 effort), `REASONING_FAILURE` (the brief was complete; next implementer call one step up). A second CHANGES_REQUIRED
 changes the task statement or splits it. `OTHER` (environment, flaky check, owner change) never changes effort;
 `CASCADE` marks the planned re-run of a cascade failure (a batch with a deterministic check runs at low first and
-re-runs only the failures one step up). The cause is required on CHANGES_REQUIRED and absent on ACCEPT; the verdict
+re-runs only the failures at high). The cause is required on CHANGES_REQUIRED and absent on ACCEPT; the verdict
 command takes an optional `--class critical|ordinary`. A network failure, out of memory or a wrong command never
 raises effort. The lead records the verdict with `/ghorc:status --verdict <pkg> <round> <verdict> <cause>`.
 
