@@ -245,14 +245,24 @@ test('P2-1: when the root lookup timed out in git, run and status warn on stderr
   fs.writeFileSync(path.join(main, '.claude', 'ghorc.json'), JSON.stringify({ heavySlots: { slots: 1 } }));
   const linked = mkTmp('ghorc-linked-');
   assert.equal(git(main, 'worktree', 'add', '-q', linked, '-b', 'linked-t').status, 0);
-  const env = { CLAUDE_PROJECT_DIR: '', GHORC_HOOK_GIT_TIMEOUT_MS: '1' }; // git cannot answer in 1 ms
+  // A real git can answer within 1 ms on a fast Linux runner, so off Windows a fake git that hangs comes first on PATH
+  // (exec: the timeout kills the sleep itself, nothing keeps the pipes open). On Windows spawnSync finds only git.exe,
+  // and starting a process there always takes longer than 1 ms.
+  let env = { CLAUDE_PROJECT_DIR: '', GHORC_HOOK_GIT_TIMEOUT_MS: '1' };
+  if (process.platform !== 'win32') {
+    const bin = mkTmp('ghorc-fakegit-');
+    fs.writeFileSync(path.join(bin, 'git'), '#!/bin/sh\nexec sleep 30\n', { mode: 0o755 });
+    env = { CLAUDE_PROJECT_DIR: '', GHORC_HOOK_GIT_TIMEOUT_MS: '200', PATH: `${bin}${path.delimiter}${process.env.PATH}` };
+  }
+  const ms = env.GHORC_HOOK_GIT_TIMEOUT_MS;
+  const warn = new RegExp(`warning: git did not answer within ${ms} ms`);
   const st = w.wrap(['status'], { cwd: linked, env });
   assert.equal(st.status, 0, st.stderr);
   assert.match(st.stdout, /heavy slots: off/, 'the lookup missed the config of the main checkout');
-  assert.match(st.stderr, /warning: git did not answer within 1 ms/);
+  assert.match(st.stderr, warn);
   const r = w.wrap(['run', ...exitNode(7)], { cwd: linked, env });
   assert.equal(r.status, 7, 'the command ran and its exit code is passed');
-  assert.match(r.stderr, /warning: git did not answer within 1 ms/);
+  assert.match(r.stderr, warn);
   // no timeout: no warning
   const ok = w.wrap(['run', ...exitNode(0)], { cwd: linked, env: { CLAUDE_PROJECT_DIR: '' } });
   assert.equal(ok.status, 0, ok.stderr);
