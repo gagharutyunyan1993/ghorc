@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.11.2 - 2026-11-25
+
+### Added
+- `/ghorc:setup` item `leadTabClose` (warning item and owner decision, never part of `all`): asks who closes the old
+  lead's tab after a handoff. `--apply leadTabClose --closer <lead|owner>` writes `handoff.allowSendKeysExit` (true for
+  `lead`, false for `owner`, the default). Until `lead` is chosen the check row says the owner closes the tab and shows
+  the command that lets the new lead do it.
+
+### Fixed
+- The lead skill said the old lead closes itself in the handoff flow, which contradicts the handoff skill: the old lead
+  cannot run `/exit`, so the new lead closes the old tab when `handoff.allowSendKeysExit` is true, otherwise the owner.
+- With `handoff.allowSendKeysExit` false the new lead now says once, right after activation, which tab is idle and
+  waiting to be closed, and that `leadTabClose` lets it close the tab from the next handoff on.
+- `docs/configuration.md` described `allowSendKeysExit` for herdr only; it now covers hc (`hc kill` and `hc rm`) and
+  states why the default is false: a standing permission for one session to end another, and on hc closing the old
+  lead also kills its children started without `--outlive-parent`.
+
 ## 0.11.1 - 2026-11-25
 
 ### Fixed
