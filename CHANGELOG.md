@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.11.1 - 2026-11-25
 
 ### Fixed
 - `/ghorc:setup` item `statusLineStale` recognised a stale status line only under `~/.claude/plugins/`; a plugin cache
