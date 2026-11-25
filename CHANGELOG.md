@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.11.0 - 2026-11-25
 
 Models and effort re-derived from Anthropic's guide "Which Claude model should you build with?" (Nov 2026).
 
