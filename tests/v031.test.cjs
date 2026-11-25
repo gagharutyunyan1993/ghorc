@@ -52,9 +52,12 @@ test('root rule: statusline writes the ctx file under CLAUDE_PROJECT_DIR like ct
   }
 });
 
-test('setup: statusLine pointing to an older plugin cache version is flagged and fixed', () => {
+// the plugin cache may live in any config dir: ~/.claude, a second profile such as ~/.claude-work, CLAUDE_CONFIG_DIR
+for (const configDir of ['.claude', '.claude-work'])
+test(`setup: statusLine pointing to an older plugin cache version is flagged and fixed (${configDir})`, () => {
   const home = mk('ghorc-v031-home-');
-  const cache = path.join(home, '.claude', 'plugins', 'cache', 'm', 'ghorc');
+  fs.mkdirSync(path.join(home, '.claude'), { recursive: true });
+  const cache = path.join(home, configDir, 'plugins', 'cache', 'm', 'ghorc');
   const proj = tmpProject();
   try {
     const cur = path.join(cache, '0.3.1');
