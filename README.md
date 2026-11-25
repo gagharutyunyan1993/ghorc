@@ -55,7 +55,8 @@ from its own marketplace, keep one copy: two copies of one plugin load, but only
 `/ghorc:setup` asks you how tab workers and candidate leads start: `bypass` (no permission prompts; ghorc's hooks still
 deny), `acceptEdits` or `prompts` (the default until you choose; an unattended tab then stops on each prompt). The
 answer goes to `worker.permissionArgs` and `handoff.candidatePermissionArgs`
-([configuration](docs/configuration.md#worker)).
+([configuration](docs/configuration.md#worker)). It also asks who closes the old lead's tab after a handoff, the new
+lead or you (the default); the answer goes to `handoff.allowSendKeysExit`.
 
 ghorc installs for all projects but does nothing in a project until it has `.claude/ghorc.json`: no hook denies or
 reminds there, and the status line writes no files into it. Then, in a session inside your project, run

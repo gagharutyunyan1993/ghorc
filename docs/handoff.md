@@ -107,8 +107,13 @@ herdr agent read lead-next
    `seq`. It then waits until `herdr agent get` shows the old lead finished, reads the last owner message there with
    `herdr agent read`, answers every `unanswered_owner_messages` item, collects every `in_flight` item, and verifies
    SHA, branch and processes itself: READY is a report, not proof.
-6. **Closing the old tab** (mandatory and verified when `handoff.allowSendKeysExit` is `true`; otherwise the owner closes
-   it): right after ACTIVATE the new lead runs `herdr agent wait <old agent> --until idle --until done --until blocked --timeout 60000`, then
+6. **Closing the old tab** (mandatory and verified when `handoff.allowSendKeysExit` is `true` or the owner's standing
+   permission is recorded in STATE; otherwise the owner closes it, and the new lead, once, after the wait in step 5
+   shows the old lead finished, tells the owner in one line which tab is idle and waiting to be closed (herdr: the old
+   lead's agent name or pane id; hc: its terminal name) and that `/ghorc:setup` item `leadTabClose` lets the new lead
+   close it from the next handoff on; the old lead still prints only `HANDOFF SENT - STOP`): when it may close, right
+   after ACTIVATE the new lead runs
+   `herdr agent wait <old agent> --until idle --until done --until blocked --timeout 60000`, then
    `MSYS_NO_PATHCONV=1 herdr pane run <old_pane_id> "/exit"`, then checks that the pane is gone from `herdr pane list`.
    Git Bash turns a slash command into a path (`/exit` becomes `C:/Program Files/Git/exit`), so every `herdr pane run` or
    `send-keys` with a slash command carries `MSYS_NO_PATHCONV=1` (or runs from PowerShell).
@@ -129,7 +134,8 @@ herdr agent read lead-next
 Set once in the project config and only read by the skill:
 
 - `handoff.allowSendKeysExit` (`false`): when `true`, the new lead closes the old tab itself (step 6: `/exit` through
-  `herdr pane run`); otherwise the owner does it.
+  `herdr pane run`, or `hc kill` and `hc rm` on `hc`); otherwise the owner does it (or the standing permission
+  recorded in STATE, below). The owner chooses at `/ghorc:setup` (item `leadTabClose`), which asks once.
 - `handoff.candidatePermissionArgs` (`[]`): permission-mode arguments for the candidate, chosen by the owner at `/ghorc:setup`
   (item `permissions`). `[]` means default permissions, and the candidate may then wait on a prompt.
 - The new lead closes the old tab only with `allowSendKeysExit` `true` (the owner's word in the config) or the owner's word recorded in STATE.
