@@ -237,6 +237,7 @@ not the conversation. While a background `full` runs, the lead waits for the not
 | `heavy` (warning) | `<project>/.claude/ghorc.json` | proposed `heavyCommands` from `package.json` scripts |
 | `watchdog` (warning) | `<project>/.claude/ghorc.json` | `watchdog.autostart` = `true`, only if you want it |
 | `permissions` (warning, owner decision) | `<project>/.claude/ghorc.json` | `worker.permissionArgs` and `handoff.candidatePermissionArgs` from `--mode <bypass\|acceptEdits\|prompts>`; the owner answers, `--apply all` never picks |
+| `leadTabClose` (warning, owner decision) | `<project>/.claude/ghorc.json` | `handoff.allowSendKeysExit` from `--closer <lead\|owner>`: whether the new lead closes the old lead tab after a handoff (`lead`) or the owner does (`owner`, the default); `--apply all` never picks |
 | `bypassPrompt` (warning, owner decision) | `~/.claude/settings.json` | `skipDangerousModePermissionPrompt` = `true`, so the first worker started in bypassPermissions does not stop on the one-time warning |
 | `explore` (warning) | `<project>/.claude/agents/Explore.md` | a project `Explore` agent on `haiku` (from `templates/Explore.md`); the built-in one runs on the lead's model. An existing file is left as it is |
 

@@ -111,6 +111,9 @@ const PERMISSION_MODES = {
   prompts: [],
 };
 
+// --apply leadTabClose --closer <name>: the value written to handoff.allowSendKeysExit (who closes the old lead tab).
+const TAB_CLOSERS = { lead: true, owner: false };
+
 function readJson(file) {
   try {
     return JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -439,6 +442,26 @@ function check(cwd, opts = {}) {
     ok: permChosen,
     writeAnyway: true, // a named apply with a --mode always writes it: the owner may change the choice
   });
+  // Who closes the old lead's tab after a handoff is the owner's choice, asked at setup: the default stays the owner.
+  const closeEff = (projAll.handoff && projAll.handoff.allowSendKeysExit) ?? (tplAll.handoff && tplAll.handoff.allowSendKeysExit);
+  const leadCloses = closeEff === true;
+  add({
+    id: 'leadTabClose',
+    scope: 'project',
+    warn: true,
+    applicable: true,
+    owner: true,
+    what: `${path.join(root, '.claude', 'ghorc.json')}: handoff.allowSendKeysExit`,
+    current: leadCloses
+      ? 'the new lead closes the old lead tab after a handoff'
+      : 'the owner closes the old lead tab after each handoff (handoff.allowSendKeysExit false)',
+    recommended: leadCloses
+      ? 'the new lead closes the old lead tab after a handoff'
+      : 'ask the owner; to let the new lead close it: --apply leadTabClose --closer lead',
+    why: 'lead: a standing permission for the new lead to end the old lead session once it is idle and the handoff is sent (herdr: /exit through herdr pane run; hc: hc kill and hc rm, which also kills children of the old lead started without --outlive-parent); owner (default): the old tab stays open after every handoff until the owner closes it',
+    ok: leadCloses,
+    writeAnyway: true, // a named apply with a --closer always writes it: the owner may change the choice
+  });
   // A bypass start shows a one-time warning dialog that would block an unattended tab; accepting it once sets this user key.
   const bypassArgs = opts.permMode
     ? PERMISSION_MODES[opts.permMode].join(' ')
@@ -587,6 +610,9 @@ function apply(cwd, ids, opts = {}) {
   if (ids.includes('permissions') && !Object.hasOwn(PERMISSION_MODES, String(permMode))) {
     throw new Error(`permissions needs --mode <${Object.keys(PERMISSION_MODES).join('|')}> (the owner's choice)`);
   }
+  if (ids.includes('leadTabClose') && !Object.hasOwn(TAB_CLOSERS, String(opts.closer))) {
+    throw new Error(`leadTabClose needs --closer <${Object.keys(TAB_CLOSERS).join('|')}> (the owner's choice)`);
+  }
   const c = check(cwd, { ...opts, permMode });
   const want = new Set(ids.includes('all') ? c.items.filter((i) => !i.warn).map((i) => i.id) : ids);
   const unknown = [...want].filter((id) => !c.items.some((i) => i.id === id));
@@ -596,7 +622,7 @@ function apply(cwd, ids, opts = {}) {
   const userItems = todo.filter((i) => i.scope === 'user');
   if (userItems.length) {
     if (c.settingsError) throw new Error(`${c.settingsFile}: ${c.settingsError}; fix it by hand first`);
-    if (c.settingsWarning) throw new Error(`${c.settingsWarning}; fix it by hand, or apply only project items (pct, config, claudemd, exclude, heavy, watchdog, explore, permissions)`);
+    if (c.settingsWarning) throw new Error(`${c.settingsWarning}; fix it by hand, or apply only project items (pct, config, claudemd, exclude, heavy, watchdog, explore, permissions, leadTabClose)`);
     const exists = fs.existsSync(c.settingsFile);
     const settings = exists ? readJson(c.settingsFile) : {};
     if (exists) {
@@ -700,6 +726,12 @@ function apply(cwd, ids, opts = {}) {
         o.handoff.candidatePermissionArgs = [...args];
       });
       diff.push(`+ ${dst}: worker.permissionArgs and handoff.candidatePermissionArgs = ${JSON.stringify(args)} (${permMode})`);
+    } else if (it.id === 'leadTabClose') {
+      const dst = editProjectConfig(c.root, (o) => {
+        o.handoff = o.handoff && typeof o.handoff === 'object' ? o.handoff : {};
+        o.handoff.allowSendKeysExit = TAB_CLOSERS[opts.closer];
+      });
+      diff.push(`+ ${dst}: handoff.allowSendKeysExit = ${TAB_CLOSERS[opts.closer]} (${opts.closer} closes the old lead tab)`);
     } else if (it.id === 'watchdog') {
       const dst = editProjectConfig(c.root, (o) => {
         o.watchdog = o.watchdog && typeof o.watchdog === 'object' ? o.watchdog : {};
@@ -786,12 +818,12 @@ if (require.main === module) {
   if (args.includes('--help') || (!args.includes('--check') && !args.includes('--apply') && !args.includes('--restore'))) {
     console.log(
       'setup.cjs --check [--project] [--cwd <dir>]: report each setup item (scope, current -> recommended, why) as human lines plus a final JSON line. ' +
-        'Items marked WARN (heavy, watchdog, explore, permissions, bypassPrompt, effortGlobal, and the opt-in guards capacity, heavySlots, pushGuard, stickyOnCompact, gitGuard, ciRetry) never make the setup unclean and are applied only when named (not by "all"); ' +
+        'Items marked WARN (heavy, watchdog, explore, permissions, leadTabClose, bypassPrompt, effortGlobal, and the opt-in guards capacity, heavySlots, pushGuard, stickyOnCompact, gitGuard, ciRetry) never make the setup unclean and are applied only when named (not by "all"); ' +
         'heavy prints a proposed regex list from the package.json scripts (root and app/). --status adds the role, guards, watchdog and recent denials.\n' +
-        'setup.cjs --apply <all|statusLine,statusLineStale,pct,idle,model,effort,effortGlobal,permissions,bypassPrompt,config,claudemd,exclude,heavy,watchdog,explore,capacity,heavySlots,pushGuard,stickyOnCompact,gitGuard,ciRetry> [--mode <bypass|acceptEdits|prompts>] [--project] [--cwd <dir>]: apply the chosen items; ' +
+        'setup.cjs --apply <all|statusLine,statusLineStale,pct,idle,model,effort,effortGlobal,permissions,leadTabClose,bypassPrompt,config,claudemd,exclude,heavy,watchdog,explore,capacity,heavySlots,pushGuard,stickyOnCompact,gitGuard,ciRetry> [--mode <bypass|acceptEdits|prompts>] [--closer <lead|owner>] [--project] [--cwd <dir>]: apply the chosen items; ' +
         'backs up ~/.claude/settings.json first, touches only the listed keys and prints a diff. ' +
         'pct is written GLOBALLY (every project) unless --project, which writes <root>/.claude/settings.local.json instead. ' +
-        'model, effort, effortGlobal, permissions and bypassPrompt are owner-level decisions: name them only after the owner says yes; permissions needs --mode (bypass: no permission prompts in tab workers and candidate leads; acceptEdits; prompts: []). GHORC_HOME overrides the home directory. ' +
+        'model, effort, effortGlobal, permissions, leadTabClose and bypassPrompt are owner-level decisions: name them only after the owner says yes; permissions needs --mode (bypass: no permission prompts in tab workers and candidate leads; acceptEdits; prompts: []); leadTabClose needs --closer (lead: the new lead closes the old lead tab after a handoff; owner: the owner does, the default). GHORC_HOME overrides the home directory. ' +
         'Applying statusLine saves the replaced status line (once) in ~/.claude/ghorc-statusline-backup.json; ' +
         'setup.cjs --restore statusline puts it back (or removes the key when there was none) and deletes the backup. ' +
         '--check prints "statusline: ghorc (previous saved)", "ghorc", "other" or "none". ' +
@@ -811,7 +843,7 @@ if (require.main === module) {
         .map((s) => s.trim())
         .filter(Boolean);
       if (!list.length) throw new Error('--apply needs "all" or a comma-separated item list');
-      const r = apply(cwd, list, { project, mode: opt('--mode') });
+      const r = apply(cwd, list, { project, mode: opt('--mode'), closer: opt('--closer') });
       console.log(r.diff.length ? r.diff.join('\n') : 'nothing to change');
     }
     const c = check(cwd, { project });

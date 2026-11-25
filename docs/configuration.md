@@ -126,8 +126,11 @@ stop it with `node scripts/watchdog.cjs --stop`. `intervalSec` (30): poll period
 Alerts go to `<tmp>/ghorc-<user>/alerts-<root hash>.log`; `scripts/ctx.cjs --session <id>` shows unread ones.
 
 ### handoff
-Standing owner permissions for `/ghorc:handoff`. `allowSendKeysExit` (false): the new lead may send `/exit` to the old
-tab through herdr. `candidatePermissionArgs` (`[]`): permission-mode arguments for the candidate;
+Standing owner permissions for `/ghorc:handoff`. `allowSendKeysExit` (false): the new lead may close the old lead's
+tab (herdr: `/exit` through `herdr pane run`; hc: `hc kill` and `hc rm`); `/ghorc:setup` item `leadTabClose` sets it
+(`--apply leadTabClose --closer <lead|owner>`). It is off by default because it is a standing permission for one session
+to end another, and on hc closing the old lead also kills its children started without `--outlive-parent`.
+`candidatePermissionArgs` (`[]`): permission-mode arguments for the candidate;
 `[]` starts it with default permissions, `["--permission-mode", "acceptEdits"]` with edits only, `["--permission-mode",
 "bypassPermissions"]` without prompts. `readyTimeoutMin` (10): minutes the old lead waits for READY (polled every
 60 s). `statePath` and `handoffPath`: the STATE and HANDOFF files. `pushGuard` (false): in handoff mode the hook denies
