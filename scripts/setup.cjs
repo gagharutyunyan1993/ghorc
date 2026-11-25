@@ -442,9 +442,12 @@ function check(cwd, opts = {}) {
     ok: permChosen,
     writeAnyway: true, // a named apply with a --mode always writes it: the owner may change the choice
   });
-  // Who closes the old lead's tab after a handoff is the owner's choice, asked at setup: the default stays the owner.
-  const closeEff = (projAll.handoff && projAll.handoff.allowSendKeysExit) ?? (tplAll.handoff && tplAll.handoff.allowSendKeysExit);
-  const leadCloses = closeEff === true;
+  // Who closes the old lead's tab after a handoff is the owner's choice, asked once at setup: the project file's own
+  // value counts (true or false = chosen); a missing key is "not chosen" and the default stays the owner.
+  const ownH2 = projAll.handoff && typeof projAll.handoff === 'object' && !Array.isArray(projAll.handoff) ? projAll.handoff : {};
+  const closeVal = ownH2.allowSendKeysExit;
+  const closeChosen = typeof closeVal === 'boolean';
+  const closeAsk = 'ask the owner: --apply leadTabClose --closer <lead|owner>';
   add({
     id: 'leadTabClose',
     scope: 'project',
@@ -452,14 +455,16 @@ function check(cwd, opts = {}) {
     applicable: true,
     owner: true,
     what: `${path.join(root, '.claude', 'ghorc.json')}: handoff.allowSendKeysExit`,
-    current: leadCloses
-      ? 'the new lead closes the old lead tab after a handoff'
-      : 'the owner closes the old lead tab after each handoff (handoff.allowSendKeysExit false)',
-    recommended: leadCloses
-      ? 'the new lead closes the old lead tab after a handoff'
-      : 'ask the owner; to let the new lead close it: --apply leadTabClose --closer lead',
+    current: closeChosen
+      ? closeVal
+        ? 'the new lead closes the old lead tab after a handoff'
+        : 'the owner closes the old lead tab after a handoff (chosen)'
+      : closeVal === undefined
+        ? 'not chosen: the owner closes the old lead tab after each handoff (default)'
+        : `handoff.allowSendKeysExit is ${JSON.stringify(closeVal)}, not true or false`,
+    recommended: closeChosen ? (closeVal ? 'the new lead closes the old lead tab after a handoff' : 'the owner closes the old lead tab after a handoff (chosen)') : closeAsk,
     why: 'lead: a standing permission for the new lead to end the old lead session once it is idle and the handoff is sent (herdr: /exit through herdr pane run; hc: hc kill and hc rm, which also kills children of the old lead started without --outlive-parent); owner (default): the old tab stays open after every handoff until the owner closes it',
-    ok: leadCloses,
+    ok: closeChosen,
     writeAnyway: true, // a named apply with a --closer always writes it: the owner may change the choice
   });
   // A bypass start shows a one-time warning dialog that would block an unattended tab; accepting it once sets this user key.
@@ -728,7 +733,7 @@ function apply(cwd, ids, opts = {}) {
       diff.push(`+ ${dst}: worker.permissionArgs and handoff.candidatePermissionArgs = ${JSON.stringify(args)} (${permMode})`);
     } else if (it.id === 'leadTabClose') {
       const dst = editProjectConfig(c.root, (o) => {
-        o.handoff = o.handoff && typeof o.handoff === 'object' ? o.handoff : {};
+        o.handoff = o.handoff && typeof o.handoff === 'object' && !Array.isArray(o.handoff) ? o.handoff : {};
         o.handoff.allowSendKeysExit = TAB_CLOSERS[opts.closer];
       });
       diff.push(`+ ${dst}: handoff.allowSendKeysExit = ${TAB_CLOSERS[opts.closer]} (${opts.closer} closes the old lead tab)`);
@@ -823,7 +828,7 @@ if (require.main === module) {
         'setup.cjs --apply <all|statusLine,statusLineStale,pct,idle,model,effort,effortGlobal,permissions,leadTabClose,bypassPrompt,config,claudemd,exclude,heavy,watchdog,explore,capacity,heavySlots,pushGuard,stickyOnCompact,gitGuard,ciRetry> [--mode <bypass|acceptEdits|prompts>] [--closer <lead|owner>] [--project] [--cwd <dir>]: apply the chosen items; ' +
         'backs up ~/.claude/settings.json first, touches only the listed keys and prints a diff. ' +
         'pct is written GLOBALLY (every project) unless --project, which writes <root>/.claude/settings.local.json instead. ' +
-        'model, effort, effortGlobal, permissions, leadTabClose and bypassPrompt are owner-level decisions: name them only after the owner says yes; permissions needs --mode (bypass: no permission prompts in tab workers and candidate leads; acceptEdits; prompts: []); leadTabClose needs --closer (lead: the new lead closes the old lead tab after a handoff; owner: the owner does, the default). GHORC_HOME overrides the home directory. ' +
+        'model, effort, effortGlobal, permissions, leadTabClose and bypassPrompt are owner-level decisions: name them only after the owner says yes; permissions needs --mode (bypass: no permission prompts in tab workers and candidate leads; acceptEdits; prompts: []); leadTabClose needs --closer (lead: the new lead closes the old lead tab after a handoff; owner: the owner does, the default; the row is ok once either is chosen). GHORC_HOME overrides the home directory. ' +
         'Applying statusLine saves the replaced status line (once) in ~/.claude/ghorc-statusline-backup.json; ' +
         'setup.cjs --restore statusline puts it back (or removes the key when there was none) and deletes the backup. ' +
         '--check prints "statusline: ghorc (previous saved)", "ghorc", "other" or "none". ' +
