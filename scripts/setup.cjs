@@ -10,12 +10,12 @@ const { slotConfig } = require('./lib/slots.cjs');
 
 const PLUGIN_ROOT = path.join(__dirname, '..');
 const MARKER = '<!-- ghorc -->';
-const EXCLUDE_LINES = ['.claude/ctx-*.json', '.claude/ctx-*.tmp', '.claude/ghorc-out/'];
+const EXCLUDE_LINES = ['.claude/ghorc-out/']; // the ctx files live in the tmp dir since 0.11
 const cg = require('./lib/ctxguard.cjs');
 const { load } = require('./lib/config.cjs');
 
 // Autocompact must fire ABOVE ctxHandoff, or a compaction drops the counter before the context guard reacts.
-// Recommended: ctxHandoff + 35K tokens as a share of the window, rounded up (1M window: 19). A value that
+// Recommended: ctxHandoff + 35K tokens as a share of the window, rounded up (1M window: 30). A value that
 // compacts at or below ctxHandoff is wrong; one that compacts more than 50K above it is too late.
 const PCT_MARGIN = 35000;
 const PCT_MAX_OVER = 50000;
@@ -23,7 +23,7 @@ const WINDOW_DEFAULT = 1000000;
 
 // { recommended: '<pct>', ok(value) -> boolean, window }.
 function pctPlan(root) {
-  let handoff = 150000;
+  let handoff = 265000;
   try {
     handoff = cg.thresholds(load(root, { cli: true })).handoff;
   } catch {
@@ -34,7 +34,8 @@ function pctPlan(root) {
   return {
     window,
     handoff,
-    recommended: String(Math.ceil(((handoff + PCT_MARGIN) / window) * 100)),
+    // A window smaller than ctxHandoff + 35K (a 200K model) cannot hold the margin: cap at 95 and let `ok` say it is wrong.
+    recommended: String(Math.min(95, Math.ceil(((handoff + PCT_MARGIN) / window) * 100))),
     ok: (v) => v !== undefined && v !== null && Number.isFinite(Number(v)) && tokens(v) > handoff && tokens(v) <= handoff + PCT_MAX_OVER,
   };
 }
@@ -81,7 +82,34 @@ const GUARDS = [
       o.handoff.stickyOnCompact = true;
     },
   },
+  {
+    id: 'gitGuard',
+    key: 'git.guard',
+    why: 'denies --no-verify, force push, push to main/master or without an explicit branch, and hooksPath/alias config, in every session',
+    on: (sub) => sub('git').guard === true,
+    set: (o) => {
+      o.git = o.git && typeof o.git === 'object' ? o.git : {};
+      o.git.guard = true;
+    },
+  },
+  {
+    id: 'ciRetry',
+    key: 'ciRetry.enabled',
+    why: 'a CI restart beyond the free one needs a written reason, and a hard cap stops blind retries',
+    on: (sub) => sub('ciRetry').enabled === true,
+    set: (o) => {
+      o.ciRetry = o.ciRetry && typeof o.ciRetry === 'object' ? o.ciRetry : {};
+      o.ciRetry.enabled = true;
+    },
+  },
 ];
+
+// --apply permissions --mode <name>: the arguments written to worker.permissionArgs and handoff.candidatePermissionArgs.
+const PERMISSION_MODES = {
+  bypass: ['--permission-mode', 'bypassPermissions'],
+  acceptEdits: ['--permission-mode', 'acceptEdits'],
+  prompts: [],
+};
 
 function readJson(file) {
   try {
@@ -106,9 +134,13 @@ function leadDefaults(root) {
   return { ...(tpl.lead || {}), ...(proj.lead || {}) };
 }
 
-// lead.model alias -> full model id (the key of modelSettings); a full id passes through.
-function fullModelId(m) {
-  return { opus: "claude-opus-5-5", sonnet: "claude-sonnet-5-5", haiku: "claude-haiku-5-5" }[m] || m;
+// lead.model -> full model id (the key of modelSettings). A full id passes through; an alias (opus, sonnet, haiku,
+// fable) resolves to the id the newest ctx file of the project recorded for it, so no model version is pinned here and
+// a new model behind the alias is picked up by the next session. Null when no session has recorded the alias yet.
+function fullModelId(m, root) {
+  if (typeof m !== 'string' || !m) return null;
+  if (m.includes('-')) return m;
+  return cg.newestModelId(root, m);
 }
 
 function perModelEffort(settings, model) {
@@ -340,21 +372,89 @@ function check(cwd, opts = {}) {
     owner: true,
     what: `${settingsFile}: model`,
     current: settings.model ?? null,
-    recommended: lead.model ?? 'opus',
-    why: 'matches lead.model in ghorc.json (owner decision)',
-    ok: settings.model === (lead.model ?? 'opus'),
+    recommended: 'opus',
+    why: 'the global model is the model of every session on the machine (other projects, your own sessions, a worker started without --model); the lead starts with --model <lead.model>, so the global stays opus even for a Fable lead (owner decision)',
+    ok: settings.model === undefined || settings.model === 'opus',
   });
+  const leadAlias = lead.model ?? 'opus';
+  const leadId = fullModelId(leadAlias, root);
   add({
     id: 'effort',
     scope: 'user',
     owner: true,
-    what: `${settingsFile}: modelSettings.${fullModelId(lead.model ?? 'opus')}.effortLevel`,
-    current: perModelEffort(settings, fullModelId(lead.model ?? 'opus')) ?? null,
+    what: `${settingsFile}: modelSettings.${leadId || `<${leadAlias} id>`}.effortLevel`,
+    current: leadId ? perModelEffort(settings, leadId) ?? null : null,
     recommended: lead.effort ?? 'medium',
-    why: 'matches lead.effort in ghorc.json (owner decision); a missing top-level effortLevel is fine',
-    ok: effortOk(settings, fullModelId(lead.model ?? 'opus'), lead.effort ?? 'medium'),
+    why: leadId
+      ? 'matches lead.effort in ghorc.json (owner decision); a missing top-level effortLevel is fine'
+      : `matches lead.effort in ghorc.json (owner decision); the full id of ${leadAlias} is not known yet: run one session on it with the ghorc status line, then re-run setup`,
+    ok: effortOk(settings, leadId, lead.effort ?? 'medium'),
     // ok without a per-model value, but an explicit apply still writes it
-    writeAnyway: perModelEffort(settings, fullModelId(lead.model ?? 'opus')) !== (lead.effort ?? 'medium'),
+    writeAnyway: Boolean(leadId) && perModelEffort(settings, leadId) !== (lead.effort ?? 'medium'),
+  });
+
+  // Global effort that leaks into sessions and subagents with no explicit effort: a top-level effortLevel (it applies to every
+  // model without its own entry, Haiku included) and per-model values above medium for models other than the lead's.
+  const HIGH = new Set(['high', 'xhigh', 'max']);
+  const msAll = settings.modelSettings && typeof settings.modelSettings === 'object' ? settings.modelSettings : {};
+  const highOthers = Object.keys(msAll).filter((id) => id !== leadId && msAll[id] && HIGH.has(String(msAll[id].effortLevel)));
+  const leaks = [
+    ...(settings.effortLevel !== undefined ? [`effortLevel=${settings.effortLevel}`] : []),
+    ...highOthers.map((id) => `${id}=${msAll[id].effortLevel}`),
+  ];
+  add({
+    id: 'effortGlobal',
+    scope: 'user',
+    warn: true,
+    applicable: true,
+    owner: true,
+    what: `${settingsFile}: top-level effortLevel, modelSettings.<other models>.effortLevel`,
+    current: leaks.length ? leaks.join('; ') : 'none',
+    recommended: 'no top-level effortLevel; other models at medium (apply: --apply effortGlobal)',
+    why: 'every session and subagent that names no effort runs at these levels: a top-level value covers every model without its own entry (Haiku too), and high costs about 1.4 times medium (owner decision; ghorc passes effort on every call anyway)',
+    ok: leaks.length === 0,
+    highOthers,
+  });
+
+  // The permission mode of tab workers and candidate leads is the owner's choice, asked at setup: no default bypass.
+  const projAll = readJson(path.join(root, '.claude', 'ghorc.json')) || {};
+  const tplAll = readJson(path.join(PLUGIN_ROOT, 'scripts', 'lib', 'defaults.json')) || {};
+  const own = (k1, k2) => (projAll[k1] && Array.isArray(projAll[k1][k2]) ? projAll[k1][k2] : null);
+  const pick = (k1, k2) => own(k1, k2) || (tplAll[k1] && Array.isArray(tplAll[k1][k2]) ? tplAll[k1][k2] : []);
+  const modeOf = (a) => (a === null ? null : (Object.entries(PERMISSION_MODES).find(([, v]) => v.join(' ') === a.join(' ')) || ['custom'])[0]);
+  const ownW = own('worker', 'permissionArgs');
+  const ownH = own('handoff', 'candidatePermissionArgs');
+  const permChosen = ownW !== null || ownH !== null;
+  add({
+    id: 'permissions',
+    scope: 'project',
+    warn: true,
+    applicable: true,
+    owner: true,
+    what: `${path.join(root, '.claude', 'ghorc.json')}: worker.permissionArgs, handoff.candidatePermissionArgs`,
+    current: permChosen ? `workers ${modeOf(ownW) ?? 'prompts'}, candidate lead ${modeOf(ownH) ?? 'prompts'}` : 'not chosen (prompts)',
+    recommended: 'ask the owner, then --apply permissions --mode <bypass|acceptEdits|prompts>',
+    why: 'bypass: tab workers never wait on a permission prompt (ghorc hooks and deny rules still apply); acceptEdits: edits pass, other tools ask; prompts: every tool asks and an unattended tab stops until someone answers',
+    ok: permChosen,
+    writeAnyway: true, // a named apply with a --mode always writes it: the owner may change the choice
+  });
+  // A bypass start shows a one-time warning dialog that would block an unattended tab; accepting it once sets this user key.
+  const bypassArgs = opts.permMode
+    ? PERMISSION_MODES[opts.permMode].join(' ')
+    : [...pick('worker', 'permissionArgs'), ...pick('handoff', 'candidatePermissionArgs')].join(' ');
+  const usesBypass = /bypassPermissions|--dangerously-skip-permissions/.test(bypassArgs);
+  add({
+    id: 'bypassPrompt',
+    scope: 'user',
+    owner: true,
+    // A global safety-prompt suppression: never part of --apply all, only applied when named.
+    warn: true,
+    applicable: usesBypass,
+    what: `${settingsFile}: skipDangerousModePermissionPrompt`,
+    current: settings.skipDangerousModePermissionPrompt ?? null,
+    recommended: usesBypass ? true : 'not needed (no worker starts in bypassPermissions)',
+    why: 'workers and candidate leads start with --permission-mode bypassPermissions; without this key the first start in a tab stops on a one-time warning dialog (owner decision: it accepts that warning for every session)',
+    ok: !usesBypass || settings.skipDangerousModePermissionPrompt === true,
   });
 
   const cfgFile = path.join(root, '.claude', 'ghorc.json');
@@ -369,7 +469,7 @@ function check(cwd, opts = {}) {
   });
   const mdFile = path.join(root, 'CLAUDE.md');
   const md = readText(mdFile);
-  const roles = projectRoles(root);
+  const roles = projectRoles(root).filter((r) => r.name !== 'Explore');
   const rolesNote = roles.length ? `project roles: ${roles.map((r) => r.name).join(', ')}` : '';
   add({
     id: 'claudemd',
@@ -434,6 +534,19 @@ function check(cwd, opts = {}) {
     why: 'the watchdog is a detached background process that warns about transcripts that grow without bound; stop it with scripts/watchdog.cjs --stop',
     ok: wdOn,
   });
+  // Project Explore agent on haiku: the built-in Explore runs on the session model (the guide; capped at Opus on the API).
+  const explore = projectRoles(root).find((r) => r.name === 'Explore');
+  add({
+    id: 'explore',
+    scope: 'project',
+    warn: true,
+    applicable: true,
+    what: `${path.join(root, '.claude', 'agents', 'Explore.md')}: project Explore agent`,
+    current: explore ? `${explore.model} / ${explore.effort}` : 'built-in (runs on the session model)',
+    recommended: 'haiku / medium (opt-in; apply: --apply explore)',
+    why: 'the built-in Explore runs on the session model, so a lead that starts it reads at Opus rates; ghorc leads use ghorc:scout instead',
+    ok: Boolean(explore),
+  });
   // Opt-in guards from other branches: a missing key reads as off. Never part of "all"; applied only by name.
   const sub = (k) => (projCfg[k] && typeof projCfg[k] === 'object' ? projCfg[k] : {});
   for (const g of GUARDS) {
@@ -469,7 +582,11 @@ function appendLine(file, line) {
 }
 
 function apply(cwd, ids, opts = {}) {
-  const c = check(cwd, opts);
+  const permMode = ids.includes('permissions') ? opts.mode : undefined;
+  if (ids.includes('permissions') && !Object.hasOwn(PERMISSION_MODES, String(permMode))) {
+    throw new Error(`permissions needs --mode <${Object.keys(PERMISSION_MODES).join('|')}> (the owner's choice)`);
+  }
+  const c = check(cwd, { ...opts, permMode });
   const want = new Set(ids.includes('all') ? c.items.filter((i) => !i.warn).map((i) => i.id) : ids);
   const unknown = [...want].filter((id) => !c.items.some((i) => i.id === id));
   if (unknown.length) throw new Error(`unknown item(s): ${unknown.join(', ')}`);
@@ -478,7 +595,7 @@ function apply(cwd, ids, opts = {}) {
   const userItems = todo.filter((i) => i.scope === 'user');
   if (userItems.length) {
     if (c.settingsError) throw new Error(`${c.settingsFile}: ${c.settingsError}; fix it by hand first`);
-    if (c.settingsWarning) throw new Error(`${c.settingsWarning}; fix it by hand, or apply only project items (pct, config, claudemd, exclude, heavy, watchdog)`);
+    if (c.settingsWarning) throw new Error(`${c.settingsWarning}; fix it by hand, or apply only project items (pct, config, claudemd, exclude, heavy, watchdog, explore, permissions)`);
     const exists = fs.existsSync(c.settingsFile);
     const settings = exists ? readJson(c.settingsFile) : {};
     if (exists) {
@@ -509,11 +626,28 @@ function apply(cwd, ids, opts = {}) {
       } else if (it.id === 'idle') {
         set('idleCompaction', settings.idleCompaction, false);
         settings.idleCompaction = false;
+      } else if (it.id === 'effortGlobal') {
+        if (settings.effortLevel !== undefined) {
+          set('effortLevel', settings.effortLevel, '(removed)');
+          delete settings.effortLevel;
+        }
+        for (const id of it.highOthers) {
+          set(`modelSettings.${id}.effortLevel`, settings.modelSettings[id].effortLevel, 'medium');
+          settings.modelSettings[id] = { ...settings.modelSettings[id], effortLevel: 'medium' };
+        }
+      } else if (it.id === 'bypassPrompt') {
+        set('skipDangerousModePermissionPrompt', settings.skipDangerousModePermissionPrompt, true);
+        settings.skipDangerousModePermissionPrompt = true;
       } else if (it.id === 'model') {
         set('model', settings.model, it.recommended);
         settings.model = it.recommended;
       } else if (it.id === 'effort') {
-        const m = fullModelId(leadDefaults(c.root).model ?? 'opus');
+        const alias = leadDefaults(c.root).model ?? 'opus';
+        const m = fullModelId(alias, c.root);
+        if (!m) {
+          diff.push(`effort: the full id of ${alias} is not known yet (no session recorded it); run one session on it with the ghorc status line, then apply again`);
+          continue;
+        }
         const ms = settings.modelSettings && typeof settings.modelSettings === 'object' ? settings.modelSettings : {};
         const entry = ms[m] && typeof ms[m] === 'object' ? ms[m] : {};
         set(`modelSettings.${m}.effortLevel`, entry.effortLevel, it.recommended);
@@ -556,12 +690,30 @@ function apply(cwd, ids, opts = {}) {
       const g = GUARDS.find((x) => x.id === it.id);
       const dst = editProjectConfig(c.root, g.set);
       diff.push(`+ ${dst}: ${g.key} (on)`);
+    } else if (it.id === 'permissions') {
+      const args = PERMISSION_MODES[permMode];
+      const dst = editProjectConfig(c.root, (o) => {
+        o.worker = o.worker && typeof o.worker === 'object' ? o.worker : {};
+        o.handoff = o.handoff && typeof o.handoff === 'object' ? o.handoff : {};
+        o.worker.permissionArgs = [...args];
+        o.handoff.candidatePermissionArgs = [...args];
+      });
+      diff.push(`+ ${dst}: worker.permissionArgs and handoff.candidatePermissionArgs = ${JSON.stringify(args)} (${permMode})`);
     } else if (it.id === 'watchdog') {
       const dst = editProjectConfig(c.root, (o) => {
         o.watchdog = o.watchdog && typeof o.watchdog === 'object' ? o.watchdog : {};
         o.watchdog.autostart = true;
       });
       diff.push(`+ ${dst}: watchdog.autostart = true (stop a running one with scripts/watchdog.cjs --stop)`);
+    } else if (it.id === 'explore') {
+      const dst = path.join(c.root, '.claude', 'agents', 'Explore.md');
+      if (fs.existsSync(dst)) {
+        diff.push(`explore: ${dst} exists, left as it is`);
+        continue;
+      }
+      fs.mkdirSync(path.dirname(dst), { recursive: true });
+      fs.copyFileSync(path.join(PLUGIN_ROOT, 'templates', 'Explore.md'), dst);
+      diff.push(`+ ${dst} (copied from templates/Explore.md: model haiku)`);
     } else if (it.id === 'config') {
       const dst = path.join(c.root, '.claude', 'ghorc.json');
       fs.mkdirSync(path.dirname(dst), { recursive: true });
@@ -570,7 +722,7 @@ function apply(cwd, ids, opts = {}) {
     } else if (it.id === 'claudemd') {
       const dst = path.join(c.root, 'CLAUDE.md');
       let section = fs.readFileSync(path.join(PLUGIN_ROOT, 'templates', 'CLAUDE-section.md'), 'utf8');
-      const pr = projectRoles(c.root);
+      const pr = projectRoles(c.root).filter((r) => r.name !== 'Explore');
       if (pr.length) {
         const anchor = 'plugin counterpart).\n';
         const rows = pr.map((r) => `| ${r.name} | ${r.model} / ${r.effort} | ${r.purpose} | |`);
@@ -610,6 +762,12 @@ function statusBlock(cwd) {
     `status: read-guard on (maxRepeat=${rg.maxRepeat}, media blocked for the lead: ${rg.leadNoMedia !== false && require('./lib/role.cjs').isLead() ? 'yes' : 'no'}), ` +
       `heavy-check-guard on (${heavy.length ? `${heavy.length} patterns` : 'no patterns: it denies nothing'})`,
     `status: watchdog autostart=${w.autostart === true ? 'on' : 'off'}, ${ws.alive ? `running pid ${ws.pid}` : `not running (${ws.reason})`}`,
+    (() => {
+      const t = cfg.tabs || {};
+      return t.enabled === false
+        ? 'status: tabs-guard off'
+        : `status: tabs-guard on (maxWorkers=${t.maxWorkers ?? '?'}, idle ${t.idleMin ?? '?'}m, overtime ${t.overtimeMin ?? '?'}m, Stop block ${t.stopBlock === false ? 'off' : 'on'})`;
+    })(),
     `status: denials ${d.total} total` + (d.total ? ` (${Object.entries(d.counts).map(([k, v]) => `${k}=${v}`).join(', ')}), last ${d.last.length}:` : ''),
     ...d.last.map((l) => `  ${l}`),
   ];
@@ -627,12 +785,12 @@ if (require.main === module) {
   if (args.includes('--help') || (!args.includes('--check') && !args.includes('--apply') && !args.includes('--restore'))) {
     console.log(
       'setup.cjs --check [--project] [--cwd <dir>]: report each setup item (scope, current -> recommended, why) as human lines plus a final JSON line. ' +
-        'Items marked WARN (heavy, watchdog, and the opt-in guards capacity, heavySlots, pushGuard, stickyOnCompact) never make the setup unclean and are applied only when named (not by "all"); ' +
+        'Items marked WARN (heavy, watchdog, explore, permissions, bypassPrompt, effortGlobal, and the opt-in guards capacity, heavySlots, pushGuard, stickyOnCompact, gitGuard, ciRetry) never make the setup unclean and are applied only when named (not by "all"); ' +
         'heavy prints a proposed regex list from the package.json scripts (root and app/). --status adds the role, guards, watchdog and recent denials.\n' +
-        'setup.cjs --apply <all|statusLine,statusLineStale,pct,idle,model,effort,config,claudemd,exclude,heavy,watchdog,capacity,heavySlots,pushGuard,stickyOnCompact> [--project] [--cwd <dir>]: apply the chosen items; ' +
+        'setup.cjs --apply <all|statusLine,statusLineStale,pct,idle,model,effort,effortGlobal,permissions,bypassPrompt,config,claudemd,exclude,heavy,watchdog,explore,capacity,heavySlots,pushGuard,stickyOnCompact,gitGuard,ciRetry> [--mode <bypass|acceptEdits|prompts>] [--project] [--cwd <dir>]: apply the chosen items; ' +
         'backs up ~/.claude/settings.json first, touches only the listed keys and prints a diff. ' +
         'pct is written GLOBALLY (every project) unless --project, which writes <root>/.claude/settings.local.json instead. ' +
-        'model and effort are owner-level decisions: name them only after the owner says yes. GHORC_HOME overrides the home directory. ' +
+        'model, effort, effortGlobal, permissions and bypassPrompt are owner-level decisions: name them only after the owner says yes; permissions needs --mode (bypass: no permission prompts in tab workers and candidate leads; acceptEdits; prompts: []). GHORC_HOME overrides the home directory. ' +
         'Applying statusLine saves the replaced status line (once) in ~/.claude/ghorc-statusline-backup.json; ' +
         'setup.cjs --restore statusline puts it back (or removes the key when there was none) and deletes the backup. ' +
         '--check prints "statusline: ghorc (previous saved)", "ghorc", "other" or "none". ' +
@@ -652,7 +810,7 @@ if (require.main === module) {
         .map((s) => s.trim())
         .filter(Boolean);
       if (!list.length) throw new Error('--apply needs "all" or a comma-separated item list');
-      const r = apply(cwd, list, { project });
+      const r = apply(cwd, list, { project, mode: opt('--mode') });
       console.log(r.diff.length ? r.diff.join('\n') : 'nothing to change');
     }
     const c = check(cwd, { project });
@@ -666,7 +824,7 @@ if (require.main === module) {
       console.log('proposed heavyCommands (from package.json scripts; checks.fast is never proposed):');
       for (const p of hv.proposed) console.log(`  ${p}`);
     }
-    console.log(`info: handoff.candidatePermissionArgs is ${c.candidatePermissionArgsSet ? 'set' : 'not set'} (it can bypass permission prompts; the project decides it, setup never writes it)`);
+    console.log(`info: handoff.candidatePermissionArgs is ${c.candidatePermissionArgsSet ? 'set' : 'not set'} (it can bypass permission prompts; written only by --apply permissions --mode <m>)`);
     console.log(`statusline: ${c.statusLineState}`);
     if (c.settingsWarning) console.log(`WARN: ${c.settingsWarning}`);
     if (c.settingsError) console.log(`ERROR: ${c.settingsError}`);

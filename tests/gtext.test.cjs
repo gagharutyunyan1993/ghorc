@@ -9,7 +9,7 @@ const { spawnSync } = require('node:child_process');
 const { runScript } = require('./helpers.cjs');
 
 const REPO = path.join(__dirname, '..');
-const GUARDS = { capacity: ['capacity', 'enabled', true], heavySlots: ['heavySlots', 'slots', 2], pushGuard: ['handoff', 'pushGuard', true], stickyOnCompact: ['handoff', 'stickyOnCompact', true] };
+const GUARDS = { capacity: ['capacity', 'enabled', true], heavySlots: ['heavySlots', 'slots', 2], pushGuard: ['handoff', 'pushGuard', true], stickyOnCompact: ['handoff', 'stickyOnCompact', true], gitGuard: ['git', 'guard', true], ciRetry: ['ciRetry', 'enabled', true] };
 const lastJson = (o) => JSON.parse(o.trim().split('\n').pop());
 
 function proj(cfg) {
@@ -27,7 +27,7 @@ const item = (p, id) => lastJson(run(p, '--check').out).items.find((i) => i.id =
 
 test('guards show in --check as off, and as on when the key is set', () => {
   const off = proj({ other: 1 });
-  const on = proj({ capacity: { enabled: true }, heavySlots: { slots: 2 }, handoff: { pushGuard: true, stickyOnCompact: true } });
+  const on = proj({ capacity: { enabled: true }, heavySlots: { slots: 2 }, handoff: { pushGuard: true, stickyOnCompact: true }, git: { guard: true }, ciRetry: { enabled: true } });
   try {
     for (const id of Object.keys(GUARDS)) {
       assert.equal(item(off, id).current, 'off', id);
@@ -95,6 +95,8 @@ test('--apply all leaves every guard off', () => {
     assert.equal(j.heavySlots, undefined);
     assert.equal(j.handoff && j.handoff.pushGuard, undefined);
     assert.equal(j.handoff && j.handoff.stickyOnCompact, undefined);
+    assert.equal(j.git, undefined);
+    assert.equal(j.ciRetry, undefined);
   } finally {
     p.done();
   }

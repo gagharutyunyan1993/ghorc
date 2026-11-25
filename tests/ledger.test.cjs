@@ -5,7 +5,7 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { runScript, tmpProject } = require('./helpers.cjs');
+const { runScript, tmpProject, ctxPath } = require('./helpers.cjs');
 
 const ledgerFile = (dir) => path.join(dir, '.claude', 'ghorc-out', 'ledger.jsonl');
 const readLines = (dir) =>
@@ -16,6 +16,10 @@ const readLines = (dir) =>
     .map((l) => JSON.parse(l));
 const env = (dir) => ({ CLAUDE_PROJECT_DIR: dir });
 const SECRET = 'SECRET-BRIEF-TEXT sk-live-123';
+// The status line writes the ctx file of a session (tmp dir, per project root) with the model the session ran on.
+const writeCtxModel = (proj, id) => {
+  fs.writeFileSync(ctxPath(proj, 't'), JSON.stringify({ session_id: 't', model: { id }, context_window_size: 1000000 }));
+};
 
 function payload(dir, extra = {}) {
   return {
@@ -276,7 +280,7 @@ test('report: median, upper quartile, accept rate on a 5-line fixture', () => {
   assert.deepEqual(j.causes, { BRIEF_OMISSION: 1 });
   assert.deepEqual(j.packages.find((p) => p.pkg === 'E2'), { pkg: 'E2', class: 'ordinary', rounds: 2, firstVerdict: 'CHANGES_REQUIRED', firstCause: 'BRIEF_OMISSION' });
   const text = run().out;
-  assert.match(text, /ghorc:implementer: calls=5 tokens med=300 q3=400/);
+  assert.match(text, /ghorc:implementer \S+: calls=5 tokens med=300 q3=400/);
   assert.match(text, /first-round ACCEPT rate: 50% \(2 packages\)/);
   // --since drops the call lines (all earlier than 11:00) and keeps verdicts
   const since = JSON.parse(run('--since', '2026-10-16T10:30:00Z', '--json').out);
@@ -291,6 +295,7 @@ test('setup: a missing top-level effortLevel is ok; --apply effort writes only m
     const sf = path.join(home, '.claude', 'settings.json');
     fs.writeFileSync(sf, JSON.stringify({ model: 'opus' }));
     const proj = tmpProject({});
+    writeCtxModel(proj, 'claude-opus-5-5');
     const e = { GHORC_HOME: home };
     const run = (...a) => runScript('setup.cjs', '', { args: a, env: e }).out;
     assert.doesNotMatch(run('--check', '--cwd', proj), /MISSING effort/);
@@ -307,17 +312,41 @@ test('setup: a missing top-level effortLevel is ok; --apply effort writes only m
   }
 });
 
-test('setup: lead.model alias maps to a full id; an explicit full id passes through', () => {
+test('setup: lead.model alias resolves to the id the newest ctx file recorded; a full id passes through', () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ghorc-home-'));
   try {
     fs.mkdirSync(path.join(home, '.claude'), { recursive: true });
     const sf = path.join(home, '.claude', 'settings.json');
-    for (const [model, key] of [['sonnet', 'claude-sonnet-5-5'], ['haiku', 'claude-haiku-5-5'], ['claude-opus-4-1', 'claude-opus-4-1']]) {
+    // the recorded id is whatever the session ran: a future version resolves the same way, nothing is pinned
+    for (const [model, recorded, key] of [
+      ['sonnet', 'claude-sonnet-9-1', 'claude-sonnet-9-1'],
+      ['haiku', 'claude-haiku-5-5[1m]', 'claude-haiku-5-5'],
+      ['fable', 'claude-fable-7', 'claude-fable-7'],
+      ['claude-opus-4-1', null, 'claude-opus-4-1'],
+    ]) {
       fs.writeFileSync(sf, '{}');
       const proj = tmpProject({ lead: { model, effort: 'high' } });
+      if (recorded) writeCtxModel(proj, recorded);
       runScript('setup.cjs', '', { args: ['--apply', 'effort', '--cwd', proj], env: { GHORC_HOME: home } });
       assert.deepEqual(JSON.parse(fs.readFileSync(sf, 'utf8')).modelSettings, { [key]: { effortLevel: 'high' } });
     }
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test('setup: an alias no session recorded yet is not written, and the check says why', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ghorc-home-'));
+  try {
+    fs.mkdirSync(path.join(home, '.claude'), { recursive: true });
+    const sf = path.join(home, '.claude', 'settings.json');
+    fs.writeFileSync(sf, '{}');
+    const proj = tmpProject({ lead: { model: 'opus', effort: 'high' } });
+    writeCtxModel(proj, 'claude-sonnet-5-5'); // another family only
+    const env = { GHORC_HOME: home };
+    assert.match(runScript('setup.cjs', '', { args: ['--check', '--cwd', proj], env }).out, /full id of opus is not known yet/);
+    runScript('setup.cjs', '', { args: ['--apply', 'effort', '--cwd', proj], env });
+    assert.equal('modelSettings' in JSON.parse(fs.readFileSync(sf, 'utf8')), false);
   } finally {
     fs.rmSync(home, { recursive: true, force: true });
   }

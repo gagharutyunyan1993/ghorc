@@ -18,18 +18,18 @@ test('dirnameAny handles escaped-backslash, forward-slash and posix paths', () =
 });
 
 test('encodeCwd matches Claude Code naming', () => {
-  assert.equal(encodeCwd('D:\\Projects\\vids\\vids'), process.platform === 'win32' ? 'D--Projects-vids-vids' : encodeCwd('D:\\Projects\\vids\\vids'));
-  if (process.platform === 'win32') assert.equal(encodeCwd('D:/Projects/vids/vids'), 'D--Projects-vids-vids');
+  assert.equal(encodeCwd('D:\\work\\app\\app'), process.platform === 'win32' ? 'D--work-app-app' : encodeCwd('D:\\work\\app\\app'));
+  if (process.platform === 'win32') assert.equal(encodeCwd('D:/work/app/app'), 'D--work-app-app');
 });
 
 test('deriveTranscriptDir: transcript_path (both slash styles) and the absent fallback', () => {
   const old = process.env.GHORC_WATCHDOG_ROOT;
   delete process.env.GHORC_WATCHDOG_ROOT;
   try {
-    const want = 'C:\\Users\\ENV\\.claude\\projects\\D--Projects-vids-vids';
+    const want = 'C:\\Users\\ENV\\.claude\\projects\\D--work-app-app';
     assert.equal(deriveTranscriptDir({ transcript_path: `${want}\\smoke.jsonl` }, 'D:\\x'), want);
-    assert.equal(deriveTranscriptDir({ transcript_path: 'C:/Users/ENV/.claude/projects/D--Projects-vids-vids/smoke.jsonl' }, 'D:\\x'), 'C:/Users/ENV/.claude/projects/D--Projects-vids-vids');
-    assert.equal(deriveTranscriptDir({}, 'D:\\Projects\\vids\\vids'), path.join(os.homedir(), '.claude', 'projects', encodeCwd('D:\\Projects\\vids\\vids')));
+    assert.equal(deriveTranscriptDir({ transcript_path: 'C:/Users/ENV/.claude/projects/D--work-app-app/smoke.jsonl' }, 'D:\\x'), 'C:/Users/ENV/.claude/projects/D--work-app-app');
+    assert.equal(deriveTranscriptDir({}, 'D:\\work\\app\\app'), path.join(os.homedir(), '.claude', 'projects', encodeCwd('D:\\work\\app\\app')));
   } finally {
     if (old !== undefined) process.env.GHORC_WATCHDOG_ROOT = old;
   }

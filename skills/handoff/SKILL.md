@@ -7,10 +7,13 @@ user-invocable: true
 
 Paths and parameters come from `.claude/ghorc.json`: `lead.model`, `lead.effort`, `thresholds.*`, `handoff.statePath`, `handoff.handoffPath`, `handoff.allowSendKeysExit`, `handoff.candidatePermissionArgs`, `handoff.readyTimeoutMin` (default 10).
 
+## Changing the lead's model
+A handoff is the only place to change the lead's model (for example Opus to Fable for a major refactor or migration, and back when it is merged; `docs/models.md`). The prompt cache belongs to the model that wrote it and a move down a tier drops earlier reasoning, so a model switch inside a running lead pays a cache write for the whole conversation; a fresh session from STATE pays only for STATE. When the owner names a model for the next shift, or the work in STATE calls for the other lead row, start the candidate with that `--model` and `--effort medium` instead of `lead.model` / `lead.effort`, and write `lead_model: <model>, reason: <one line>` into STATE decisions. `lead.model` in the config stays the default.
+
 ## Standing owner permission
 Filled in once in the project config, only read here:
 - `handoff.allowSendKeysExit` = `true`: the new lead closes the old tab itself (step 6 below: `/exit` through `herdr pane run`, or `hc kill` on `hc`). With `false` (the default) the owner closes the old tab.
-- `handoff.candidatePermissionArgs`: permission-mode arguments for the candidate (as for the old lead). Empty - the candidate starts with default permissions; tell the owner so.
+- `handoff.candidatePermissionArgs`: permission-mode arguments for the candidate (as for the old lead). Empty (the default until the owner picks a mode at `/ghorc:setup`) - the candidate starts with default permissions and may wait on a prompt in its tab; tell the owner so.
 - The new lead closes the old tab only with `allowSendKeysExit` `true` (the owner's word in the config) or the owner's word recorded in STATE.
 
 ## Preconditions
@@ -23,6 +26,7 @@ Filled in once in the project config, only read here:
 - From `thresholds.ctxPrepare`: refresh STATE at a stage boundary.
 - The context guard hook enforces this. Handoff mode starts at `ctxHandoff` and, with `handoff.stickyOnCompact` and a proven lead (`GHORC_ROLE=lead`, or no role and a terminal that proves it: hc terminal named `capacity.leadNamePrefix` or without a parent, herdr tab label starting with the prefix), at any compaction of the session (after a compaction the token numbers are unreliable, so the handoff is due at once, whatever `ctx.cjs` shows). It denies new Agent calls and edits outside `handoff.statePath` / `handoff.handoffPath`. With `handoff.stickyOnCompact` and a proven lead, Stop blocks you until `HANDOFF.md` has the header lines `status: SENT` and `old_session_id: <this session id>` (plain text, as the block reason prints them), and token numbers never lift it. Without the sticky key, or in a session that is not a proven lead, Stop follows the 0.7.0 rule: at most 2 blocks, released once STATE is newer than the flag. A new session after `/clear` starts clean.
 - If the candidate context is large from the start, diagnose the startup instructions instead of rotating again.
+- HANDOFF carries facts only (state, SHAs, in-flight work, open questions), never rules: a wrong rule in HANDOFF passes from lead to lead. Rules of the shift live in `STATE-lessons.md`; the candidate reads it with STATE.
 
 ## HANDOFF template (at most 3072 bytes, `wc -c`; `templates/HANDOFF.md`)
 With several leads each lead lives in its own worktree, and `handoff.handoffPath` / `handoff.statePath` are read from the root of the session's worktree, not of the project. Fill the file at `handoff.handoffPath`: handoff_id, status (DRAFT), old_session_id, reason; package chain and stages; background processes; decisions of the shift; unclosed messages and promised actions; first 3 steps.
@@ -37,8 +41,8 @@ With `handoff.pushGuard` `true` the hook denies `herdr agent start` and `hc run 
 
 ## herdr commands (backend `herdr`; without `--wait`)
 ```
-herdr tab create --label lead-next --cwd <project root> --env GHORC_ROLE=lead   # note result.root_pane.pane_id
-herdr agent start lead-next --kind claude --pane <pane_id> -- --model <lead.model> --effort <lead.effort> <handoff.candidatePermissionArgs>
+herdr tab create --workspace "$HERDR_WORKSPACE_ID" --no-focus --label lead-next --cwd <project root> --env GHORC_ROLE=lead   # note result.root_pane.pane_id
+herdr agent start lead-next --kind claude --pane <pane_id> -- -n lead-next --model <lead.model> --effort <lead.effort> <handoff.candidatePermissionArgs>
 herdr agent get lead-next        # note result.agent.pane_id
 herdr pane run <pane_id> "Read <HANDOFF path>. Verify it against git and the project status. Answer strictly: READY handoff=<id>; Next action: <one>; Discrepancies: <none/list>. Change nothing and do not start your own rotation until you get `ACTIVATE <id>`."
 herdr agent wait lead-next --until idle --until done --until blocked --timeout 60000
@@ -51,7 +55,7 @@ The candidate lead is created with `--env GHORC_ROLE=lead`: with `handoff.sticky
 ## hc commands (backend `hc`)
 The candidate must outlive the old lead, so it is started with `--outlive-parent`; the role goes through `env` (`hc run` has no `--env`):
 ```
-hc run --bg --name lead-next --cwd <project root> --outlive-parent "C:\Program Files\Git\usr\bin\env.exe" GHORC_ROLE=lead claude.exe --model <lead.model> --effort <lead.effort> <handoff.candidatePermissionArgs> "Read <HANDOFF path>. Verify it against git and the project status. Answer with hc send <old terminal address> strictly: READY handoff=<id>; Next action: <one>; Discrepancies: <none/list>. Change nothing and do not start your own rotation until you get `ACTIVATE <id>`."
+hc run --bg --name lead-next --cwd <project root> --outlive-parent "C:\Program Files\Git\usr\bin\env.exe" GHORC_ROLE=lead claude.exe -n lead-next --model <lead.model> --effort <lead.effort> <handoff.candidatePermissionArgs> "Read <HANDOFF path>. Verify it against git and the project status. Answer with hc send <old terminal address> strictly: READY handoff=<id>; Next action: <one>; Discrepancies: <none/list>. Change nothing and do not start your own rotation until you get `ACTIVATE <id>`."
 hc wait lead-next            # the READY arrives as a tagged message <hc from="...">, or read it:
 hc read lead-next --lines 60
 hc send lead-next "ACTIVATE <id>"

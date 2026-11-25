@@ -3,7 +3,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
-const { runScript, tmpProject, sid } = require('./helpers.cjs');
+const { runScript, tmpProject, ctxPath, bareProject, sid } = require('./helpers.cjs');
 const config = require('../scripts/lib/config.cjs');
 
 const PLAIN = { GHORC_STATUSLINE_PLAIN: '1', CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: '', GHORC_GIT_TIMEOUT_MS: '15000' };
@@ -29,7 +29,7 @@ test('statusline: prints the line and writes the ctx file', () => {
   assert.equal(r.code, 0);
   assert.equal(r.out.trim(), 'Opus 5.5 ·medium ⚡ │ ctx 12% (24K/200K) │ 5h 42% │ 7d 75% │ #' + s.slice(0, 8) + ' │ my-session');
   assert.ok(!r.out.includes('$'));
-  const file = path.join(cwd, '.claude', `ctx-${s}.json`);
+  const file = ctxPath(cwd, s);
   const d = JSON.parse(fs.readFileSync(file, 'utf8'));
   assert.equal(d.session_id, s);
   assert.equal(d.used_percentage, 12.4);
@@ -54,11 +54,11 @@ test('statusline: no effort or rate_limits - segments are omitted', () => {
 
 test('statusline: colors by band and the autocompact marker', () => {
   const at = (p, env) => runScript('statusline.cjs', { cwd: tmpProject(), model: { display_name: 'M' }, context_window: { used_percentage: p, context_window_size: 200000 } }, { env: { GHORC_STATUSLINE_PLAIN: '', NO_COLOR: '', CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: '', ...env } }).out;
-  assert.ok(at(10).includes('[32mctx 10%'));
-  assert.ok(at(55).includes('[33mctx 55%'));
-  assert.ok(at(72).includes('[31mctx 72%'));
-  assert.ok(at(85).includes('[1;31mctx 85%'));
-  assert.ok(!at(10, { NO_COLOR: '1' }).includes(''));
+  assert.ok(at(10).includes('\x1b[32mctx 10%'));
+  assert.ok(at(55).includes('\x1b[33mctx 55%'));
+  assert.ok(at(72).includes('\x1b[31mctx 72%'));
+  assert.ok(at(85).includes('\x1b[1;31mctx 85%'));
+  assert.ok(!at(10, { NO_COLOR: '1' }).includes('\x1b'));
   assert.match(at(10, { GHORC_STATUSLINE_PLAIN: '1', CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: '82' }), /→ac 82%/);
   assert.ok(!/→ac/.test(at(10, { GHORC_STATUSLINE_PLAIN: '1' })));
 });
@@ -91,8 +91,7 @@ test('statusline: garbage on stdin - exit 0', () => {
 
 test('ctx.cjs --all: newest first, --max-age filters', () => {
   const cwd = tmpProject();
-  const dir = path.join(cwd, '.claude');
-  fs.mkdirSync(dir, { recursive: true });
+  const dir = path.dirname(ctxPath(cwd, 'x'));
   const mk = (name, pct, ageMin) => {
     const p = path.join(dir, name);
     fs.writeFileSync(p, JSON.stringify({ used_percentage: pct, context_window_size: 200000, model: { display_name: 'M' } }));
@@ -130,22 +129,29 @@ test('config: the project config merges over the defaults', () => {
 });
 
 test('config: no file - defaults, found=false; broken JSON - the same', () => {
-  const cwd = tmpProject();
+  const cwd = bareProject();
   assert.equal(config.found(cwd), false);
+  assert.equal(config.optedIn(cwd), false);
   assert.equal(config.load(cwd).readGuard.maxRepeat, 3);
-  fs.mkdirSync(path.join(cwd, '.claude'));
+  fs.mkdirSync(path.join(cwd, '.claude'), { recursive: true });
   fs.writeFileSync(path.join(cwd, '.claude', 'ghorc.json'), '{bad');
-  assert.equal(config.load(cwd).thresholds.ctxPrepare, 120000);
+  assert.equal(config.load(cwd).thresholds.ctxPrepare, 235000, "the shipped default: autocompact 30% of 1M = ctxHandoff 265K + 35K");
+  assert.equal(config.load(cwd).thresholds.ctxHandoff, 265000);
+  assert.equal(config.optedIn(cwd), true, 'an unreadable file still opts the project in');
+  assert.equal(config.found(cwd), false);
 });
 
-test('session-start: a short reminder, under 300 characters', () => {
+test('session-start: a short reminder, under 300 characters; silent in a project without a config', () => {
   const cwd = tmpProject();
   const r = runScript('session-start.cjs', { hook_event_name: 'SessionStart', session_id: sid(), cwd });
   assert.equal(r.code, 0);
   assert.ok(r.out.length < 300, `length ${r.out.length}`);
   assert.match(r.out, /ghorc [0-9.]+ session=/);
-  assert.match(r.out, /config not found/);
+  assert.match(r.out, /config: ok/);
   assert.match(r.out, /skill ghorc:lead/);
+  const bare = runScript('session-start.cjs', { hook_event_name: 'SessionStart', session_id: sid(), cwd: bareProject() });
+  assert.equal(bare.code, 0);
+  assert.equal(bare.out, '', 'no lines in a project that never opted in');
 });
 
 test('watchdog: --once reports a large file and kills nothing', () => {

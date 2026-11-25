@@ -1,13 +1,23 @@
 {
   "name": "ghorc",
-  "description": "Marketplace for the ghorc orchestration plugin.",
+  "description": "Marketplace for the ghorc orchestration plugin and the methodology-toolkit it depends on.",
   "owner": { "name": "Gagik Harutyunyan" },
   "plugins": [
     {
       "name": "ghorc",
       "source": "./",
       "description": "An Opus lead plans, Sonnet subagents work, hooks block repeated reads and worker test-suite runs.",
-      "version": "0.10.0"
+      "version": "0.11.0",
+      "dependencies": ["methodology-toolkit"]
+    },
+    {
+      "name": "methodology-toolkit",
+      "source": {
+        "source": "git-subdir",
+        "url": "gagharutyunyan1993/methodology-toolkit",
+        "path": "plugins/methodology-toolkit"
+      },
+      "description": "Structured decision-making: /method, the methodology-driven-thinking skill, red-team-critic and evidence-scout subagents. Installed with ghorc as its dependency; maintained in its own repository."
     }
   ]
 }

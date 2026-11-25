@@ -18,6 +18,7 @@ You may run as a terminal tab (hc or herdr); then write your result to the repor
 - Conflict: merge the current main branch, resolve conflicts minimally, and do not change the meaning of accepted edits.
 - Red: find the cause from the check output (read the tail of the log, not all of it), fix the cause, not the symptom.
 - After the edits run only `checks.fast` or the files the brief names. Do not weaken tests to get green.
+- Do not start dev servers, watchers or anything that does not exit by itself (`npm run dev`, `vite`, `docker compose up`, `--watch`), not even in the background: if the task needs one running, end BLOCKED with the exact command, because the lead starts it in a runner tab where it stays visible and its log readable.
 - Do not touch branches and working directories that belong to others. Force pushes and branch deletion are forbidden unless the brief allows them.
 - If the conflict touches `criticalPaths`, describe the resolution in the report for critical review.
 - Two failed fixes of the same cause: stop, put observations and a hypothesis in the report.

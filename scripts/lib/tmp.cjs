@@ -32,6 +32,36 @@ function rootHash(root) {
   return crypto.createHash('sha1').update(r).digest('hex').slice(0, 8);
 }
 
+// Per-session context files written by the status line, one directory per project root, outside the project:
+// <tmp>/ghorc-<user>/ctx/<root hash>/ctx-<session>.json (before 0.11 they were <root>/.claude/ctx-<session>.json).
+const ctxDir = (root) => path.join(tmpDir(), 'ctx', rootHash(root));
+const ctxFile = (root, sid) => path.join(ctxDir(root), `ctx-${String(sid).replace(/[^A-Za-z0-9_.-]/g, '_')}.json`);
+// The ctx directory of a project, made (0700) when missing; null when it, its parent `ctx` or the tmp dir is not a real
+// directory owned by this user (POSIX), or not private: another user's planted directory or symlink is never written to.
+function ensureCtxDir(root) {
+  const dirs = [tmpDir(), path.join(tmpDir(), 'ctx'), ctxDir(root)];
+  for (const d of dirs) {
+    try {
+      fs.mkdirSync(d, { mode: 0o700 });
+    } catch (e) {
+      if (e.code !== 'EEXIST') return null;
+    }
+    if (!privateDir(d)) return null;
+  }
+  return dirs[2];
+}
+// A real directory (not a symlink); on POSIX owned by this uid and not writable by group or others.
+function privateDir(d) {
+  let st;
+  try {
+    st = fs.lstatSync(d);
+  } catch {
+    return false;
+  }
+  if (!st.isDirectory()) return false;
+  if (typeof process.getuid === 'function' && (st.uid !== process.getuid() || (st.mode & 0o022) !== 0)) return false;
+  return true;
+}
 const pidFile = (root) => path.join(tmpDir(), `watchdog-${rootHash(root)}.pid`);
 const heartbeatFile = (root) => path.join(tmpDir(), `watchdog-${rootHash(root)}.beat`);
 const logFile = (root) => path.join(tmpDir(), `watchdog-${rootHash(root)}.log`);
@@ -165,7 +195,8 @@ function denials(n = 5) {
   return out;
 }
 
-// Deletes ctx-*.json (and stray temp files) under <root>/.claude, leftover capacity ledger temp files under
+// Deletes every legacy ctx-*.json (and stray temp files) under <root>/.claude whatever its age (the status line no longer
+// writes there), ctx files older than maxAgeDays under <tmp>/ctx/<any root>, leftover capacity ledger temp files under
 // <root>/.claude/ghorc-out, plus session state dirs, alert offsets and handoff flags (handoff-*.json) in the tmp dir,
 // when older than maxAgeDays. Returns the number of removed entries. Never throws.
 function cleanup(root, maxAgeDays = 7, now = Date.now()) {
@@ -189,7 +220,36 @@ function cleanup(root, maxAgeDays = 7, now = Date.now()) {
   try {
     const dir = path.join(root, '.claude');
     for (const f of fs.readdirSync(dir)) {
-      if (/^ctx-.*\.json(\..*\.tmp)?$/.test(f) && old(path.join(dir, f))) rm(path.join(dir, f));
+      if (/^ctx-.*\.json(\..*\.tmp)?$/.test(f)) rm(path.join(dir, f));
+    }
+  } catch {
+    /* no directory */
+  }
+  try {
+    // every project's ctx directory: old files, then a directory left empty
+    // only real, private directories and regular files: a symlink is never followed, a file is removed without recursion
+    const base = path.join(tmpDir(), 'ctx');
+    if (privateDir(base)) {
+      for (const h of fs.readdirSync(base, { withFileTypes: true })) {
+        const d = path.join(base, h.name);
+        if (!h.isDirectory() || !privateDir(d)) continue;
+        for (const f of fs.readdirSync(d, { withFileTypes: true })) {
+          const p = path.join(d, f.name);
+          if (!f.isFile() || !old(p)) continue;
+          try {
+            fs.unlinkSync(p);
+            n++;
+          } catch {
+            /* ignore */
+          }
+        }
+        try {
+          fs.rmdirSync(d); // only when empty
+          n++;
+        } catch {
+          /* not empty */
+        }
+      }
     }
   } catch {
     /* no directory */
@@ -235,6 +295,10 @@ module.exports = {
   tmpDir,
   safeName,
   rootHash,
+  ctxDir,
+  ctxFile,
+  ensureCtxDir,
+  privateDir,
   pidFile,
   heartbeatFile,
   logFile,

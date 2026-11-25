@@ -5,7 +5,7 @@ user-invocable: true
 ---
 # Brief
 
-The same structure for every role; the question changes, not the form. An ordinary brief is at most 500 words, a critical review at most 800 (a low-effort brief may add up to 100 words of checklist), over 200 lines is a task-statement error. An Agent call always carries an explicit `effort`.
+The same structure for every role; the question changes, not the form. An ordinary brief is at most 500 words, a critical review at most 800 (a low-effort brief may add up to 100 words of checklist), over 200 lines is a task-statement error. An Agent call always carries an explicit `model` and `effort` (Routing table in `ghorc:lead`).
 
 | Tag | Purpose |
 |---|---|
@@ -34,7 +34,8 @@ The same structure for every role; the question changes, not the form. An ordina
 - On a critical package, write the pre-mortem first (at most 3 ways it could pass review and still be wrong) and turn each into a check in `<steps>`.
 - Agents read `<project>/CLAUDE.md` and the config themselves; do not retell them in the brief.
 - Reports, scratch and large outputs go to `<project>/.claude/ghorc-out/` (setup git-excludes it); name it in `<report_back>`.
-- Reviewer model must differ from the implementer's; when the default would be equal, pass `model` on the Agent call and say so in `<context>`.
+- A critical reviewer's model must differ from the implementer's (ordinary review stays Sonnet whatever the implementer ran on); when the default would be equal, pass `model` and `effort` on the Agent call and say so in `<context>` (Opus work: the critical reviewer runs on `fable` at `medium`, never at the frontmatter's `high`).
+- A `ghorc:log-reader` brief is three lines: the log path(s), the result file path and the name for the last line. No question about causes, because the role copies failures and does not diagnose.
 
 ## Template 1. Implementer (`ghorc:implementer`, medium or high)
 ```
@@ -73,7 +74,7 @@ SHA; behavior change; acceptance map (one line per acceptance item, PASS/FAIL/UN
 </report_back>
 ```
 
-## Template 2. Critical reviewer (`ghorc:reviewer-critical`, high, round 1)
+## Template 2. Critical reviewer (`ghorc:reviewer-critical`, round 1; effort from the Routing table: opus / high, fable / medium)
 ```
 <role>You are the adversarial reviewer of <ID>. You do not change product files and you spawn no subagents.</role>
 
@@ -110,7 +111,7 @@ All substantiated findings go to the review file <path under .claude/ghorc-out/>
 </report_back>
 ```
 
-## Template 3. Mechanical work (Haiku, low)
+## Template 3. Mechanical work (Haiku, medium)
 ```
 <role>You perform one mechanical operation. Do not widen the task and do not start other agents.</role>
 
@@ -118,7 +119,7 @@ All substantiated findings go to the review file <path under .claude/ghorc-out/>
 
 <read_first>Input: <specific files or data>.</read_first>
 
-<you_own>Result: <format, or the allowed diff / output file path>.</you_own>
+<you_own>Result: <a data or output file path and its format>; never a diff to code, because Haiku does not edit code (a change to a non-code file only when a command checks it).</you_own>
 
 <steps>
 1. Do: <an unambiguous operation>.
@@ -140,6 +141,11 @@ All substantiated findings go to the review file <path under .claude/ghorc-out/>
 | Asking for reasoning to be returned | Output tokens settle in the lead window |
 | Invented check commands | Checks go only through the config `checks` |
 | A brief without `file:line` for Sonnet | The agent looks for entry points itself |
+| A brief that does not say "the LAST line of the report FILE is `DONE <name>`" | The worker prints DONE to the terminal only and the lead's wait never fires |
+| Invariants retold inside the task text | The reviewer misses one: give them as a separate block, one per line |
+| A heredoc for a brief or a multi-line file in Bash | Quoting can leave the file unwritten: write it with the Write tool and check it exists before the launch |
+| `python -` (a script on stdin) in a check | A hung interpreter holds a core and breaks the full run: `python -I -c` or a script file |
+| An unquoted Windows path in Git Bash (`D:\x\y`) | Bash eats the backslashes (`D:xy`) and the tool opens the wrong place: forward slashes, in quotes |
 
 ## Report example
 ```

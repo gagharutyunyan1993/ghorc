@@ -3,7 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { run, deny, readState, writeState } = require('./lib/hook-io.cjs');
-const { load, projectRoot } = require('./lib/config.cjs');
+const { load, projectRoot, optedIn } = require('./lib/config.cjs');
 const { sessionRoot } = require('./lib/root.cjs');
 const tmp = require('./lib/tmp.cjs');
 const cg = require('./lib/ctxguard.cjs');
@@ -15,7 +15,7 @@ if (process.argv.includes('--help')) {
   console.log(
     'context-guard.cjs: hook for SessionStart (matcher compact), UserPromptSubmit, PreToolUse (every tool) and Stop; ' +
       'acts for the lead only (no agent_id, GHORC_ROLE is not worker). ' +
-      'Context tokens come from the status line ctx file <root>/.claude/ctx-<session_id>.json (see ctx.cjs). ' +
+      'Context tokens come from the status line ctx file <tmp>/ghorc-<user>/ctx/<root hash>/ctx-<session_id>.json (see ctx.cjs). ' +
       'Stages: ctxPrepare - "update STATE"; ctxWarn (default ctxHandoff - 10000) - "prepare the handoff, take no new ' +
       'packages"; ctxHandoff - handoff mode. Handoff mode is kept by a flag file ' +
       '<tmp>/ghorc-<user>/handoff-<session_id>.json written at the first crossing of ctxHandoff. In handoff mode ' +
@@ -110,6 +110,7 @@ run((input) => {
   if (worker && event !== 'SessionStart' && !cg.readFlag(sid)) return; // a worker without a flag costs one file read
 
   const cwd = input.cwd || process.cwd();
+  if (!optedIn(cwd)) return; // a project without .claude/ghorc.json never opted in
   const cfg = load(cwd);
   const hand = cfg.handoff || {};
   // handoff.stickyOnCompact (default false). Off: the behaviour of v0.7.0 (no compaction flag, Stop blocks at most 2

@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { runScript, tmpProject, TEST_TMP, stopWatchdogs } = require('./helpers.cjs');
+const { runScript, tmpProject, bareProject, TEST_TMP, stopWatchdogs } = require('./helpers.cjs');
 const config = require('../scripts/lib/config.cjs');
 
 function freshTmp() {
@@ -146,7 +146,7 @@ test('ctx.cjs shows unread alerts of ONE session, oldest first, marks only those
 
 test('setup.cjs: --check finds everything missing, --apply all makes it clean, other keys survive', () => {
   const home = freshTmp();
-  const proj = tmpProject();
+  const proj = bareProject();
   fs.mkdirSync(path.join(proj, '.git', 'info'), { recursive: true });
   try {
     fs.mkdirSync(path.join(home, '.claude'), { recursive: true });
@@ -156,7 +156,7 @@ test('setup.cjs: --check finds everything missing, --apply all makes it clean, o
     const parse = (o) => JSON.parse(o.trim().split('\n').pop());
     const before = parse(runScript('setup.cjs', '', { args: ['--check', '--cwd', proj], env }).out);
     assert.equal(before.clean, false);
-    assert.ok(before.items.filter((i) => i.id !== 'statusLineStale' && i.id !== 'heavy' && i.id !== 'effort').every((i) => !i.ok), 'all items missing (effort is ok without a top-level key)');
+    assert.ok(before.items.filter((i) => i.id !== 'statusLineStale' && i.id !== 'heavy' && i.id !== 'effort' && i.id !== 'bypassPrompt' && i.id !== 'model' && i.id !== 'effortGlobal').every((i) => !i.ok), 'all items missing (effort is ok without a top-level key; bypassPrompt is ok while nothing starts in bypass; an unset global model is the account default; no effort leaks)');
     const ap = runScript('setup.cjs', '', { args: ['--apply', 'all', '--cwd', proj], env });
     assert.equal(ap.code, 0, ap.out + ap.err);
     const after = parse(runScript('setup.cjs', '', { args: ['--check', '--cwd', proj], env }).out);

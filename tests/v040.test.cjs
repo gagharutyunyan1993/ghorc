@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const cp = require('node:child_process');
-const { runScript, isDeny, tmpProject, sid, TEST_TMP } = require('./helpers.cjs');
+const { runScript, isDeny, tmpProject, ctxPath, sid, TEST_TMP } = require('./helpers.cjs');
 
 const tmpLib = require('../scripts/lib/tmp.cjs');
 const watch = require('../scripts/lib/watch.cjs');
@@ -140,7 +140,7 @@ test('hooks.json: Read matcher covers MCP screenshots; PostToolUse covers Edit|W
 
 test('I4: invalid JSON in the project config: heavy commands are denied for everyone with the reason', () => {
   const cwd = tmpProject();
-  fs.mkdirSync(path.join(cwd, '.claude'));
+  fs.mkdirSync(path.join(cwd, '.claude'), { recursive: true });
   const f = path.join(cwd, '.claude', 'ghorc.json');
   fs.writeFileSync(f, '{"heavyCommands": [');
   const lead = hg(bash(cwd, 'npm test'));
@@ -168,7 +168,7 @@ test('I4: a bad regex or a wrong type is a fatal config error with a reason; an 
 
 test('I4: read-guard keeps working with defaults while the config is invalid', () => {
   const cwd = tmpProject();
-  fs.mkdirSync(path.join(cwd, '.claude'));
+  fs.mkdirSync(path.join(cwd, '.claude'), { recursive: true });
   fs.writeFileSync(path.join(cwd, '.claude', 'ghorc.json'), '{oops');
   const s = sid();
   for (let i = 1; i <= 3; i++) assert.equal(isDeny(rg(read(s, cwd, 'a.txt'))), false);
@@ -301,8 +301,7 @@ test('A21: GHORC_HOOK_DUMP appends the raw hook input only when set', () => {
 
 test('E3: ctx.cjs requires --session (id, 8-char prefix, GHORC_SESSION) or --all', () => {
   const cwd = tmpProject();
-  fs.mkdirSync(path.join(cwd, '.claude'));
-  const write = (id, pct) => fs.writeFileSync(path.join(cwd, '.claude', `ctx-${id}.json`), JSON.stringify({ session_id: id, used_percentage: pct }));
+  const write = (id, pct) => fs.writeFileSync(ctxPath(cwd, id), JSON.stringify({ session_id: id, used_percentage: pct }));
   write('aaaaaaaa-1111', 11);
   write('bbbbbbbb-2222', 22);
   const none = runScript('ctx.cjs', '', { args: ['--cwd', cwd] });
@@ -381,11 +380,11 @@ test('F1: session-start puts alerts first and cuts at 299 chars with a +more mar
   }
 });
 
-test('F2: session-start removes ctx files and tmp state older than 7 days, keeps fresh ones', () => {
+test('F2: session-start removes ctx files and tmp state older than 7 days, keeps fresh ones; legacy project ctx files go whatever their age', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ghorc-clean-'));
   try {
     const proj = tmpProject();
-    fs.mkdirSync(path.join(proj, '.claude'));
+    fs.mkdirSync(path.join(proj, '.claude'), { recursive: true });
     const old = new Date(Date.now() - 10 * 86400000);
     const mk = (p) => {
       fs.writeFileSync(p, '{}');
@@ -393,6 +392,10 @@ test('F2: session-start removes ctx files and tmp state older than 7 days, keeps
     };
     mk(path.join(proj, '.claude', 'ctx-old.json'));
     fs.writeFileSync(path.join(proj, '.claude', 'ctx-new.json'), '{}');
+    const oldCtx = ctxPath(proj, 'old', { tmpDir: dir });
+    const newCtx = ctxPath(proj, 'new', { tmpDir: dir });
+    mk(oldCtx);
+    fs.writeFileSync(newCtx, '{}');
     mk(path.join(dir, 'x.offset'));
     mk(path.join(dir, 'y.tmp'));
     fs.writeFileSync(path.join(dir, 'fresh.offset'), '1');
@@ -403,7 +406,9 @@ test('F2: session-start removes ctx files and tmp state older than 7 days, keeps
     fs.utimesSync(sd, old, old);
     runScript('session-start.cjs', { cwd: proj, session_id: 's1' }, { env: { GHORC_TMP: dir, GHORC_ROLE: 'worker' } });
     assert.ok(!fs.existsSync(path.join(proj, '.claude', 'ctx-old.json')));
-    assert.ok(fs.existsSync(path.join(proj, '.claude', 'ctx-new.json')));
+    assert.ok(!fs.existsSync(path.join(proj, '.claude', 'ctx-new.json')), 'a legacy project ctx file goes whatever its age');
+    assert.ok(!fs.existsSync(oldCtx));
+    assert.ok(fs.existsSync(newCtx));
     assert.ok(!fs.existsSync(path.join(dir, 'x.offset')));
     assert.ok(!fs.existsSync(path.join(dir, 'y.tmp')));
     assert.ok(fs.existsSync(path.join(dir, 'fresh.offset')));
@@ -557,7 +562,6 @@ test('E2: setup exclude: the path comes from git, also in a worktree; two lines 
       assert.equal(r.code, 0, r.out + r.err);
     }
     const ex = fs.readFileSync(path.join(repo, '.git', 'info', 'exclude'), 'utf8');
-    assert.equal(ex.split('\n').filter((l) => l === '.claude/ctx-*.json').length, 1);
     assert.equal(ex.split('\n').filter((l) => l === '.claude/ghorc-out/').length, 1);
   } finally {
     fs.rmSync(home, { recursive: true, force: true });

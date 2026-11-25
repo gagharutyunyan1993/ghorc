@@ -8,14 +8,15 @@ optional: a plain main session is the lead.
 ### Roles
 | Role | Model / effort | Purpose |
 |---|---|---|
-| `ghorc:implementer` | sonnet / medium (money, migrations - high) | code, tests, documents from a brief |
+| `ghorc:implementer` | sonnet / medium (money, recovery - high; migrations, performance - opus / medium) | code, tests, documents from a brief |
 | `ghorc:reviewer` | sonnet / medium | ordinary diff review |
-| `ghorc:reviewer-critical` | opus / high | critical review, final verdict of a critical package |
+| `ghorc:reviewer-critical` | opus / high (fable / medium on Opus work) | critical review, final verdict of a critical package |
 | `ghorc:scout` | sonnet / low | facts with `file:line` written to a file |
 | `ghorc:integrator` | sonnet / medium | merge conflicts, red checks |
 | `ghorc:release` | sonnet / medium | release, only on the owner's word |
 | `ghorc:consult` | sonnet / low | consultations with external models |
 | `ghorc:media` | sonnet / low | the only role for PDFs and images |
+| `ghorc:log-reader` | haiku / medium | failing cases from test output and logs |
 
 ### Project checks
 - fast: `<command>` (run by agents and the lead)
@@ -26,9 +27,9 @@ optional: a plain main session is the lead.
 `<money, contracts, policy, hooks: paths and invariants>`. Edits here go to `ghorc:reviewer-critical`.
 
 ### Lead rules
-- The lead is started explicitly: `--model opus --effort medium`. On every Agent call pass `effort` explicitly from the
-  table in skill `ghorc:lead`; do not rely on frontmatter or global settings.
-- The lead does not read PDFs and images (role `ghorc:media`), does not read logs or files over 100 lines whole, does
+- The lead is started explicitly: `--model opus --effort medium`. On every Agent call pass `model` and `effort` explicitly
+  from the Routing table in skill `ghorc:lead`; do not rely on frontmatter or global settings.
+- The lead does not read PDFs and images (role `ghorc:media`), does not read logs (role `ghorc:log-reader`) or files over 100 lines whole, does
   not write package code, does not run checks synchronously, does not poll agents.
 - Small things (at most 2 commands, output at most 100 lines) - do them yourself; the rest goes to agents, large output
   to a file.

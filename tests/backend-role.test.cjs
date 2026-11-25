@@ -7,7 +7,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { runScript, tmpProject, sid, TEST_TMP } = require('./helpers.cjs');
+const { runScript, tmpProject, ctxPath, sid, TEST_TMP } = require('./helpers.cjs');
 
 process.env.GHORC_TMP = TEST_TMP;
 const backend = require('../scripts/lib/backend.cjs');
@@ -106,8 +106,9 @@ test('prefer: the key is validated and defaulted', () => {
 });
 
 // ---- step 2: worker.permissionArgs --------------------------------------------------------------------------------------
-test('worker.permissionArgs: default [], strings only', () => {
+test('worker.permissionArgs: default [] (the owner picks the mode at setup), strings only', () => {
   assert.deepEqual(defaults.worker, { permissionArgs: [] });
+  assert.deepEqual(defaults.handoff.candidatePermissionArgs, []);
   const check = (cfg) => validate.checkFile(path.join(tmpProject(cfg), '.claude', 'ghorc.json'));
   assert.deepEqual(check({ worker: { permissionArgs: ['--permission-mode', 'acceptEdits'] } }).problems, []);
   assert.deepEqual(check({ worker: { permissionArgs: [] } }).problems, []);
@@ -194,7 +195,7 @@ test('provenLead: with both backends the preferred one is asked', () => {
 const STICKY = { handoff: { stickyOnCompact: true } };
 const SEC = 1000;
 function writeCtx(cwd, s, tokens) {
-  const p = path.join(cwd, '.claude', `ctx-${s}.json`);
+  const p = ctxPath(cwd, s);
   fs.mkdirSync(path.dirname(p), { recursive: true });
   fs.writeFileSync(p, JSON.stringify({ used_percentage: 9, current_usage: { input_tokens: 1000, cache_creation_input_tokens: 0, cache_read_input_tokens: tokens - 1000 }, context_window_size: 1000000 }));
 }

@@ -7,7 +7,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { runScript, isDeny, tmpProject, sid, TEST_TMP } = require('./helpers.cjs');
+const { runScript, isDeny, tmpProject, ctxPath, bareProject, sid, TEST_TMP } = require('./helpers.cjs');
 
 process.env.GHORC_TMP = TEST_TMP;
 const cg = require('../scripts/lib/ctxguard.cjs');
@@ -16,7 +16,7 @@ const SEC = 1000;
 const LEAD = { GHORC_ROLE: 'lead', GHORC_HOOK_GIT_TIMEOUT_MS: '15000' }; // the sticky tests run as the lead unless a test says otherwise
 const STICKY = { handoff: { stickyOnCompact: true } };
 function writeCtx(cwd, s, tokens, ageMin = 0) {
-  const p = path.join(cwd, '.claude', `ctx-${s}.json`);
+  const p = ctxPath(cwd, s);
   fs.mkdirSync(path.dirname(p), { recursive: true });
   fs.writeFileSync(p, JSON.stringify({ used_percentage: 9, current_usage: { input_tokens: 1000, cache_creation_input_tokens: 0, cache_read_input_tokens: tokens - 1000 }, context_window_size: 1000000 }));
   const t = new Date(Date.now() - ageMin * 60 * SEC);
@@ -174,8 +174,7 @@ test('a non-lead session (GHORC_ROLE=worker) gets a reminder only: no deny, no b
 test('a broken ctx file is reported as found, bad JSON; a missing one as no ctx file', () => {
   const cwd = tmpProject({});
   const s = sid();
-  fs.mkdirSync(path.join(cwd, '.claude'), { recursive: true });
-  fs.writeFileSync(path.join(cwd, '.claude', `ctx-${s}.json`), '{"current_usage": {');
+  fs.writeFileSync(ctxPath(cwd, s), '{"current_usage": {');
   const r = call(hook(cwd, s, 'UserPromptSubmit'));
   assert.match(text(r), /Context guard inactive: the ctx file was found, bad JSON/);
   assert.doesNotMatch(text(r), /no ctx file/);
@@ -331,7 +330,7 @@ test('handoff.pushGuard: off by default; on, it denies herdr agent start while a
 // ---- fix round 1: opt-in, roles, parsers, pushGuard fail-open, backstop ----
 
 const noFile = (cfg) => {
-  const cwd = tmpProject(cfg); // undefined: no .claude/ghorc.json at all (the helper writes none)
+  const cwd = cfg === undefined ? bareProject() : tmpProject(cfg); // undefined: no .claude/ghorc.json at all
   const s = sid();
   writeCtx(cwd, s, 9000);
   fs.writeFileSync(path.join(cwd, 'STATE.md'), 'state\n');
@@ -654,7 +653,7 @@ test('N2: a qualifier applies only when whitespace alone separates it from branc
 });
 
 test('N3: key off, a compaction-only flag left by a run with the key on counts as no flag (0.7.0)', () => {
-  const { cwd, s } = noFile(undefined);
+  const { cwd, s } = noFile({}); // a config without the key (a project without any config is never judged)
   cg.writeFlag(s, { ts: Date.now() - 5000, tokens: 0, compacted: true, lead: false });
   for (const env of [ROLELESS, LEAD]) {
     assert.equal(agentDenied(cwd, s, env), false, 'agent allowed');
@@ -663,7 +662,7 @@ test('N3: key off, a compaction-only flag left by a run with the key on counts a
     assert.doesNotMatch(call(hook(cwd, s, 'UserPromptSubmit'), env).out, /context 9K|Handoff|compacted/);
   }
   // a flag from crossing (the 0.7.0 shape) is still a flag with the key off
-  const x = noFile(undefined);
+  const x = noFile({});
   cg.writeFlag(x.s, { ts: Date.now() - 5000, tokens: 160000, stopBlocks: 0 });
   assert.equal(agentDenied(x.cwd, x.s, ROLELESS), true);
 });

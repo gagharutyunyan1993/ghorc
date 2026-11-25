@@ -3,7 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { run } = require('./lib/hook-io.cjs');
-const { load, projectRoot } = require('./lib/config.cjs');
+const { load, projectRoot, optedIn } = require('./lib/config.cjs');
 const { sessionRoot } = require('./lib/root.cjs');
 const cg = require('./lib/ctxguard.cjs');
 const { isWorker, provenLead } = require('./lib/role.cjs');
@@ -32,6 +32,7 @@ run((input) => {
   const event = input.hook_event_name;
   if (!['Stop', 'UserPromptSubmit', 'SubagentStart', 'SubagentStop'].includes(event)) return;
   const cwd = input.cwd || process.cwd();
+  if (!optedIn(cwd)) return;
   const cfg = load(cwd);
   const s = cap.settings(cfg);
   if (!s.enabled) return;
@@ -60,7 +61,7 @@ run((input) => {
     // weekly cap: null - the rule is on but there is no data; undefined - the rule is off
     let week;
     if (s.weeklyCapPct > 0 || s.weeklyAgentsStepPct > 0 || s.weeklyNoNewPct > 0) {
-      week = cap.weekState(cap.readWeekRaw(path.join(root, '.claude'), session), s);
+      week = cap.weekState(cap.readWeekRaw(require('./lib/tmp.cjs').ctxDir(root), session), s);
       if (week === null) log('weekly cap: no rate_limits.seven_day in any ctx file, the weekly brake is off');
     }
 

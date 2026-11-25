@@ -114,9 +114,16 @@ function load(cwd, opts = {}) {
   return cfg;
 }
 
+// Whether the project opted in to ghorc: a .claude/ghorc.json exists (readable or not; an unreadable one is reported by
+// the hooks that read it). ghorc is usually installed at user scope, so every hook and the status line stay silent and
+// write nothing in a project without one; /ghorc:setup (item config) opts a project in.
+function optedIn(cwd, opts = {}) {
+  return findConfig(cwd, opts) !== null;
+}
+
 function found(cwd, opts = {}) {
   const file = findConfig(cwd, opts);
   return file !== null && readJson(file) !== null;
 }
 
-module.exports = { templateKey, load, found, merge, configPath, findConfig, projectRoot, gitCommonRoot, ancestors, readJson, TEMPLATE };
+module.exports = { templateKey, load, found, optedIn, merge, configPath, findConfig, projectRoot, gitCommonRoot, ancestors, readJson, TEMPLATE };

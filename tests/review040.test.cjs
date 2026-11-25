@@ -159,7 +159,7 @@ test('R3: a file changed by another writer starts a new read count; an unchanged
 
 test('R4: with an invalid config the lead may still start agents; subagents may not', () => {
   const cwd = tmpProject();
-  fs.mkdirSync(path.join(cwd, '.claude'));
+  fs.mkdirSync(path.join(cwd, '.claude'), { recursive: true });
   fs.writeFileSync(path.join(cwd, '.claude', 'ghorc.json'), '{"heavyCommands": [');
   assert.equal(isDeny(hg(bash(cwd, 'herdr agent start lead-next --kind claude'))), false, 'lead handoff');
   assert.equal(isDeny(hg(bash(cwd, 'herdr agent start x', 'ag1'))), true);

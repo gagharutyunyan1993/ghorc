@@ -31,5 +31,8 @@ Updated: <date, time>   Session: <session_id>   seq: <N, +1 on every write>   ha
 ## unanswered_owner_messages (mandatory)
 - <HH:MM verbatim owner message not yet answered; or "none">
 
+## Lessons
+- Rules learned this shift: `STATE-lessons.md` next to STATE; read it before the next stage. HANDOFF never carries rules.
+
 ## Promised actions
 - <list or "none">

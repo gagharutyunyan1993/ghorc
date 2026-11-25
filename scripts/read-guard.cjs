@@ -4,7 +4,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { deny, readState, writeState, run } = require('./lib/hook-io.cjs');
-const { load } = require('./lib/config.cjs');
+const { load, optedIn } = require('./lib/config.cjs');
 const { isLead } = require('./lib/role.cjs');
 
 if (process.argv.includes('--help')) {
@@ -47,6 +47,7 @@ function num(v, def) {
 }
 
 run((input) => {
+  if (!optedIn(input.cwd || process.cwd())) return; // a project without .claude/ghorc.json never opted in
   const sid = input.session_id;
   const agentKey = input.agent_id ? String(input.agent_id) : 'main';
   const stateName = `read-${agentKey.replace(/[^A-Za-z0-9_.-]/g, '_')}.json`;

@@ -1,13 +1,14 @@
 'use strict';
 // Shared by context-guard.cjs and setup.cjs: the lead's context numbers, the thresholds and the sticky handoff flag.
-// The ctx file is written by statusline.cjs: <project root>/.claude/ctx-<session_id>.json (the file ctx.cjs prints).
+// The ctx file is written by statusline.cjs: <tmp>/ghorc-<user>/ctx/<root hash>/ctx-<session_id>.json (tmp.ctxFile; the
+// file ctx.cjs prints), outside the project.
 // The flag file <tmp>/ghorc-<user>/handoff-<session_id>.json is the one sticky "handoff is due" flag of a session. It is
 // written when the context first reaches ctxHandoff or, with handoff.stickyOnCompact, when the session is compacted
 // (SessionStart, source compact). With stickyOnCompact token numbers never clear it; only HANDOFF.md with `status: SENT`
 // and this session as `old_session_id` does. A new session id after /clear has no flag.
 const fs = require('node:fs');
 const path = require('node:path');
-const { tmpDir, atomicWrite } = require('./tmp.cjs');
+const { tmpDir, atomicWrite, ctxDir, ctxFile } = require('./tmp.cjs');
 
 const STALE_MS = 10 * 60 * 1000; // an older ctx file is not trusted (fail-open)
 
@@ -20,8 +21,8 @@ function num(v, def) {
 // { prepare, warn, handoff } in tokens. thresholds.ctxWarn 0 (the default) means ctxHandoff - 10000.
 function thresholds(cfg) {
   const t = (cfg && cfg.thresholds) || {};
-  const handoff = num(t.ctxHandoff, 150000);
-  const prepare = num(t.ctxPrepare, 120000);
+  const handoff = num(t.ctxHandoff, 265000);
+  const prepare = num(t.ctxPrepare, 235000);
   const w = num(t.ctxWarn, 0);
   const warn = w > 0 ? Math.min(w, handoff) : Math.max(handoff - 10000, 0);
   return { prepare, warn, handoff };
@@ -41,7 +42,7 @@ function stageOf(tokens, th) {
 function readCtx(root, sid, now = Date.now()) {
   const none = { found: false, bad: false, ageMs: Infinity, tokens: null, size: null };
   let st;
-  const file = path.join(root, '.claude', `ctx-${safeId(sid)}.json`);
+  const file = ctxFile(root, sid);
   try {
     st = fs.statSync(file);
   } catch {
@@ -58,10 +59,10 @@ function readCtx(root, sid, now = Date.now()) {
   }
 }
 
-// The context window size of the newest ctx file under <root>/.claude that has one, else null (used by setup.cjs).
+// The context window size of the newest ctx file of the project that has one, else null (used by setup.cjs).
 function newestWindowSize(root) {
   try {
-    const dir = path.join(root, '.claude');
+    const dir = ctxDir(root);
     const rows = fs
       .readdirSync(dir)
       .filter((f) => /^ctx-.*\.json$/.test(f))
@@ -71,6 +72,32 @@ function newestWindowSize(root) {
       try {
         const s = num(JSON.parse(fs.readFileSync(path.join(dir, r.f), 'utf8')).context_window_size, 0);
         if (s > 0) return s;
+      } catch {
+        /* a broken file */
+      }
+    }
+  } catch {
+    /* no directory */
+  }
+  return null;
+}
+
+// Full model id of the newest ctx file whose model.id contains the alias as a dash-delimited part (opus ->
+// claude-opus-<version>), so an alias resolves to whatever Claude Code ran it as last; null when no session recorded it.
+function newestModelId(root, alias) {
+  if (typeof alias !== 'string' || !/^[a-z]+$/.test(alias)) return null;
+  try {
+    const dir = ctxDir(root);
+    const rows = fs
+      .readdirSync(dir)
+      .filter((f) => /^ctx-.*\.json$/.test(f))
+      .map((f) => ({ f, m: fs.statSync(path.join(dir, f)).mtimeMs }))
+      .sort((a, b) => b.m - a.m);
+    for (const r of rows) {
+      try {
+        const m = JSON.parse(fs.readFileSync(path.join(dir, r.f), 'utf8')).model;
+        const id = m && typeof m.id === 'string' ? m.id.replace(/\[.*\]$/, '') : '';
+        if (id && `-${id}-`.includes(`-${alias}-`)) return id;
       } catch {
         /* a broken file */
       }
@@ -208,4 +235,4 @@ function inFlightBranches(stateFile) {
   return out;
 }
 
-module.exports = { STALE_MS, handoffSentBy, inFlightBranches, thresholds, stageOf, readCtx, newestWindowSize, flagFile, readFlag, writeFlag, deleteFlag, markCompacted, compactOnly, safeId };
+module.exports = { STALE_MS, handoffSentBy, inFlightBranches, thresholds, stageOf, readCtx, newestWindowSize, newestModelId, flagFile, readFlag, writeFlag, deleteFlag, markCompacted, compactOnly, safeId };

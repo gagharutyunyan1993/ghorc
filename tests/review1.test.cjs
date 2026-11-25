@@ -4,7 +4,7 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { runScript, isDeny, tmpProject, sid } = require('./helpers.cjs');
+const { runScript, isDeny, tmpProject, ctxPath, bareProject, sid } = require('./helpers.cjs');
 
 const read = (s, cwd, file, ti = {}, agent_id = 'ag1') => ({
   hook_event_name: 'PreToolUse',
@@ -150,7 +150,7 @@ test('P2-4: check-config --sample and a valid config', () => {
 
 test('P2-4: invalid config JSON does not break the hooks (fail open)', () => {
   const cwd = tmpProject();
-  fs.mkdirSync(path.join(cwd, '.claude'));
+  fs.mkdirSync(path.join(cwd, '.claude'), { recursive: true });
   fs.writeFileSync(path.join(cwd, '.claude', 'ghorc.json'), '{bad');
   const r = runScript('check-config.cjs', '', { args: ['--cwd', cwd] });
   assert.equal(r.code, 1);
@@ -191,9 +191,10 @@ test('P2-8: statusline writes to the project root (git), atomically, ctx --sessi
   const s1 = sid();
   const s2 = sid();
   for (const s of [s1, s2]) runScript('statusline.cjs', { session_id: s, cwd: sub, context_window: { used_percentage: 5 } });
-  assert.ok(fs.existsSync(path.join(proj, '.claude', `ctx-${s1}.json`)));
+  assert.ok(fs.existsSync(ctxPath(sub, s1)));
+  assert.equal(ctxPath(sub, s1), ctxPath(proj, s1), 'the project root (git), not the subdirectory');
   assert.ok(!fs.existsSync(path.join(sub, '.claude')));
-  assert.equal(fs.readdirSync(path.join(proj, '.claude')).filter((f) => f.endsWith('.tmp')).length, 0);
+  assert.equal(fs.readdirSync(path.dirname(ctxPath(proj, s1))).filter((f) => f.endsWith('.tmp')).length, 0);
   const r = runScript('ctx.cjs', '', { args: ['--cwd', sub, '--session', s2] });
   assert.equal(r.out.trim().split('\n').length, 1);
   assert.match(r.out, new RegExp(`ctx-${s2}`));
@@ -201,7 +202,7 @@ test('P2-8: statusline writes to the project root (git), atomically, ctx --sessi
   const pd = tmpProject();
   const s3 = sid();
   runScript('statusline.cjs', { session_id: s3, cwd: sub, workspace: { project_dir: pd }, context_window: {} });
-  assert.ok(fs.existsSync(path.join(pd, '.claude', `ctx-${s3}.json`)));
+  assert.ok(fs.existsSync(ctxPath(pd, s3)));
 });
 
 test('F8: --notify with a .cmd script works through "cmd /c" on Windows', { skip: process.platform !== 'win32' && 'Windows only' }, () => {
@@ -222,7 +223,7 @@ test('F8: --notify with a .cmd script works through "cmd /c" on Windows', { skip
 test('round 2: the project root from a worktree is the main repository (git worktree add)', () => {
   const { spawnSync } = require('node:child_process');
   const config = require('../scripts/lib/config.cjs');
-  const repo = fs.realpathSync.native(tmpProject());
+  const repo = fs.realpathSync.native(bareProject());
   const git = (cwd, ...a) => spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...a], { cwd, encoding: 'utf8' });
   assert.equal(git(repo, 'init', '-q').status, 0);
   fs.writeFileSync(path.join(repo, 'f.txt'), 'x');
@@ -233,10 +234,13 @@ test('round 2: the project root from a worktree is the main repository (git work
   try {
     const real = (p) => fs.realpathSync.native(p).toLowerCase();
     assert.equal(real(config.projectRoot(wt)), real(repo));
-    // statusline from a worktree writes ctx to the main repository
+    // statusline from a worktree writes ctx to the main repository (opted in there, not committed: the worktree has no .claude)
+    fs.mkdirSync(path.join(repo, '.claude'), { recursive: true });
+    fs.writeFileSync(path.join(repo, '.claude', 'ghorc.json'), '{}');
     const s = sid();
     runScript('statusline.cjs', { session_id: s, cwd: wt, context_window: { used_percentage: 3 } });
-    assert.ok(fs.existsSync(path.join(repo, '.claude', `ctx-${s}.json`)));
+    assert.ok(fs.existsSync(ctxPath(repo, s)));
+    assert.equal(ctxPath(wt, s), ctxPath(repo, s), 'a worktree maps to the main repository');
     assert.ok(!fs.existsSync(path.join(wt, '.claude')));
     // ctx.cjs from a worktree sees the same file
     assert.match(runScript('ctx.cjs', '', { args: ['--cwd', wt, '--session', s] }).out, new RegExp(`ctx-${s}`));

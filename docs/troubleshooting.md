@@ -35,12 +35,15 @@ Every deny is also in `<tmp>/ghorc-<user>/denials.log` ([hooks.md](hooks.md#deni
   shape is undocumented). Inspect `<tmp>/ghorc-<user>/statusline-sample.json` (the first input, saved once) or set
   `GHORC_STATUSLINE_DUMP=<file>` to append every input.
 - **`ctx.cjs` prints a usage line and exits 2.** It needs `--session <id>` (or `GHORC_SESSION`, or `--all`).
-- **`ctx.cjs` says "no ctx-*.json files".** The status line is not configured, or wrote under another root: it uses
+- **`ctx.cjs` says "no ctx-*.json files".** The status line is not configured, the project has no `.claude/ghorc.json`,
+  or the status line wrote under another root (its files are in `<os tmp>/ghorc-<user>/ctx/<root hash>/ctx-<session_id>.json`): it uses
   the root rule (`CLAUDE_PROJECT_DIR`, else the git common root of `workspace.project_dir` or the cwd). Run
   `ctx.cjs --cwd <that root>`.
 
 ## Config
 
+- **ghorc does nothing in a project** (no SessionStart line, no deny, `ctx` finds no file). The project has no
+  `.claude/ghorc.json`, so it never opted in and every hook is silent there. Run `/ghorc:setup` and apply `config`.
 - **"config not found" in a worktree.** No file in the worktree, its ancestors or the main repository root, or git is
   not on `PATH`. `check-config.cjs --cwd <worktree>` shows the expected path; put the file in the main repository's
   `.claude/`.
@@ -63,13 +66,32 @@ Every deny is also in `<tmp>/ghorc-<user>/denials.log` ([hooks.md](hooks.md#deni
   receive its settings, or the 10 minutes passed. Close it and its tab, void the `handoff_id`, fix, retry; after 2
   failures ask the owner. See [handoff.md](handoff.md).
 
+## Workers and the shell (Windows and Git Bash)
+
+- **A worker does not see new rules from `.claude/ghorc.json`.** The hooks read the config from the worker session's
+  cwd, not from the command's. Start the worker in a worktree based on a fresh `origin/main`.
+- **The lead waited and nothing came.** The worker printed `DONE` to its terminal but not as the last line of its
+  report file, which is what the wait reads; the brief must say so. A Stop with working workers and no background wait
+  is blocked once (`tabs NOWAIT`).
+- **A brief or a multi-line file written with a Bash heredoc is empty or missing.** Quoting broke it; write it with the
+  Write tool and check the file exists before the launch.
+- **A check hangs and one core stays at 100%.** A `python -` (script on stdin) waits for input; use `python -I -c` or a
+  script file.
+- **A tool opened the wrong directory.** An unquoted `D:\x\y` in Git Bash becomes `D:xy`; use forward slashes in
+  quotes.
+- **An exact-string edit does not match in a `.md` or `.json` file.** The file has CRLF line ends; read it first and
+  edit from what was read.
+- **A push with a long pre-push hook breaks.** SSH drops during the hook: push with
+  `GIT_SSH_COMMAND="ssh -o ServerAliveInterval=15 -o ServerAliveCountMax=40"`, write the output to a file and compare
+  `git ls-remote` with the local SHA instead of trusting the exit code.
+
 ## Where files live
 
 `<tmp>` is the OS temp directory (`%TEMP%` on Windows, usually `/tmp` on Linux); the plugin works in
 `<tmp>/ghorc-<user>` (one directory per OS user) and `GHORC_TMP` replaces that whole path. Per project root (an
 8-character hash) it keeps `watchdog-<hash>.log`, `.pid`, `.beat`, `.state.json` and `alerts-<hash>.log`; per session
 an alert offset file and read counters; for everyone `denials.log` and `config-valid.json`. The status line writes
-`<project>/.claude/ctx-<session_id>.json`.
+`<os tmp>/ghorc-<user>/ctx/<root hash>/ctx-<session_id>.json` (before 0.11 `<project>/.claude/ctx-*.json`; session start deletes those).
 
 ## Install scopes and updating
 
@@ -77,7 +99,7 @@ an alert offset file and read counters; for everyone `denials.log` and `config-v
 
 | Scope | Written to | Pick it when |
 |---|---|---|
-| `user` (default) | `~/.claude/settings.json` | you want ghorc in every project on this machine |
+| `user` (default) | `~/.claude/settings.json` | you want ghorc available in every project on this machine (it acts only where `.claude/ghorc.json` exists) |
 | `project` | `<project>/.claude/settings.json` | the team uses it (commit the file) |
 | `local` | this project, not shared | you try it in one project without affecting teammates |
 

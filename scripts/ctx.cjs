@@ -1,9 +1,9 @@
 'use strict';
-// Prints this session's <project root>/.claude/ctx-<session_id>.json, then its unread watchdog alerts.
+// Prints this session's ctx file (<tmp>/ghorc-<user>/ctx/<root hash>/ctx-<session_id>.json), then its unread watchdog alerts.
 const fs = require('node:fs');
 const path = require('node:path');
 const { projectRoot } = require('./lib/config.cjs');
-const { unreadAlerts, markAlertsRead } = require('./lib/tmp.cjs');
+const { unreadAlerts, markAlertsRead, ctxDir } = require('./lib/tmp.cjs');
 const { readFlag } = require('./lib/ctxguard.cjs');
 
 const args = process.argv.slice(2);
@@ -27,7 +27,7 @@ if (!all && !session) {
 }
 const maxAge = opt('--max-age') !== undefined ? Number(opt('--max-age')) : Infinity;
 const root = projectRoot(opt('--cwd') || process.cwd());
-const dir = path.join(root, '.claude');
+const dir = ctxDir(root);
 
 const safe = (s) => String(s).replace(/[^A-Za-z0-9_.-]/g, '_');
 let rows = [];

@@ -29,13 +29,42 @@ function isDeny(r) {
   }
 }
 
-function tmpProject(config) {
+// A project that opted in to ghorc: .claude/ghorc.json is always written ({} when no config is given), because every hook
+// is silent in a project without one. bareProject() is a project that never opted in.
+function tmpProject(config = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ghorc-test-'));
   made.push(dir);
   if (config) {
+    // The context-guard mechanics tests were written at the 0.10 thresholds (120K/150K); a project config without its own
+    // thresholds keeps them, so a change of the shipped defaults does not move every fixture. Defaults are tested apart.
+    const cfg = config.thresholds === undefined ? { ...config, thresholds: { ctxPrepare: 120000, ctxHandoff: 150000 } } : config;
     fs.mkdirSync(path.join(dir, '.claude'), { recursive: true });
-    fs.writeFileSync(path.join(dir, '.claude', 'ghorc.json'), JSON.stringify(config));
+    fs.writeFileSync(path.join(dir, '.claude', 'ghorc.json'), JSON.stringify(cfg));
   }
+  return dir;
+}
+
+// The status line's ctx file of session sid as a hook child process sees it: <TEST_TMP>/ctx/<root hash>/ctx-<sid>.json,
+// with the root computed like the hooks do (CLAUDE_PROJECT_DIR = projectDir, else the git root of cwd). The directory
+// is created. tmpDir overrides TEST_TMP for a test that gives its children another GHORC_TMP.
+function ctxPath(cwd, sid, { projectDir = '', tmpDir = TEST_TMP } = {}) {
+  const saved = process.env.CLAUDE_PROJECT_DIR;
+  process.env.CLAUDE_PROJECT_DIR = projectDir;
+  let root;
+  try {
+    root = require('../scripts/lib/root.cjs').projectRoot(cwd);
+  } finally {
+    if (saved === undefined) delete process.env.CLAUDE_PROJECT_DIR;
+    else process.env.CLAUDE_PROJECT_DIR = saved;
+  }
+  const dir = path.join(tmpDir, 'ctx', require('../scripts/lib/tmp.cjs').rootHash(root));
+  fs.mkdirSync(dir, { recursive: true });
+  return path.join(dir, `ctx-${String(sid).replace(/[^A-Za-z0-9_.-]/g, '_')}.json`);
+}
+
+function bareProject() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ghorc-test-'));
+  made.push(dir);
   return dir;
 }
 
@@ -91,4 +120,4 @@ function sid() {
   return id;
 }
 
-module.exports = { killTree, stopWatchdogs, runScript, isDeny, tmpProject, sid, TEST_TMP, TEST_ROOT };
+module.exports = { killTree, stopWatchdogs, runScript, isDeny, tmpProject, bareProject, ctxPath, sid, TEST_TMP, TEST_ROOT };

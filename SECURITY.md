@@ -11,7 +11,21 @@ ghorc installs Claude Code hooks, so here is exactly what they do and do not do.
   a few built-in ones for subagents (`claude -p`, `herdr agent start|prompt|send-keys`,
   `herdr pane run|send-keys|send-text`, `hc run|exec|keys|interrupt`, `hc send` except to the own parent).
 - `session-start.cjs` (SessionStart): prints a short reminder and may start the transcript watchdog in the background.
+- `tabs-guard.cjs` (PreToolUse on `Bash|PowerShell`, UserPromptSubmit, Stop, SessionStart; lead only): denies a tab or
+  worker start that breaks the naming, model, effort, permission or limit rules, lists the lead's worker tabs, blocks
+  Stop while one waits on a dialog or is finished but open, and may show a herdr notification. It runs `herdr agent
+  list` / `hc ls --json` (and `herdr notification show`) to do that.
 - Deny decisions are rule-based and carry a reason; the hooks never rewrite a command or a file.
+
+## Permission mode of the sessions ghorc starts
+
+Workers and candidate leads start with default permissions (`worker.permissionArgs` and
+`handoff.candidatePermissionArgs` are `[]`) until the owner chooses otherwise: `/ghorc:setup` asks, and
+`setup.cjs --apply permissions --mode <bypass|acceptEdits|prompts>` writes the answer into `.claude/ghorc.json`. Neither
+`--apply all` nor any other item picks a mode. With `bypass` a worker can edit and run anything in its worktree without
+asking. What still holds then: ghorc's PreToolUse hooks deny as usual (verified with a worker's heavy check under
+bypass), your deny rules apply, critical-path removals and `AskUserQuestion` still stop the session, and an
+organization's `disableBypassPermissionsMode` setting turns the mode off.
 
 ## What the hooks cannot do
 
@@ -31,7 +45,7 @@ denies heavy commands with the reason until the file is fixed.
 
 Per-session read counters, watchdog pid, state and log files, and the config validation cache live in
 `<os tmp dir>/ghorc-<user>` (`GHORC_TMP` replaces that path). The status line writes
-`<project>/.claude/ctx-<session_id>.json`. `GHORC_HOOK_DUMP=<file>`, if you set it, appends raw hook input to that
+`<os tmp>/ghorc-<user>/ctx/<root hash>/ctx-<session_id>.json` there too, never into the project. `GHORC_HOOK_DUMP=<file>`, if you set it, appends raw hook input to that
 file; it is off by default, so remove the dump when you share it, because it contains tool arguments.
 
 ## Reporting a vulnerability

@@ -48,7 +48,18 @@ claude plugin marketplace add gagharutyunyan1993/ghorc
 claude plugin install ghorc@ghorc
 ```
 
-Then, in a session inside your project, run `/ghorc:setup`. It checks the status line, the autocompact threshold,
+The install also brings [methodology-toolkit](https://github.com/gagharutyunyan1993/methodology-toolkit) (the critic,
+evidence scout and decision methods the lead uses), as a dependency from the same marketplace. If you already have it
+from its own marketplace, keep one copy: two copies of one plugin load, but only one runs its hooks.
+
+`/ghorc:setup` asks you how tab workers and candidate leads start: `bypass` (no permission prompts; ghorc's hooks still
+deny), `acceptEdits` or `prompts` (the default until you choose; an unattended tab then stops on each prompt). The
+answer goes to `worker.permissionArgs` and `handoff.candidatePermissionArgs`
+([configuration](docs/configuration.md#worker)).
+
+ghorc installs for all projects but does nothing in a project until it has `.claude/ghorc.json`: no hook denies or
+reminds there, and the status line writes no files into it. Then, in a session inside your project, run
+`/ghorc:setup` (it creates that file). It checks the status line, the autocompact threshold,
 `.claude/ghorc.json`, the `CLAUDE.md` section and the git exclude, proposes `heavyCommands` from your `package.json`
 scripts, and applies only the items you confirm. To try ghorc for one session without installing:
 `claude --plugin-dir <path-to-clone>`. Upgrading from 0.4.x: see [CHANGELOG.md](CHANGELOG.md) (the marketplace was
@@ -99,16 +110,20 @@ Details: [docs/hooks.md](docs/hooks.md) and [docs/workflow.md](docs/workflow.md)
 
 ## Roles
 
-Called as `ghorc:<role>`. The lead passes `effort` on every call and names the move-up condition when it
-raises one; effort choices are measured, not guessed (see [docs/evidence.md](docs/evidence.md)).
+Called as `ghorc:<role>`. The lead passes `model` and `effort` on every call and names the move-up condition when
+it raises one. The starting choices follow Anthropic's model guide and are explained row by row in
+[docs/models.md](docs/models.md); a row changes only when the ledger measures a reason to (see
+[docs/evidence.md](docs/evidence.md)). The lead itself is Opus/medium, or Fable/medium for a major refactor or
+migration, and changes model only at a handoff.
 
 | Role | Model / effort | Purpose |
 |---|---|---|
-| `implementer` | sonnet / medium | code, tests and documents from a brief |
+| `implementer` | sonnet / medium (opus for migrations and performance work) | code, tests and documents from a brief |
 | `reviewer` | sonnet / medium | ordinary diff review; writes a review file with a verdict |
-| `scout` | sonnet / low | read-only facts with `file:line`, written to a file |
-| `reviewer-critical` (advanced) | opus / high | adversarial review of paths listed in `criticalPaths` |
-| `media` (advanced) | sonnet / low | the only subagent role that reads PDFs and images |
+| `scout` | sonnet / medium | read-only facts with `file:line`, written to a file |
+| `log-reader` | haiku / medium | failing cases from test output and logs, written to a file |
+| `reviewer-critical` (advanced) | opus / high (fable on Opus work) | adversarial review of `criticalPaths` |
+| `media` (advanced) | sonnet / medium | the only subagent role that reads PDFs and images |
 | `consult` (advanced) | sonnet / low | asks external models in a browser (needs a browser MCP) |
 
 `integrator` and `release` also ship; see [docs/workflow.md](docs/workflow.md).
@@ -127,7 +142,8 @@ raises one; effort choices are measured, not guessed (see [docs/evidence.md](doc
 ## Security and removal
 
 The hooks make no network calls and send nothing anywhere; your model provider still receives your prompts as usual.
-State lives in `<os tmp>/ghorc-<user>` and `<project>/.claude/ctx-<session>.json`. Details: [SECURITY.md](SECURITY.md).
+State lives in `<os tmp>/ghorc-<user>`; nothing is written into the project but `.claude/ghorc-out/`.
+Details: [SECURITY.md](SECURITY.md).
 
 The transcript watchdog is off by default. Turn it on with `/ghorc:setup` (item `watchdog`); stop it with
 `node "<plugin>/scripts/watchdog.cjs" --stop` in the project directory.
@@ -144,6 +160,7 @@ claude plugin marketplace remove ghorc
 ## Docs
 
 - [docs/workflow.md](docs/workflow.md): the lead/worker cycle, roles, briefs, reports and acceptance
+- [docs/models.md](docs/models.md): which model and effort each role and class of work gets, and why
 - [docs/hooks.md](docs/hooks.md): each hook, the status line, the watchdog and the scripts
 - [docs/configuration.md](docs/configuration.md): every key of `.claude/ghorc.json`
 - [docs/handoff.md](docs/handoff.md): handing the lead shift to a fresh session
