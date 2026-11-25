@@ -61,6 +61,28 @@ function gitCommonRoot(cwd) {
   }
 }
 
+// One spelling of a path, for comparing and hashing only (never for writing): links, junctions and Windows 8.3 short
+// names resolved by realpath.native (git prints the long name, os.tmpdir() may give RUNNER~1); for a path that does not
+// exist yet, its nearest existing ancestor is resolved and the rest appended; lower case on Windows.
+function canonPath(p) {
+  const abs = path.resolve(p || process.cwd());
+  let dir = abs;
+  const tail = [];
+  let out = abs;
+  for (let i = 0; i < 64; i++) {
+    try {
+      out = path.join(fs.realpathSync.native(dir), ...tail);
+      break;
+    } catch {
+      const up = path.dirname(dir);
+      if (up === dir) break;
+      tail.unshift(path.basename(dir));
+      dir = up;
+    }
+  }
+  return process.platform === 'win32' ? out.toLowerCase() : out;
+}
+
 // Directories from cwd up to the git root inclusive (if .git is not found, up to the drive root).
 function ancestors(cwd) {
   const out = [];
@@ -116,11 +138,10 @@ function sessionRoot(cwd) {
     const top = r.status === 0 ? String(r.stdout).trim() : '';
     if (!top) return projectRoot(base);
     const t = path.resolve(base, top);
-    const same = (a, b) => (process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b);
-    return same(t, path.resolve(common)) ? projectRoot(base) : t;
+    return canonPath(t) === canonPath(common) ? projectRoot(base) : t;
   } catch {
     return projectRoot(cwd);
   }
 }
 
-module.exports = { git, sessionRoot, resetGit, gitTimedOut, GIT_TIMEOUT_MS, cliRoot, projectRoot, gitCommonRoot, ancestors, envProjectDir };
+module.exports = { git, canonPath, sessionRoot, resetGit, gitTimedOut, GIT_TIMEOUT_MS, cliRoot, projectRoot, gitCommonRoot, ancestors, envProjectDir };

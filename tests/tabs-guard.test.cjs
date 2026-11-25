@@ -231,7 +231,7 @@ test('hc run: role env, model, effort, name, permission args', () => {
   allowed(pre(p, String.raw`hc run --bg --name a-implementer --cwd "D:\my proj" "C:\Program Files\Git\usr\bin\env.exe" GHORC_ROLE=worker claude.exe ${good} "task"`));
   const w = pre(p, String.raw`hc run --bg --name a-implementer --cwd "D:\my proj" claude.exe ${good} "task"`);
   assert.ok(denied(w));
-  assert.match(reasonOf(w), /Corrected form: hc run --bg --name a-implementer --cwd "..." .*env.exe"? GHORC_ROLE=worker claude.exe/i);
+  assert.match(reasonOf(w), /Corrected form: hc run --bg --name a-implementer --cwd "\.\.\." (?:env|"?[^"]*env\.exe"?) GHORC_ROLE=worker claude\.exe/i);
 });
 
 test('hc run: long-lived kinds need --outlive-parent; other programs get the name rules only', () => {

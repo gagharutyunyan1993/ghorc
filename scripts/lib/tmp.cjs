@@ -26,9 +26,10 @@ function tmpDir() {
   return env && env.trim() ? env : path.join(os.tmpdir(), `ghorc-${safeName(userName())}`);
 }
 
+// The status line and the hooks reach one root by different spellings (CLAUDE_PROJECT_DIR, git's long name, a link),
+// so the hash is taken over the canonical path.
 function rootHash(root) {
-  let r = path.resolve(root || process.cwd());
-  if (process.platform === 'win32') r = r.toLowerCase();
+  const r = require('./root.cjs').canonPath(root || process.cwd());
   return crypto.createHash('sha1').update(r).digest('hex').slice(0, 8);
 }
 

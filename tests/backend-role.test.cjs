@@ -397,7 +397,7 @@ test('step 4: outside a linked worktree the root is the project root as before (
   git(main, 'init', '-q', '-b', 'main');
   const sub = path.join(main, 'pkg', 'inner');
   fs.mkdirSync(sub, { recursive: true });
-  const real = (p) => fs.realpathSync(p).toLowerCase();
+  const real = (p) => fs.realpathSync.native(p).toLowerCase(); // native: 8.3 short names expanded, as git prints them
   assert.equal(real(sessionRoot(main)), real(main));
   assert.equal(real(sessionRoot(sub)), real(main));
   const plain = fs.mkdtempSync(path.join(TEST_TMP, 'nogit-'));
