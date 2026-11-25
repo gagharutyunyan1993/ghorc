@@ -159,13 +159,14 @@ function statusLineCommand() {
   return `node "${path.join(PLUGIN_ROOT, 'scripts', 'statusline.cjs').replace(/\\/g, '/')}"`;
 }
 
-// True when settings point at a plugin-cache copy of statusline.cjs that is not the running copy (older version).
+// True when settings point at a plugin-cache copy of statusline.cjs that is not the running copy (older version). Any
+// config dir counts (~/.claude, ~/.claude-work, CLAUDE_CONFIG_DIR): the cache is <config dir>/plugins/cache/.
 function statusLineStale(slCmd) {
   const norm = (x) => String(x).split('\\').join('/').toLowerCase();
   const cmd = norm(slCmd);
   const mine = norm(path.join(PLUGIN_ROOT, 'scripts', 'statusline.cjs'));
-  if (!norm(PLUGIN_ROOT).includes('/.claude/plugins/')) return false;
-  if (!/\/\.claude\/plugins\/.*statusline\.cjs/.test(cmd)) return false;
+  if (!norm(PLUGIN_ROOT).includes('/plugins/cache/')) return false;
+  if (!/\/plugins\/cache\/.*statusline\.cjs/.test(cmd)) return false;
   return !cmd.includes(mine);
 }
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- `/ghorc:setup` item `statusLineStale` recognised a stale status line only under `~/.claude/plugins/`; a plugin cache
+  in another config dir (a second profile such as `~/.claude-work`, `CLAUDE_CONFIG_DIR`) was never flagged, so the
+  status line could stay on an old version that writes ctx files into the project, where the hooks no longer read them.
+
 ## 0.11.0 - 2026-11-25
 
 Models and effort re-derived from Anthropic's guide "Which Claude model should you build with?" (Nov 2026).
