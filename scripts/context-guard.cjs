@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { run, deny, readState, writeState } = require('./lib/hook-io.cjs');
 const { load, projectRoot, optedIn } = require('./lib/config.cjs');
-const { sessionRoot } = require('./lib/root.cjs');
+const { sessionRoot, canonPath } = require('./lib/root.cjs');
 const tmp = require('./lib/tmp.cjs');
 const cg = require('./lib/ctxguard.cjs');
 const { isWorker, provenLead } = require('./lib/role.cjs');
@@ -57,7 +57,7 @@ const mib = (input) => {
     return null;
   }
 };
-const samePath = (a, b) => (process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b);
+const samePath = (a, b) => canonPath(a) === canonPath(b); // one spelling: links and 8.3 short names resolved
 
 function out(obj) {
   process.stdout.write(JSON.stringify(obj));

@@ -142,6 +142,13 @@ Models and effort re-derived from Anthropic's guide "Which Claude model should y
   status line records the model each session ran on) and writes nothing until one session has run on it. The ledger's
   price table is the one place with model ids; a model missing from it is reported as unpriced.
 
+### Fixed
+- One project root reached by two spellings (a link or junction, a Windows 8.3 short name such as `RUNNER~1` next to
+  the long name git prints) gave two ctx hashes, so the context guard found no ctx file and handoff mode never started;
+  `sessionRoot` took a plain checkout for a linked worktree, and the handoff edit check compared spellings. All three now
+  use `canonPath` (`scripts/lib/root.cjs`: realpath.native of the path or its nearest existing ancestor). The status
+  line of an older ghorc writes under the old hash until it is updated too.
+- `tests/tabs-guard.test.cjs` expected the Windows form of the corrected `hc run` command on every platform.
 
 
 ## 0.10.0 - 2026-11-12
