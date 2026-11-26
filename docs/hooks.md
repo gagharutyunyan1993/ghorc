@@ -43,7 +43,7 @@ only. Bash and PowerShell never reset a counter.
 **What it prints** (the `permissionDecisionReason`), for example:
 
 ```
-slugify.js was already read 3 times: do not re-read it, use what you have or edit it first.
+slugify.js was already read 3 times: do not re-read it, use what you have or edit it first. For a long file, send a scout (ghorc:scout) instead of reading it in parts.
 media is read by the media role: hand this file to ghorc:media.
 the lead (GHORC_ROLE=lead) does not read media: hand it to the media role.
 Do not read a PDF without pages: run pdftotext/pdftoppm or set pages, or better hand it to the media role.
@@ -303,7 +303,8 @@ numbers silences it for every session.
 - The worker count is machine-wide on purpose: the limit protects the machine, not one project. Workers of other
   projects and other leads whose name does not start with `leadNamePrefix` count as workers while they are `working`
   or `blocked`, so a busy neighbour keeps this lead silent. Name your leads with the prefix to keep them out.
-- UserPromptSubmit adds the line `agents N/M, CPU X%, free Y GB` to the context (CPU: one 400 ms sample).
+- UserPromptSubmit adds the line `agents N/M machine-wide, CPU X%, free Y GB` to the context (CPU: one 400 ms sample); N counts agents of every
+  project on the machine, so it is a load indicator, not the limit on one lead's workers (that is `tabs.maxWorkers`).
 - CPU is the average of three `os.cpus()` intervals (400 ms each, one interval is capped at 500 ms: Stop waits 1.5 s at
   most); free RAM is `os.freemem()`. No child process for either.
 - Weekly cap, when `weeklyCapPct` > 0: `rate_limits.seven_day` of the ctx file `<os tmp>/ghorc-<user>/ctx/<root hash>/ctx-<session_id>.json` (written
@@ -527,8 +528,10 @@ up to 300 MB, so the report keeps the session after Claude Code deletes old tran
 **What it prints**, in this order: pending watchdog alerts (count and the last 2 lines),
 `ghorc <version> session=<id> role=<role>`, the config status, `lead: load skill ghorc:lead` for the lead, a missing
 `CLAUDE.md` section and a `run /ghorc:setup` hint when a setup item is missing. `role` is `GHORC_ROLE` if set, else
-`lead` for a main session and `agent` for a subagent. Output is cut at 299 characters and ends with `+more: run ctx`
-when cut. A captured run in a plain session of `examples/demo`:
+`lead` for a main session and `agent` for a subagent. Output is at most 299 characters and is built from whole
+lines, never cut inside a line: when it does not fit, whole lines are dropped from the lowest priority up (alert lines,
+the `CLAUDE.md` hint, the setup hint, the config warning, ...) and the output ends with `+more: run ctx`; the identity
+line, `lead: load skill ghorc:lead` and `config invalid` are never dropped. A captured run in a plain session of `examples/demo`:
 
 ```
 ghorc 0.5.0 session=a1b2c3d4-0000-4000-8000-000000000001 role=lead

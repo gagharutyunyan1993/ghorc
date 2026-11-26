@@ -127,7 +127,7 @@ Alerts go to `<tmp>/ghorc-<user>/alerts-<root hash>.log`; `scripts/ctx.cjs --ses
 
 ### handoff
 Standing owner permissions for `/ghorc:handoff`. `allowSendKeysExit` (false): the new lead may close the old lead's
-tab (herdr: `/exit` through `herdr pane run`; hc: `hc kill` and `hc rm`); `/ghorc:setup` item `leadTabClose` sets it
+tab (herdr: `/exit` through `herdr pane run`, then `herdr pane close` of the leftover pane; hc: `hc kill` and `hc rm`); `/ghorc:setup` item `leadTabClose` sets it
 (`--apply leadTabClose --closer <lead|owner>`). It is off by default because it is a standing permission for one session
 to end another, and on hc closing the old lead also kills its children started without `--outlive-parent`.
 `candidatePermissionArgs` (`[]`): permission-mode arguments for the candidate;

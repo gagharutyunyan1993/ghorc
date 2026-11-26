@@ -17,7 +17,7 @@ user-invocable: true
    - `prompts`: default permissions (`[]`); every tool asks and an unattended tab stops until someone answers in it.
    Then run `--apply permissions --mode <answer>` (with `bypass` and a yes to the warning key: `--apply permissions,bypassPrompt --mode bypass`). It writes both `worker.permissionArgs` and `handoff.candidatePermissionArgs`; `--apply all` never does.
    **Old lead tab** (item `leadTabClose`, WARN until the owner has chosen, `lead` or `owner`): ask the owner once, with `AskUserQuestion`, only while the row is WARN ("not chosen"; never again once it is `ok`), who closes the old lead's tab after a handoff, and never pick for them:
-   - `lead`: a standing permission for the new lead to end the old lead's session once it is idle and the handoff is SENT (herdr: `/exit` through `herdr pane run`; hc: `hc kill` and `hc rm`; on hc, children of the old lead started without `--outlive-parent` die with it).
+   - `lead`: a standing permission for the new lead to end the old lead's session once it is idle and the handoff is SENT (herdr: `/exit` through `herdr pane run`, then `herdr pane close` of the leftover pane; hc: `hc kill` and `hc rm`; on hc, children of the old lead started without `--outlive-parent` die with it).
    - `owner` (the default): the old tab stays open after every handoff until the owner closes it.
    Then run `--apply leadTabClose --closer <lead|owner>`. It writes `handoff.allowSendKeysExit` (true for `lead`, false for `owner`); `--apply all` never does.
 5. `--apply` backs up `~/.claude/settings.json` to `settings.json.ghorc-<timestamp>.bak`, changes only the listed keys and prints a diff. Show the diff to the user. Settings changes take effect in a new session.
