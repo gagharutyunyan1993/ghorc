@@ -17,22 +17,31 @@
   indicator and that the limit on a lead's own workers is `tabs.maxWorkers`. Counting is unchanged.
 - A new lead could prepare for a long time before its first dispatch. The handoff and lead skills now say that after
   ACTIVATE the lead keeps bookkeeping to the listed steps and dispatches the first open step to a worker without
-  waiting for the owner, because long preparation spends the context the handoff just freed.
+  waiting for the owner, because long preparation spends the context the handoff just freed. The owner's word is still
+  needed for a release, a merge, a paid call or anything else STATE `Authority` or READY `Restrictions` keeps for the
+  owner, closing the old tab without recorded permission, and a destructive action; a step the owner paused, or one an
+  unanswered owner message or an open blocker is about, waits for the owner.
 - SessionStart output was cut mid-text at 299 characters, and with two watchdog alerts the cut removed the line that
   tells the lead to load its skill. The output is now built from whole lines with a fixed priority: whole lines are
-  dropped from the lowest priority up (alert details, alert count, CLAUDE.md hint, setup hint, ...), the identity, the
-  lead reminder and `config invalid` always stay, nothing is cut inside a line, and a shortened output ends with
-  `+more: run ctx`. The limit is unchanged.
+  dropped from the lowest priority up (`config: ok`, alert details, alert count, CLAUDE.md hint, setup hint, ...), the
+  lead reminder always stays, the identity and `config invalid` lines fall back to a short form and go whole only as a
+  last resort, nothing is cut inside a line, and a shortened output ends with `+more: run ctx`. The limit is unchanged.
 - The lead's reading rule said files over 100 lines must not be read "whole", and a lead that read a long file in two
   passes took itself for a violator. It now says a range of up to 100 lines is fine when the lead needs that text
-  itself, and that a transcript, log, diff or long file as a whole goes to a scout because it fills the lead's context.
-  The "already read 3 times" deny points to a scout for a long file. No hook was added.
+  itself, and that a transcript or long file goes to a scout, a log to the log reader and a whole diff to a scout,
+  because they fill the lead's context. The "already read 3 times" deny points the lead to a scout and tells any other role to
+  report to its lead. The same rule is in `docs/workflow.md` and the CLAUDE.md template. No hook was added.
 
 ### Not run against a live herdr
 - The key name `enter` in `herdr pane send-keys <pane> enter` and that it submits text sitting in the input box.
 - What `herdr agent get <pane_id>` prints for a pane that holds no agent (the text only says "no agent").
 - That `herdr pane close <pane_id>` removes a pane left behind after `/exit`.
 - That the old lead's agent name and tab id are read from `herdr agent get $HERDR_PANE_ID` and `$HERDR_TAB_ID`.
+- That `herdr agent wait <n> --until working --until blocked --timeout 5000` sees a turn that has started within 5
+  seconds.
+- That `herdr pane read` shows a submitted message, a grey suggestion and a pasted-text placeholder in a form a model
+  can tell apart.
+- That `herdr agent read <pane_id>` shows the old lead's last reply, so it can be checked for `HANDOFF SENT - STOP`.
 
 ## 0.11.2 - 2026-11-25
 

@@ -15,7 +15,7 @@ if (process.argv.includes('--help')) {
   console.log(
     'session-start.cjs: SessionStart hook; silent in a project without .claude/ghorc.json (it never opted in). Otherwise prints, in this order, pending watchdog alerts (count + last 2 lines), ' +
       '"ghorc <version> session=<id> role=<role>", the config status, then reminders (skill ghorc:lead for the lead, ' +
-      'a missing CLAUDE.md ghorc section, a /ghorc:setup hint). Output is at most 299 characters, built from whole lines: when it does not fit, whole lines are dropped, lowest priority first (alert details, alert count, CLAUDE.md hint, setup hint, ...), and it ends with "+more: run ctx"; identity, the lead reminder and "config invalid" are never dropped. ' +
+      'a missing CLAUDE.md ghorc section, a /ghorc:setup hint). Output is at most 299 characters, built from whole lines: when it does not fit, whole lines are dropped, lowest priority first ("config: ok", alert details, alert count, CLAUDE.md hint, setup hint, ...), and it ends with "+more: run ctx"; the lead reminder is never dropped, the identity and "config invalid" lines fall back to a short form and go whole only as a last resort. ' +
       'Role: GHORC_ROLE is optional; an empty GHORC_ROLE on a main session prints role=lead, GHORC_ROLE=worker stays explicit. ' +
       'It appends a session line (session id, role, transcript path) to .claude/ghorc-out/ledger.jsonl for the cost report, and deletes ctx files, session state and alert offsets older than 7 days. ' +
       'A lead session starts scripts/watchdog.cjs detached only when watchdog.autostart is true (default false; opt in with /ghorc:setup, stop with watchdog.cjs --stop): one watchdog per project root, ' +
@@ -83,10 +83,11 @@ function startWatchdog(cfg, root, version, input, cwd) {
   }
 }
 
-// Lines are { t: text, p: drop priority, s: optional short form }. p 0 is never dropped; a higher p goes first, and among equal
-// p the later line goes first. Nothing is cut inside a line; when lines were dropped the output ends with MORE.
-// Priorities: 0 identity, lead reminder, config invalid or unreadable; 2 config ok; 3 config warning, sticky notice;
-// 4 watchdog note; 5 setup hint, permissions hint; 6 CLAUDE.md hint; 7 alert count; 8 alert details.
+// Lines are { t: text, p: drop priority, s: optional short form, keep: never dropped }. p 0 is dropped only as a last resort; a
+// higher p goes first, and among equal p the earlier line goes first (so the newest alert detail outlives the older one).
+// Nothing is cut inside a line; when lines were dropped the output ends with MORE.
+// Priorities: 0 identity, lead reminder (keep), config invalid or unreadable; 3 config warning, sticky notice; 4 watchdog note;
+// 5 setup hint, permissions hint; 6 CLAUDE.md hint; 7 alert count; 8 alert details; 9 config ok (the routine line goes first).
 function build(items) {
   const join = (xs) => xs.map((x) => x.t).join('\n');
   if (join(items).length <= LIMIT) return join(items);
@@ -95,12 +96,21 @@ function build(items) {
   while (join(kept).length > room) {
     let at = -1;
     kept.forEach((x, i) => {
-      if (x.p > 0 && (at < 0 || x.p >= kept[at].p)) at = i;
+      if (x.p > 0 && (at < 0 || x.p > kept[at].p)) at = i;
     });
     if (at < 0) break;
     kept.splice(at, 1);
   }
   if (join(kept).length > room) for (const x of kept) if (x.s) x.t = x.s;
+  // last resort: the lead line stays, the other lines that were never dropped go whole, the later ones first
+  while (join(kept).length > room) {
+    let at = -1;
+    kept.forEach((x, i) => {
+      if (!x.keep) at = i;
+    });
+    if (at < 0) break;
+    kept.splice(at, 1);
+  }
   return join(kept) + MORE;
 }
 
@@ -140,13 +150,13 @@ run((input) => {
     /* alerts are optional */
   }
 
-  const ident = { t: [`ghorc ${version}`, `session=${sid || '?'}`, `role=${role || (isMain ? 'lead' : 'agent')}`].join(' '), p: 0 };
+  const ident = { t: [`ghorc ${version}`, `session=${sid || '?'}`, `role=${role || (isMain ? 'lead' : 'agent')}`].join(' '), p: 0, s: `ghorc ${version} role=${role || (isMain ? 'lead' : 'agent')}` };
 
   const status = [];
   if (isMain && role === '' && (cfg.handoff || {}).stickyOnCompact === true) {
-    status.push({ t: 'handoff.stickyOnCompact is on, but GHORC_ROLE is not set: the block after compaction applies only to a proven lead, otherwise set GHORC_ROLE=lead', p: 3 });
+    status.push({ t: 'handoff.stickyOnCompact is on, but GHORC_ROLE is not set: the block after compaction applies only to a proven lead (see docs/handoff.md), otherwise set GHORC_ROLE=lead', p: 3 });
   }
-  status.push(found(cwd) ? { t: 'config: ok', p: 2 } : { t: 'config unreadable: fix .claude/ghorc.json (node scripts/check-config.cjs)', p: 0, s: 'config unreadable: run check-config' });
+  status.push(found(cwd) ? { t: 'config: ok', p: 9 } : { t: 'config unreadable: fix .claude/ghorc.json (node scripts/check-config.cjs)', p: 0, s: 'config unreadable: run check-config' });
   try {
     const { problems, fatal } = check(cwd);
     if (problems.length) {
@@ -160,7 +170,7 @@ run((input) => {
   const remind = cfg.lead;
   const isLead = isMain && (role === 'lead' || (role === '' && !(remind && remind.remind === false)));
   const reminders = [];
-  if (isLead) reminders.push({ t: 'lead: load skill ghorc:lead', p: 0 });
+  if (isLead) reminders.push({ t: 'lead: load skill ghorc:lead', p: 0, keep: true });
   if (isMain && (role === 'lead' || role === '')) {
     const w = startWatchdog(cfg, root, version, input, cwd);
     if (typeof w === 'string') status.push({ t: w, p: 4 });

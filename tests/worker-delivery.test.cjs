@@ -123,14 +123,14 @@ test('fix C: the lead skill and hooks doc say the capacity line is machine-wide 
 
 test('fix D: after ACTIVATE the new lead dispatches the first open step without waiting for the owner (skill, rule 7, docs)', () => {
   const s7 = handoff.slice(handoff.indexOf('\n7. After ACTIVATE'));
-  assert.match(s7, /dispatches the first open step from the handoff file to a worker without waiting for the owner's word, because a lead that prepares at length before the first dispatch spends the context the handoff just freed; the owner's word is needed only where a rule names it \(a release, closing the old tab without recorded permission, a destructive action\)/);
+  assert.match(s7, /dispatches the first open step from the handoff file to a worker without waiting for the owner's word, because a lead that prepares at length before the first dispatch spends the context the handoff just freed; the owner's word is needed only where a rule names it \(a release; a merge, paid call or anything else STATE `Authority` or READY `Restrictions` keeps for the owner; closing the old tab without recorded permission; a destructive action\)\. A step the owner paused, or one that an unanswered owner message or an open blocker is about, waits for the owner/);
   assert.ok(handoff.indexOf('\n7. After ACTIVATE') > handoff.indexOf('6. Closing the old tab'), 'step 7 follows step 6');
-  assert.match(lead, /After a handoff the lead keeps its bookkeeping to the steps skill `ghorc:handoff` lists and dispatches the first open step from HANDOFF to a worker without waiting for the owner's word .*because long preparation before the first dispatch spends the context the handoff just freed/);
-  assert.match(flat(read('docs', 'handoff.md')), /7\. After ACTIVATE the new lead keeps its own bookkeeping to the steps listed here, then dispatches the first open step from the handoff file to a worker without waiting for the owner's word, because a lead that prepares at length/);
+  assert.match(lead, /After a handoff the lead keeps its bookkeeping to the steps skill `ghorc:handoff` lists and dispatches the first open step from HANDOFF to a worker without waiting for the owner's word \(the owner's word is needed only where a rule names it: a release; a merge, paid call or anything else STATE `Authority` or READY `Restrictions` keeps for the owner; closing the old tab without recorded permission; a destructive action\), because long preparation before the first dispatch spends the context the handoff just freed\. A step the owner paused, or one that an unanswered owner message or an open blocker is about, waits for the owner\./);
+  assert.match(flat(read('docs', 'handoff.md')), /7\. After ACTIVATE the new lead keeps its own bookkeeping to the steps listed here, then dispatches the first open step from the handoff file to a worker without waiting for the owner's word, because a lead that prepares at length[^]*a merge, paid call or anything else STATE `Authority` or READY `Restrictions` keeps for the owner[^]*waits for the owner\./);
 });
 
 test('fix F: the reading rule says a range of up to 100 lines is fine and why a long file goes to a scout', () => {
-  assert.match(lead, /does not read a transcript, a log, a diff or a long file as a whole, because that fills its context; those go to a scout/);
+  assert.match(lead, /does not read a transcript, a log, a diff or a long file as a whole, because that fills its context: a transcript or a long file goes to `ghorc:scout`, a log or test output \(including the lead's own background `full`\) to `ghorc:log-reader`, and a diff is read only as `--stat` and by file \(a whole diff goes to a scout\)/);
   assert.match(lead, /A range of up to 100 lines is fine when the lead needs that text itself \(for example an instruction file it has to follow\)/);
   assert.match(lead, /reads a transcript, a log, a diff or a long file as a whole \(a range of up to 100 lines it needs itself is fine\)/);
   assert.doesNotMatch(lead, /files over 100 lines whole/);
@@ -138,5 +138,5 @@ test('fix F: the reading rule says a range of up to 100 lines is fine and why a 
 
 test('fix F: the already-read deny points to a scout for a long file', () => {
   const g = read('scripts', 'read-guard.cjs');
-  assert.match(g, /do not re-read it, use what you have or edit it first\. For a long file, send a scout \(ghorc:scout\) instead of reading it in parts\./);
+  assert.match(g, /do not re-read it, use what you have or edit it first\. For a long file the lead sends a scout \(ghorc:scout\); any other role reports to its lead instead of re-reading\./);
 });

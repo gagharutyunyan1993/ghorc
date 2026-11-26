@@ -36,7 +36,7 @@ opus / high; on work implemented by Opus it runs on fable / medium).
   packages; the lead model changes only at a handoff). On every Agent call pass `model` and `effort` explicitly from the
   Routing table in skill `ghorc:lead` (reasons: the plugin's `docs/models.md`); do not rely on frontmatter or global settings.
   Do not start the built-in `Explore`, `Plan` or `general-purpose` agents: they run on the lead's model.
-- The lead does not read PDFs and images (role `ghorc:media`), does not read logs (role `ghorc:log-reader`) or files over 100 lines whole, does
+- The lead does not read PDFs and images (role `ghorc:media`), does not read logs (role `ghorc:log-reader`) transcripts or long files whole (a scout reads those), does
   not write package code, does not run checks synchronously, does not poll agents.
 - Small things (at most 2 commands, output at most 100 lines) - do them yourself; the rest goes to agents, large output
   to a file.

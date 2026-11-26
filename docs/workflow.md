@@ -92,8 +92,8 @@ agents are namespaced by Claude Code, so they cannot collide with your own.
 8. On every Agent call the lead passes `model` and `effort` explicitly. It does not start the built-in `Explore`,
    `Plan` or `general-purpose` agents, which run on the lead's model. Project roles in `.claude/agents/` are
    launched instead of the `ghorc:*` roles with the same table.
-9. The lead does not read PDFs, images, transcripts, logs or files over 100 lines whole (a diff by `--stat` and by
-   file); attachments go as a file path to `ghorc:media`, logs and test output to `ghorc:log-reader`; PDFs are converted to text/PNG first. This is an
+9. The lead does not read PDFs, images, or a transcript, log, diff or long file as a whole (a diff by `--stat` and by
+   file; a range of up to 100 lines it needs itself is fine); attachments go as a file path to `ghorc:media`, logs and test output to `ghorc:log-reader`; PDFs are converted to text/PNG first. This is an
    instruction; the hook enforces it only with `GHORC_ROLE=lead`.
 10. The lead does not write package code, does not run checks synchronously, does not poll agents.
 11. The lead reads its context with `ctx.cjs --session <id>` at a stage boundary: `ctxPrepare` - refresh STATE;

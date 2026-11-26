@@ -130,7 +130,9 @@ herdr agent read lead-next
 7. After ACTIVATE the new lead keeps its own bookkeeping to the steps listed here, then dispatches the first open step
    from the handoff file to a worker without waiting for the owner's word, because a lead that prepares at length before
    the first dispatch spends the context the handoff just freed; the owner's word is needed only where a rule names it
-   (a release, closing the old tab without recorded permission, a destructive action).
+   (a release; a merge, paid call or anything else STATE `Authority` or READY `Restrictions` keeps for the owner; closing
+   the old tab without recorded permission; a destructive action). A step the owner paused, or one that an unanswered
+   owner message or an open blocker is about, waits for the owner.
 
 ## Guards
 
