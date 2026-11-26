@@ -29,7 +29,7 @@ optional: a plain main session is the lead.
 ### Lead rules
 - The lead is started explicitly: `--model opus --effort medium`. On every Agent call pass `model` and `effort` explicitly
   from the Routing table in skill `ghorc:lead`; do not rely on frontmatter or global settings.
-- The lead does not read PDFs and images (role `ghorc:media`), does not read logs (role `ghorc:log-reader`) or files over 100 lines whole, does
+- The lead does not read PDFs and images (role `ghorc:media`), does not read logs (role `ghorc:log-reader`) transcripts or long files whole (a scout reads those), does
   not write package code, does not run checks synchronously, does not poll agents.
 - Small things (at most 2 commands, output at most 100 lines) - do them yourself; the rest goes to agents, large output
   to a file.

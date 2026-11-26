@@ -1,6 +1,7 @@
 # HANDOFF <handoff_id> (<date>)   (at most 3072 bytes, plus the optional acceptance block below)
 handoff_id: <id>   status: DRAFT|SENT   old_session_id: <id>   created_at: <time>   reason: <reason, e.g. ctxHandoff>
 state_path: <path to STATE.md>
+old_lead: agent <name or none>, pane <pane id>, tab <tab id>   (this session's own ids, never copied from an older HANDOFF; hc: terminal <name>)
 
 ## 1. Package chain and stages
 - Merged this shift: <packages and SHA>. Main branch HEAD: <SHA>.

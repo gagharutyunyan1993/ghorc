@@ -463,7 +463,7 @@ function check(cwd, opts = {}) {
         ? 'not chosen: the owner closes the old lead tab after each handoff (default)'
         : `handoff.allowSendKeysExit is ${JSON.stringify(closeVal)}, not true or false`,
     recommended: closeChosen ? (closeVal ? 'the new lead closes the old lead tab after a handoff' : 'the owner closes the old lead tab after a handoff (chosen)') : closeAsk,
-    why: 'lead: a standing permission for the new lead to end the old lead session once it is idle and the handoff is sent (herdr: /exit through herdr pane run; hc: hc kill and hc rm, which also kills children of the old lead started without --outlive-parent); owner (default): the old tab stays open after every handoff until the owner closes it',
+    why: 'lead: a standing permission for the new lead to end the old lead session once it is idle and the handoff is sent (herdr: /exit through herdr pane run, then herdr pane close of the leftover pane; hc: hc kill and hc rm, which also kills children of the old lead started without --outlive-parent); owner (default): the old tab stays open after every handoff until the owner closes it',
     ok: closeChosen,
     writeAnyway: true, // a named apply with a --closer always writes it: the owner may change the choice
   });

@@ -107,16 +107,32 @@ herdr agent read lead-next
    `seq`. It then waits until `herdr agent get` shows the old lead finished, reads the last owner message there with
    `herdr agent read`, answers every `unanswered_owner_messages` item, collects every `in_flight` item, and verifies
    SHA, branch and processes itself: READY is a report, not proof.
-6. **Closing the old tab** (mandatory and verified when `handoff.allowSendKeysExit` is `true` or the owner's standing
+6. **Closing the old tab** (verified when `handoff.allowSendKeysExit` is `true` or the owner's standing
    permission is recorded in STATE; otherwise the owner closes it, and the new lead, once, after the wait in step 5
-   shows the old lead finished, tells the owner in one line which tab is idle and waiting to be closed (herdr: the old
-   lead's agent name or pane id; hc: its terminal name) and that `/ghorc:setup` item `leadTabClose` lets the new lead
-   close it from the next handoff on; the old lead still prints only `HANDOFF SENT - STOP`): when it may close, right
-   after ACTIVATE the new lead runs
-   `herdr agent wait <old agent> --until idle --until done --until blocked --timeout 60000`, then
-   `MSYS_NO_PATHCONV=1 herdr pane run <old_pane_id> "/exit"`, then checks that the pane is gone from `herdr pane list`.
+   shows the old lead finished, tells the owner in one line which tab is idle and waiting to be closed, taken from the
+   `old_lead:` line of HANDOFF (herdr: agent name, pane id and tab id; hc: its terminal name) and that `/ghorc:setup`
+   item `leadTabClose` lets the new lead close it from the next handoff on; the old lead still prints only
+   `HANDOFF SENT - STOP`). When it may close, right after ACTIVATE the new lead takes the old pane from the `old_lead:`
+   line and first runs the checks that need no waiting: not its own `$HERDR_PANE_ID`, and present in `herdr pane list`
+   (a pane not listed is reported as "not found: already closed, or the line is stale", never as a successful close).
+   Every agent command takes the pane id (the agent name is cleared when Claude exits). Then
+   `herdr agent wait <old_pane_id> --until idle --until done --until blocked --timeout 60000`. Only on `idle` or `done`,
+   and when the old lead's last reply in `herdr agent read <old_pane_id>` is `HANDOFF SENT - STOP` (its last reply, not
+   the last screen line, which is the input box), it sends
+   `MSYS_NO_PATHCONV=1 herdr pane run <old_pane_id> "/exit"`;
+   otherwise no `/exit`, no close, one line to the owner. Then it
+   checks that the pane is gone from `herdr pane list` (one repeat of `/exit` while an agent is still shown). If the
+   pane is still listed and `herdr agent get <old_pane_id>` shows `idle` or `done`, or no agent, the new lead closes it
+   with `herdr pane close <old_pane_id>` and checks again; on `working`, `blocked` or `unknown` it does not close and
+   reports to the owner.
    Git Bash turns a slash command into a path (`/exit` becomes `C:/Program Files/Git/exit`), so every `herdr pane run` or
    `send-keys` with a slash command carries `MSYS_NO_PATHCONV=1` (or runs from PowerShell).
+7. After ACTIVATE the new lead keeps its own bookkeeping to the steps listed here, then dispatches the first open step
+   from the handoff file to a worker without waiting for the owner's word, because a lead that prepares at length before
+   the first dispatch spends the context the handoff just freed; the owner's word is needed only where a rule names it
+   (a release; a merge, paid call or anything else STATE `Authority` or READY `Restrictions` keeps for the owner; closing
+   the old tab without recorded permission; a destructive action). A step the owner paused, or one that an unanswered
+   owner message or an open blocker is about, waits for the owner.
 
 ## Guards
 
@@ -134,8 +150,8 @@ herdr agent read lead-next
 Set once in the project config and only read by the skill:
 
 - `handoff.allowSendKeysExit` (`false`): when `true`, the new lead closes the old tab itself (step 6: `/exit` through
-  `herdr pane run`, or `hc kill` and `hc rm` on `hc`); otherwise the owner does it (or the standing permission
-  recorded in STATE, below). The owner chooses at `/ghorc:setup` (item `leadTabClose`), which asks once.
+  `herdr pane run`, then `herdr pane close` if the pane stays, or `hc kill` and `hc rm` on `hc`);
+  otherwise the owner does it (or the standing permission recorded in STATE, below). The owner chooses at `/ghorc:setup` (item `leadTabClose`), which asks once.
 - `handoff.candidatePermissionArgs` (`[]`): permission-mode arguments for the candidate, chosen by the owner at `/ghorc:setup`
   (item `permissions`). `[]` means default permissions, and the candidate may then wait on a prompt.
 - The new lead closes the old tab only with `allowSendKeysExit` `true` (the owner's word in the config) or the owner's word recorded in STATE.

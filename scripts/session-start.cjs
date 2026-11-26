@@ -15,7 +15,7 @@ if (process.argv.includes('--help')) {
   console.log(
     'session-start.cjs: SessionStart hook; silent in a project without .claude/ghorc.json (it never opted in). Otherwise prints, in this order, pending watchdog alerts (count + last 2 lines), ' +
       '"ghorc <version> session=<id> role=<role>", the config status, then reminders (skill ghorc:lead for the lead, ' +
-      'a missing CLAUDE.md ghorc section, a /ghorc:setup hint). Output is cut at 299 characters and then ends with "+more: run ctx". ' +
+      'a missing CLAUDE.md ghorc section, a /ghorc:setup hint). Output is at most 299 characters, built from whole lines: when it does not fit, whole lines are dropped, lowest priority first ("config: ok", alert details, alert count, CLAUDE.md hint, setup hint, ...), and it ends with "+more: run ctx"; the lead reminder is never dropped, the identity and "config invalid" lines fall back to a short form and go whole only as a last resort. ' +
       'Role: GHORC_ROLE is optional; an empty GHORC_ROLE on a main session prints role=lead, GHORC_ROLE=worker stays explicit. ' +
       'It appends a session line (session id, role, transcript path) to .claude/ghorc-out/ledger.jsonl for the cost report, and deletes ctx files, session state and alert offsets older than 7 days. ' +
       'A lead session starts scripts/watchdog.cjs detached only when watchdog.autostart is true (default false; opt in with /ghorc:setup, stop with watchdog.cjs --stop): one watchdog per project root, ' +
@@ -83,10 +83,35 @@ function startWatchdog(cfg, root, version, input, cwd) {
   }
 }
 
-function cut(lines) {
-  const text = lines.join('\n');
-  if (text.length <= LIMIT) return text;
-  return text.slice(0, LIMIT - MORE.length) + MORE;
+// Lines are { t: text, p: drop priority, s: optional short form, keep: never dropped }. p 0 is dropped only as a last resort; a
+// higher p goes first, and among equal p the earlier line goes first (so the newest alert detail outlives the older one).
+// Nothing is cut inside a line; when lines were dropped the output ends with MORE.
+// Priorities: 0 identity, lead reminder (keep), config invalid or unreadable; 3 config warning, sticky notice; 4 watchdog note;
+// 5 setup hint, permissions hint; 6 CLAUDE.md hint; 7 alert count; 8 alert details; 9 config ok (the routine line goes first).
+function build(items) {
+  const join = (xs) => xs.map((x) => x.t).join('\n');
+  if (join(items).length <= LIMIT) return join(items);
+  const kept = items.slice();
+  const room = LIMIT - MORE.length;
+  while (join(kept).length > room) {
+    let at = -1;
+    kept.forEach((x, i) => {
+      if (x.p > 0 && (at < 0 || x.p > kept[at].p)) at = i;
+    });
+    if (at < 0) break;
+    kept.splice(at, 1);
+  }
+  if (join(kept).length > room) for (const x of kept) if (x.s) x.t = x.s;
+  // last resort: the lead line stays, the other lines that were never dropped go whole, the later ones first
+  while (join(kept).length > room) {
+    let at = -1;
+    kept.forEach((x, i) => {
+      if (!x.keep) at = i;
+    });
+    if (at < 0) break;
+    kept.splice(at, 1);
+  }
+  return join(kept) + MORE;
 }
 
 run((input) => {
@@ -118,25 +143,25 @@ run((input) => {
   try {
     const { lines } = tmp.unreadAlerts(root, sid);
     if (lines.length) {
-      alerts.push(`${lines.length} watchdog alerts pending, run ctx`);
-      for (const l of lines.slice(-2)) alerts.push(`  ${l.slice(0, 80)}`);
+      alerts.push({ t: `${lines.length} watchdog alerts pending, run ctx`, p: 7 });
+      for (const l of lines.slice(-2)) alerts.push({ t: `  ${l.slice(0, 80)}`, p: 8 });
     }
   } catch {
     /* alerts are optional */
   }
 
-  const ident = [`ghorc ${version}`, `session=${sid || '?'}`, `role=${role || (isMain ? 'lead' : 'agent')}`];
+  const ident = { t: [`ghorc ${version}`, `session=${sid || '?'}`, `role=${role || (isMain ? 'lead' : 'agent')}`].join(' '), p: 0, s: `ghorc ${version} role=${role || (isMain ? 'lead' : 'agent')}` };
 
   const status = [];
   if (isMain && role === '' && (cfg.handoff || {}).stickyOnCompact === true) {
-    status.push('handoff.stickyOnCompact is on, but GHORC_ROLE is not set: the block after compaction applies only to a proven lead (tab name, or on hc a terminal without a parent), otherwise set GHORC_ROLE=lead');
+    status.push({ t: 'handoff.stickyOnCompact is on, but GHORC_ROLE is not set: the block after compaction applies only to a proven lead (see docs/handoff.md), otherwise set GHORC_ROLE=lead', p: 3 });
   }
-  status.push(found(cwd) ? 'config: ok' : 'config unreadable: fix .claude/ghorc.json (node scripts/check-config.cjs)');
+  status.push(found(cwd) ? { t: 'config: ok', p: 9 } : { t: 'config unreadable: fix .claude/ghorc.json (node scripts/check-config.cjs)', p: 0, s: 'config unreadable: run check-config' });
   try {
     const { problems, fatal } = check(cwd);
     if (problems.length) {
       const label = fatal.length ? `config invalid: ${fatal[0]}` : `config warning: ${problems[0]}`;
-      status.push(label.slice(0, 150) + ' (node scripts/check-config.cjs)');
+      status.push({ t: label.slice(0, 150) + ' (node scripts/check-config.cjs)', p: fatal.length ? 0 : 3, s: label.slice(0, 60) });
     }
   } catch {
     /* the check is optional */
@@ -145,10 +170,10 @@ run((input) => {
   const remind = cfg.lead;
   const isLead = isMain && (role === 'lead' || (role === '' && !(remind && remind.remind === false)));
   const reminders = [];
-  if (isLead) reminders.push('lead: load skill ghorc:lead');
+  if (isLead) reminders.push({ t: 'lead: load skill ghorc:lead', p: 0, keep: true });
   if (isMain && (role === 'lead' || role === '')) {
     const w = startWatchdog(cfg, root, version, input, cwd);
-    if (typeof w === 'string') status.push(w);
+    if (typeof w === 'string') status.push({ t: w, p: 4 });
   }
 
   try {
@@ -158,8 +183,8 @@ run((input) => {
     } catch {
       /* missing */
     }
-    if (md === null) reminders.push('CLAUDE.md is missing, so it has no ghorc section: paste templates/CLAUDE-section.md');
-    else if (!md.includes('<!-- ghorc -->')) reminders.push('CLAUDE.md has no ghorc section: paste templates/CLAUDE-section.md');
+    if (md === null) reminders.push({ t: 'CLAUDE.md is missing, so it has no ghorc section: paste templates/CLAUDE-section.md', p: 6 });
+    else if (!md.includes('<!-- ghorc -->')) reminders.push({ t: 'CLAUDE.md has no ghorc section: paste templates/CLAUDE-section.md', p: 6 });
   } catch {
     /* optional */
   }
@@ -167,12 +192,12 @@ run((input) => {
   try {
     if (isLead) {
       const r = require('./setup.cjs').check(cwd);
-      if (r.items.some((i) => !i.ok && !i.owner && !i.warn) || r.settingsError) reminders.push('run /ghorc:setup');
-      else if (r.items.some((i) => i.id === 'permissions' && !i.ok)) reminders.push('tab worker permission mode not chosen: /ghorc:setup asks');
+      if (r.items.some((i) => !i.ok && !i.owner && !i.warn) || r.settingsError) reminders.push({ t: 'run /ghorc:setup', p: 5 });
+      else if (r.items.some((i) => i.id === 'permissions' && !i.ok)) reminders.push({ t: 'tab worker permission mode not chosen: /ghorc:setup asks', p: 5 });
     }
   } catch {
     /* optional */
   }
 
-  process.stdout.write(cut([...alerts, ident.join(' '), ...status, ...reminders]) + '\n');
+  process.stdout.write(build([...alerts, ident, ...status, ...reminders]) + '\n');
 });

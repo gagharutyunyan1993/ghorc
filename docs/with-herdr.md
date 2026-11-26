@@ -9,7 +9,7 @@ while `herdr agent list` answers). The hooks and the skills use the same detecti
 | | `hc` | `herdr` |
 |---|---|---|
 | worker with a role | `hc run --bg --name n --cwd d "<path>\env.exe" GHORC_ROLE=worker claude.exe -n n --model <alias> --effort <e> <permissionArgs> "<task>"` | `herdr tab create --workspace "$HERDR_WORKSPACE_ID" --no-focus --env GHORC_ROLE=worker` + `herdr agent start` |
-| wait / read / send / close | `hc wait n` / `hc read n` / `hc send n "..."` / `hc kill n; hc rm n` | `herdr agent wait --until idle --until done --until blocked --timeout <ms>` / `read` / `herdr pane run` / close tab |
+| wait / read / send / close | `hc wait n` / `hc read n` / `hc send n "..."` / `hc kill n; hc rm n` | `herdr agent wait --until idle --until done --until blocked --timeout <ms>` / `read` / `herdr pane run`, then the delivery check / close tab |
 
 **Without herdr** everything except the handoff tab works through the Agent tool: roles, hooks, status line,
 watchdog, `/ghorc:lead`, `/ghorc:brief`, `/ghorc:status`, `/ghorc:setup`. `/ghorc:handoff` writes STATE.md and prints

@@ -139,7 +139,7 @@ run((input) => {
   const pages = isPdf ? countPages(ti.pages) : 0;
 
   if (e.reads + 1 > maxRepeat) {
-    return deny(`${path.basename(abs)} was already read ${e.reads} times: do not re-read it, use what you have or edit it first.`);
+    return deny(`${path.basename(abs)} was already read ${e.reads} times: do not re-read it, use what you have or edit it first. For a long file the lead sends a scout (ghorc:scout); any other role reports to its lead instead of re-reading.`);
   }
   if (isPdf && sum(byPath, 'pages') + pages > pdfBudget) {
     return deny(`PDF page budget of ${pdfBudget} pages is used up: stop reading PDFs, report what you have.`);

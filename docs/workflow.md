@@ -54,7 +54,7 @@ Project roles: when the project defines its own roles in `.claude/agents/`, they
 roles for the same purpose; the lead launches them by name with explicit `model` and `effort` and keeps the same effort
 table. Inside a terminal backend (`hc` or `herdr`; `node scripts/backend.cjs` tells which) every package, review and the integrator run as a separate tab with a report
 file, because background agents inside the lead are invisible to the owner; an Agent call is only for scouting of up to
-about 5 minutes and for writing memory. Tab workers do not reach the ledger. With backend `none` use Agent calls.
+about 5 minutes and for writing memory. A herdr worker gets a send only while it is `idle` or `done`; a busy one keeps the follow-up on hold until the background wait already watching it wakes, and a `blocked` or `unknown` one gets no send and no Enter (the Enter would answer its dialog). The lead then waits briefly for `working`. A message shown as submitted above an empty input box counts as delivered even if the worker has already finished; only text still in the input box gets one `herdr pane send-keys <pane_id> enter`, and the text is never sent twice. Tab workers do not reach the ledger. With backend `none` use Agent calls.
 
 No role spawns subagents; every role reads `<project>/CLAUDE.md` and `.claude/ghorc.json` itself. Plugin skills and
 agents are namespaced by Claude Code, so they cannot collide with your own.
@@ -92,8 +92,8 @@ agents are namespaced by Claude Code, so they cannot collide with your own.
 8. On every Agent call the lead passes `model` and `effort` explicitly. It does not start the built-in `Explore`,
    `Plan` or `general-purpose` agents, which run on the lead's model. Project roles in `.claude/agents/` are
    launched instead of the `ghorc:*` roles with the same table.
-9. The lead does not read PDFs, images, transcripts, logs or files over 100 lines whole (a diff by `--stat` and by
-   file); attachments go as a file path to `ghorc:media`, logs and test output to `ghorc:log-reader`; PDFs are converted to text/PNG first. This is an
+9. The lead does not read PDFs, images, or a transcript, log, diff or long file as a whole (a diff by `--stat` and by
+   file; a range of up to 100 lines it needs itself is fine); attachments go as a file path to `ghorc:media`, logs and test output to `ghorc:log-reader`; PDFs are converted to text/PNG first. This is an
    instruction; the hook enforces it only with `GHORC_ROLE=lead`.
 10. The lead does not write package code, does not run checks synchronously, does not poll agents.
 11. The lead reads its context with `ctx.cjs --session <id>` at a stage boundary: `ctxPrepare` - refresh STATE;

@@ -180,7 +180,7 @@ test('herdr workers: working and blocked count, own session and lead-* do not', 
   assert.equal(stop(p, { background_tasks: tasks('running') }).out, '', '2 workers + 1 task');
   const q = setup(base({ leadNamePrefix: 'boss-' }), { herdr: list([w('lead-1', 'working'), w('lead-2', 'working'), w('boss-1', 'working')]) });
   assert.match(reason(stop(q)), /agents 2 \((workers 2)\) of 3/, 'lead-* counts when the prefix is boss-; boss-1 does not');
-  assert.match(line(prompt(q)), /^agents 2 \((workers 2)\)\/3,/);
+  assert.match(line(prompt(q)), /^agents 2 \((workers 2)\)\/3 machine-wide,/);
 });
 
 test('herdr failure: the count is unknown, the hook stays silent and logs', () => {
@@ -189,7 +189,7 @@ test('herdr failure: the count is unknown, the hook stays silent and logs', () =
     assert.equal(stop(p).out, '', `[${herdr}]`);
     assert.match(readLog(p), /herdr agent list/);
     const r = prompt(p);
-    assert.match(line(r), /^agents \?\/3, CPU 20%, free 16\.0 GB/);
+    assert.match(line(r), /^agents \?\/3 machine-wide, CPU 20%, free 16\.0 GB/);
   }
 });
 
@@ -198,7 +198,7 @@ test('UserPromptSubmit adds the load line for the lead only', () => {
   sub(p, 'SubagentStart', 'a1');
   const r = prompt(p);
   assert.equal(JSON.parse(r.out).hookSpecificOutput.hookEventName, 'UserPromptSubmit');
-  assert.equal(line(r), 'agents 1/3, CPU 20%, free 16.0 GB.');
+  assert.equal(line(r), 'agents 1/3 machine-wide, CPU 20%, free 16.0 GB.');
   assert.equal(prompt(p, { agent_id: 'a9' }).out, '');
 });
 
@@ -214,7 +214,7 @@ test('weekly cap: used >= cap demands no agents and says so', () => {
   const q = setup(base());
   writeCtx(q, q.s, { used_percentage: 99, resets_at: HALF_WEEK_LEFT() });
   assert.ok(blocks(stop(q)));
-  assert.equal(line(prompt(q)), 'agents 0/3, CPU 20%, free 16.0 GB.');
+  assert.equal(line(prompt(q)), 'agents 0/3 machine-wide, CPU 20%, free 16.0 GB.');
 });
 
 test('weekly pace: used > cap*f limits the agents to agentsOverPace', () => {
@@ -627,10 +627,10 @@ test('herdr: a stopped server (server_not_running) means 0 workers; other failur
   assert.equal(cap.workersFromHerdr(JSON.stringify({ error: { code: 'other' } }), 's'), null);
   const p = setup(base(), { herdr: dead });
   assert.ok(blocks(stop(p)), 'no herdr server: the guard still works');
-  assert.match(line(prompt(p)), /^agents 0\/3,/);
+  assert.match(line(prompt(p)), /^agents 0\/3 machine-wide,/);
   const q = setup(base(), { herdr: JSON.stringify({ error: { code: 'internal' } }) });
   assert.equal(stop(q).out, '');
-  assert.match(line(prompt(q)), /^agents \?\/3,/);
+  assert.match(line(prompt(q)), /^agents \?\/3 machine-wide,/);
 });
 
 test('herdrText: ENOENT is "not installed" (0 workers), server_not_running on stdout is read, others throw', () => {
@@ -880,7 +880,7 @@ test('weekly steps: below both steps the plain rules apply', () => {
   const p = setup(steps());
   weekAt(p, 60);
   assert.ok(blocks(stop(p, { background_tasks: tasks('running', 'running') })), '2 of 3 still demands work');
-  assert.equal(line(prompt(p)), 'agents 0/3, CPU 20%, free 16.0 GB.');
+  assert.equal(line(prompt(p)), 'agents 0/3 machine-wide, CPU 20%, free 16.0 GB.');
 });
 
 test('weekly steps: from weeklyAgentsStepPct the agent limit drops to agentsOverPace', () => {
@@ -942,9 +942,9 @@ test('weekly steps: both keys at 0 behave exactly as before (same bytes)', () =>
   // and the 0.9.0 wording is unchanged below and at the cap
   const p = setup(base({ weeklyCapPct: 80, agentsOverPace: 2 }));
   weekAt(p, 76);
-  assert.equal(line(prompt(p)), 'agents 0/3, CPU 20%, free 16.0 GB.');
+  assert.equal(line(prompt(p)), 'agents 0/3 machine-wide, CPU 20%, free 16.0 GB.');
   weekAt(p, 85);
-  assert.equal(line(prompt(p)), 'agents 0/3, CPU 20%, free 16.0 GB. WEEKLY CAP: no new agents (used 85% >= 80%); only merge what is ready.');
+  assert.equal(line(prompt(p)), 'agents 0/3 machine-wide, CPU 20%, free 16.0 GB. WEEKLY CAP: no new agents (used 85% >= 80%); only merge what is ready.');
 });
 
 test('weekly steps: stale or missing usage data never triggers a step', () => {
@@ -1094,4 +1094,11 @@ test('cleanup never follows a link under the ctx dir: files behind a junction or
     fs.rmSync(base, { recursive: true, force: true });
     fs.rmSync(victim, { recursive: true, force: true });
   }
+});
+
+test('the prompt line says it is machine-wide: workers of two workspaces are both counted', () => {
+  const w = (name, ws, cwd) => ({ name, workspace_id: ws, cwd, agent_status: 'working', agent_session: { value: 'someone-else' } });
+  const herdr = JSON.stringify({ result: { agents: [w('a-implementer', 'w1', 'D:/proj-a'), w('b-implementer', 'w2', 'D:/proj-b')] } });
+  const p = setup(base(), { herdr });
+  assert.match(line(prompt(p)), /^agents 2 \(workers 2\)\/3 machine-wide, CPU 20%, free 16\.0 GB\./);
 });
