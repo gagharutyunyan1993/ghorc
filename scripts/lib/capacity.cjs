@@ -451,7 +451,7 @@ function promptLine(s, ctx) {
   if (week === null) note = ' Week: no rate_limits in any ctx file, the weekly brake is off.';
   else if (week) note = weekNote(week, s) ? ` ${weekNote(week, s)}` : '';
   const wn = workers ? ` (workers ${workers})` : '';
-  return `agents ${agents === null ? '?' : agents}${wn}/${s.agents}, CPU ${fmt(cpu)}%, free ${freeGb === null ? '?' : freeGb.toFixed(1)} GB.${note}`;
+  return `agents ${agents === null ? '?' : agents}${wn}/${s.agents} machine-wide, CPU ${fmt(cpu)}%, free ${freeGb === null ? '?' : freeGb.toFixed(1)} GB.${note}`;
 }
 
 module.exports = {
