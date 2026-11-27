@@ -159,11 +159,18 @@ const PS_GREEDY = /(^|[\s;&|(\x60{])((?:\S*[\\/])?(?:powershell|pwsh)(?:\.exe)?(
 // npm global options before the subcommand; the listed ones take a value.
 const NPM_OPTS = /^npm((?:\s+(?:(?:--prefix|-C|--workspace|-w)(?:=|\s+)\S+|-{1,2}[\w-]+(?:=\S+)?))+)(?=\s)/i;
 
-function inlineWrapped(command, ps) {
+// decode: one level of the outer shell's escapes in the inlined body is undone (bash "...": \" \\ \$ \` and \<newline>;
+// PowerShell "...": `x and ""; PowerShell '...': ''), so an escaped quote inside `sh -c "..."` is a quote again.
+const decodeBody = (q, ps) => {
+  const body = q.slice(1, -1);
+  if (q[0] === "'") return ps ? body.replace(/''/g, "'") : body;
+  return ps ? body.replace(/\x60([\s\S])|""/g, (_m, e) => (e === undefined ? '"' : e)) : body.replace(/\\(["\\$\x60\n])/g, (_m, e) => (e === '\n' ? '' : e));
+};
+function inlineWrapped(command, ps, decode = false) {
   let s = String(command);
   const re = ps ? WRAPPED_QUOTE_PS : WRAPPED_QUOTE;
   for (let i = 0; i < 4; i++) {
-    const next = s.replace(re, (_m, pre, head, q) => `${pre}${head}${q.slice(1, -1)}`);
+    const next = s.replace(re, (_m, pre, head, q) => `${pre}${head}${decode ? decodeBody(q, ps) : q.slice(1, -1)}`);
     if (next === s) break;
     s = next;
   }
@@ -522,6 +529,9 @@ function hcSendTargets(command, opts = {}) {
 module.exports = {
   inlineWrapped,
   stripHeredocs,
+  startProcess,
+  stdinScripts,
+  encodedScripts,
   BUILTIN_SUBAGENT_DENY,
   HERDR_AGENT_START,
   HC_AGENT_START,

@@ -6,7 +6,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
-const { segments, matches, compile, inlineWrapped, stripHeredocs } = require('./cmd.cjs');
+const { segments, matches, compile, inlineWrapped, stripHeredocs, startProcess, stdinScripts, encodedScripts } = require('./cmd.cjs');
 const backend = require('./backend.cjs');
 const { tmpDir, atomicWrite } = require('./tmp.cjs');
 const { safeId } = require('./hook-io.cjs');
@@ -274,7 +274,8 @@ function parseCommand(command, powershell) {
 // `herdr pane run` is what is judged there). bash: '...' literal, "..." with \" \\ \$ \` escapes, $'...' with \n \t, a
 // backslash outside quotes escapes. PowerShell: '...' with '' for ', "..." with `x escapes (`n is a newline) and "" for ", a
 // backtick outside quotes escapes too. Cut into segments at unquoted ; | & ( ) and newlines (PowerShell: && only, a lone & is
-// the call operator). -> [[word, ...], ...]
+// the call operator), at a { or } that starts a word (bash: a { followed by a blank, so {a,b} stays a word) and at a bash
+// backtick. -> [[word, ...], ...]; the segment a quote never closes in has .unclosed (and so has the list)
 const PS_ESC = { 0: '\0', a: '\x07', b: '\b', f: '\f', n: '\n', r: '\r', t: '\t', v: '\v' };
 const C_ESC = { n: '\n', t: '\t', r: '\r', '\\': '\\', "'": "'", '"': '"' };
 function rawSegments(command, powershell) {
@@ -297,9 +298,16 @@ function rawSegments(command, powershell) {
       endWord();
       continue;
     }
-    if (c === '\n' || c === '\r' || c === ';' || c === '|' || c === '(' || c === ')' || (c === '&' && (!powershell || s[i + 1] === '&'))) {
+    const brace = cur === null && (c === '}' || (c === '{' && (powershell || /\s/.test(s[i + 1] || ' '))));
+    if (brace || (!powershell && c === '`') || c === '\n' || c === '\r' || c === ';' || c === '|' || c === '(' || c === ')' || (c === '&' && (!powershell || s[i + 1] === '&'))) {
       endSeg();
       if ((c === '&' || c === '|') && s[i + 1] === c) i++;
+      continue;
+    }
+    if (powershell && c === '<' && s[i + 1] === '#') {
+      // a PowerShell block comment <# ... #> ends at its #>, not at the end of the line
+      const e = s.indexOf('#>', i + 2);
+      i = e < 0 ? s.length : e + 1;
       continue;
     }
     if (c === '#' && cur === null) {
@@ -362,13 +370,14 @@ function rawSegments(command, powershell) {
     }
     cur += c;
   }
+  if (segs.unclosed) words.unclosed = true; // a quote opened in the last segment runs to the end of the text
   endSeg();
   return segs;
 }
 
-// Wrappers in front of a decoded command that cliTokens does not know: timeout, nice, stdbuf, setsid, and env, command and
-// exec with their options (env -u NAME, exec -a NAME). -> the words from the program on.
-const WRAP_VALUE = { timeout: ['-s', '--signal', '-k', '--kill-after'], nice: ['-n', '--adjustment'], stdbuf: ['-i', '-o', '-e', '--input', '--output', '--error'], setsid: [], env: ['-u', '--unset', '-C', '--chdir', '-S', '--split-string'], command: [], exec: ['-a'] };
+// Wrappers in front of a decoded command that cliTokens does not know: timeout, nice, stdbuf, setsid, xargs, and env, command
+// and exec with their options (env -u NAME, exec -a NAME, xargs -I {}). -> the words from the program on.
+const WRAP_VALUE = { timeout: ['-s', '--signal', '-k', '--kill-after'], nice: ['-n', '--adjustment'], stdbuf: ['-i', '-o', '-e', '--input', '--output', '--error'], setsid: [], env: ['-u', '--unset', '-C', '--chdir', '-S', '--split-string'], command: [], exec: ['-a'], xargs: ['-I', '-n', '-P', '-d', '-a', '-L', '-s', '-E', '--max-args', '--max-procs', '--delimiter', '--arg-file', '--max-lines', '--max-chars'] };
 function peelWrappers(words) {
   let i = 0;
   for (let guard = 0; guard < 16 && i < words.length; guard++) {
@@ -410,63 +419,95 @@ function sendCommands(command, powershell) {
 }
 
 // The --cwd values of every herdr tab create, from one quote-aware tokenizer (rawSegments, for bash or PowerShell) run on the
-// text cmd.cjs cuts too (heredocs stripped, bash -c "..." and similar wrappers inlined, $(pwd) and ${PWD} read as $PWD).
-// Each tab create keeps its own values (--cwd v and --cwd=v, only before a `--`; null for a --cwd without a value).
-// -> { creates: [[value, ...], ...], unreadable } ; unreadable: a quote is not closed in a line that holds "tab create".
+// texts cmd.cjs reads too: the command with Start-Process written out, plus the scripts it feeds a shell (bash <<EOF,
+// cat <<EOF | sh, echo ... | xargs) and encoded PowerShell. bash heredoc bodies are dropped from the command itself; bash -c "..."
+// and similar wrappers are inlined with one level of their escapes undone; $(pwd) and ${PWD} are read as $PWD.
+// Each tab create keeps its own values (--cwd v and --cwd=v, only before a `--`; null for a --cwd without a value) and
+// `moved`: a cd, pushd or Set-Location runs before it in the same command, so `.` and $PWD no longer mean the hook's cwd.
+// -> { creates: [{ vals, moved }, ...], unreadable } ; unreadable: a quote is not closed in the segment of a tab create.
+const CD_WORD = /^(?:cd|chdir|pushd|popd|sl|set-location|push-location|pop-location)$/i;
 function tabCreateCwds(command, powershell) {
-  const text = inlineWrapped(stripHeredocs(String(command)).replace(/\$\(pwd\)|\$\{PWD\}/g, '$$PWD'), powershell);
-  const segs = rawSegments(text, powershell);
+  const main = startProcess(String(command));
+  const texts = [{ t: main, ps: powershell }];
+  for (const t of stdinScripts(main)) texts.push({ t, ps: powershell });
+  for (const t of encodedScripts(main)) texts.push({ t, ps: true });
   const creates = [];
-  for (const words of segs) {
-    const c = cliTokens(words) || cliTokens(peelWrappers(words));
-    if (!c || c.prog !== 'herdr') continue;
-    const t = c.tokens;
-    const dd = t.indexOf('--');
-    const end = dd < 0 ? t.length : dd;
-    const low = t.map((x) => String(x).toLowerCase());
-    const at = low.findIndex((x, i) => i < end - 1 && x === 'tab' && low[i + 1] === 'create');
-    if (at < 0 || t.slice(at + 2, end).some((x) => x === '--help' || x === '-h')) continue; // --help creates nothing
-    const vals = [];
-    for (let i = at + 2; i < end; i++) {
-      if (t[i] === '--cwd') vals.push(i + 1 < end ? t[++i] : null);
-      else if (t[i].startsWith('--cwd=')) vals.push(t[i].slice(6));
+  let unreadable = false;
+  let movedMain = false;
+  texts.forEach(({ t: raw, ps }, n) => {
+    let text = raw.replace(/\$\(pwd\)|\$\{PWD\}/g, '$$PWD');
+    if (!ps) text = stripHeredocs(text); // in PowerShell << is not a heredoc
+    text = inlineWrapped(text, ps, true);
+    let moved = n > 0 && movedMain;
+    for (const words of rawSegments(text, ps)) {
+      const peeled = peelWrappers(words);
+      if (peeled.length && CD_WORD.test(peeled[0])) moved = true;
+      const c = cliTokens(words) || cliTokens(peeled);
+      if (!c || c.prog !== 'herdr') continue;
+      const tk = c.tokens;
+      const dd = tk.indexOf('--');
+      const end = dd < 0 ? tk.length : dd;
+      const low = tk.map((x) => String(x).toLowerCase());
+      const at = low.findIndex((x, i) => i < end - 1 && x === 'tab' && low[i + 1] === 'create');
+      if (at < 0 || tk.slice(at + 2, end).some((x) => x === '--help' || x === '-h')) continue; // --help creates nothing
+      if (words.unclosed) unreadable = true;
+      const vals = [];
+      for (let i = at + 2; i < end; i++) {
+        if (tk[i] === '--cwd') vals.push(i + 1 < end ? tk[++i] : null);
+        else if (tk[i].startsWith('--cwd=')) vals.push(tk[i].slice(6));
+      }
+      creates.push({ vals, moved });
     }
-    creates.push(vals);
-  }
-  return { creates, unreadable: Boolean(segs.unclosed) && /\btab\s+create\b/i.test(text) };
+    if (n === 0) movedMain = moved;
+  });
+  return { creates, unreadable };
 }
 
 // The --cwd lines of a command: every value of every tab create judged by cwdProblem; a tab create without --cwd is reported
-// unless the cmd.cjs check already did; an unreadable line is denied.
-function cwdLines(command, ctx, missingShown) {
+// unless the cmd.cjs check already did; an unreadable line is denied. parsed: the tab creates with a --cwd that parseCommand
+// found; when the tokenizer finds fewer, one of them sits in a form it does not read (a block, a substitution) and is denied.
+const CWD_ASK = 'pass a plain absolute or relative path inside the project, or $PWD (a worktree under .claude/worktrees counts)';
+const CWD_HIDDEN = `the guard cannot read the --cwd of a tab create in this command (it sits in a block, a substitution or a form the guard does not decode): run herdr tab create as a command of its own and ${CWD_ASK}`;
+function cwdLines(command, ctx, missingShown, parsed = 0) {
   const out = [];
   const add = (x) => {
     if (x && !out.includes(x)) out.push(x);
   };
-  const ask = 'pass a plain absolute or relative path inside the project, or $PWD (a worktree under .claude/worktrees counts)';
   const r = tabCreateCwds(command, ctx.powershell);
-  if (r.unreadable) add(`the command has a quote that is not closed, so the guard cannot read the --cwd of its tab create: ${ask}`);
-  for (const vals of r.creates) {
-    if (!vals.length && !missingShown) add(`--cwd is missing: without it the tab starts in the herdr server's directory, outside the project; ${ask}`);
-    for (const v of vals) add(v === null ? `--cwd has no value: ${ask}` : cwdProblem(v, ctx));
+  if (r.unreadable) add(`the command has a quote that is not closed, so the guard cannot read the --cwd of its tab create: ${CWD_ASK}`);
+  if (parsed > r.creates.length) add(CWD_HIDDEN);
+  for (const { vals, moved } of r.creates) {
+    if (!vals.length && !missingShown) add(`--cwd is missing: without it the tab starts in the herdr server's directory, outside the project; ${CWD_ASK}`);
+    for (const v of vals) add(v === null ? `--cwd has no value, or one the guard cannot read (a substitution follows it): ${CWD_ASK}` : cwdProblem(v, ctx, moved));
   }
   return out;
 }
-const PWD_REF = /^(?:\$PWD|\$\{PWD\}|\$\(pwd\)|\$env:PWD)(?=$|[\\/])/i;
-// -> a deny line for a --cwd value, or '' when it is inside the project
-function cwdProblem(val, ctx) {
-  const ask = 'pass a plain absolute or relative path inside the project, or $PWD (a worktree under .claude/worktrees counts)';
+// The session's directory: bash $PWD, ${PWD} and $(pwd) (case matters there: $pwd is another, unset variable); PowerShell
+// reads $PWD in any case. PowerShell's $env:PWD is not it: that is the environment the client was started with.
+const PWD_REF = /^(?:\$PWD|\$\{PWD\}|\$\(pwd\))(?=$|[\\/])/;
+const PWD_REF_PS = /^(?:\$PWD|\$\{PWD\}|\$\(pwd\))(?=$|[\\/])/i;
+// -> a deny line for a --cwd value, or '' when it is inside the project. moved: a cd ran earlier in the same command.
+function cwdProblem(val, ctx, moved = false) {
+  const ask = CWD_ASK;
   if (val === null || val === '') return `--cwd ${val === null ? '(unreadable)' : '""'} cannot be read by the guard: ${ask}`;
   let rel = val;
-  let base = /^(?:[A-Za-z]:)?[\\/]/.test(val) ? '' : ctx.cwd || ctx.root;
-  const m = PWD_REF.exec(val);
+  const absolute = /^(?:[A-Za-z]:)?[\\/]/.test(val);
+  if (moved && !absolute) return `--cwd ${val} comes after a cd in the same command, so the guard cannot tell which directory it means: pass a plain absolute path inside the project`;
+  let base = absolute ? '' : ctx.cwd || ctx.root;
+  const m = (ctx.powershell ? PWD_REF_PS : PWD_REF).exec(val);
   if (m) {
     rel = val.slice(m[0].length).replace(/^[\\/]+/, '') || '.';
     base = ctx.cwd || ctx.root;
     if (rel.split(/[\\/]/).includes('..')) return `--cwd ${val} leaves the session's directory with "..": ${ask}`;
   }
-  if (/^~/.test(rel) || /[$%<>{}`()*?|;&]/.test(rel)) return `--cwd ${val} is a variable, an expansion or ~, so the guard cannot tell where it points: ${ask}`;
-  const abs = base ? path.resolve(base, rel) : rel;
+  if (/^~/.test(rel) || /[$%<>{}`()*?|;&"']/.test(rel)) return `--cwd ${val} is a variable, an expansion or ~, so the guard cannot tell where it points: ${ask}`;
+  // an absolute value is normalized before the compare: .. resolved, a Git-Bash /d/x read as d:/x, separators unified
+  let abs;
+  if (base) abs = path.resolve(base, rel);
+  else {
+    const p = rel.replace(/^[\\/]([A-Za-z])(?=[\\/]|$)/, '$1:');
+    abs = /^[A-Za-z]:/.test(p) ? path.win32.normalize(p) : path.posix.normalize(p.replace(/\\/g, '/'));
+  }
   if (!inside(abs, ctx.root)) return `--cwd ${val} is outside the project (${ctx.root}): the guard would neither count nor watch the tab; start it in the project or a worktree under .claude/worktrees`;
   return '';
 }
@@ -963,11 +1004,13 @@ function checkCommand(command, { powershell = false, s, list, root, cwd, self, s
     }
     // the --cwd values: one decoder for the whole line (allowed: a plain path inside the project, ., $PWD forms; see cwdProblem)
     if (root && /\btab\b/i.test(command)) {
+      // deny by default: a tab create with --cwd that the tokenizer misses, or a tokenizer error, is denied, not let through
+      const parsed = cmds.filter((p) => p.type === 'tab-create' && optVals(p.opts, '--cwd').length).length;
       let v;
       try {
-        v = cwdLines(command, ctx, lines.some((l) => l.startsWith('- --cwd is missing')));
+        v = cwdLines(command, ctx, lines.some((l) => l.startsWith('- --cwd is missing')), parsed);
       } catch {
-        v = [];
+        v = cmds.some((p) => p.type === 'tab-create') ? [CWD_HIDDEN] : [];
       }
       if (v.length) {
         lines.push('herdr tab create --cwd:');
