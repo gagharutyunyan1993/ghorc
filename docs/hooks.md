@@ -299,7 +299,11 @@ numbers silences it for every session.
   entries of `herdr agent list` with status `working` or `blocked`, name not starting with `leadNamePrefix`, session
   not this one. Backend `none` (neither variable, herdr not installed or its server not running, error code
   `server_not_running`, hc not installed) means 0 workers; any other failure of the active backend makes the count
-  unknown and the hook silent (logged). If both variables are set, `hc` wins.
+  unknown and the hook silent (logged). If both variables are set, `hc` wins. Only the backend verdict is cached (30 s
+  per session, `<tmp>/ghorc-<user>/backend-<session>.json`): a `herdr agent list` that times out or exits oddly within
+  30 s of a good answer keeps the backend `herdr` with an unknown count instead of flipping to `none`; the list itself is
+  always read fresh, and a stopped server or a missing herdr drops the cache. The reason of a failed probe carries up to
+  200 characters of herdr's stderr. When `herdr` is not on PATH, `HERDR_BIN_PATH` (set by herdr in its panes) is tried.
 - The worker count is machine-wide on purpose: the limit protects the machine, not one project. Workers of other
   projects and other leads whose name does not start with `leadNamePrefix` count as workers while they are `working`
   or `blocked`, so a busy neighbour keeps this lead silent. Name your leads with the prefix to keep them out.
@@ -358,9 +362,10 @@ that binds every session (lead, subagent, worker) is the dev-command rule below.
   (`=lead` for a lead name) in front of claude (`env GHORC_ROLE=worker claude ...`), `--name`, the duplicate-name and
   `maxWorkers` checks against `hc ls --json`, and `--outlive-parent` for kinds `full`, `runner`, `train`.
   An `hc run` of another program gets the name, duplicate, limit and `--outlive-parent` checks only.
-- **Workspace (herdr).** The lead's own workspace is the prefix of `HERDR_PANE_ID` (`w4:p1` is in `w4`); `HERDR_WORKSPACE_ID` alone is taken as
+- **Workspace (herdr).** The lead's own workspace is the `workspace_id` of this session's row in `herdr agent list` (matched by
+  session id: a pane the owner moved gets a new id while the process keeps the old ones in its env); without that row it is the prefix of `HERDR_PANE_ID` (`w4:p1` is in `w4`); `HERDR_WORKSPACE_ID` alone is taken as
   it is, and when both are set and disagree, or neither is, the workspace is unknown and only presence checks apply (the id forms
-  `w1` and `w1:p1` are herdr's documented public ids; `herdr api schema` lists `workspace_id` in every agent entry). `herdr tab create` needs `--workspace` and `--no-focus`: with the own workspace known
+  `w1` and `w1:p1` are herdr's documented public ids; `herdr api schema` lists `workspace_id` in every agent entry). `herdr tab create` needs `--workspace`, `--no-focus` and `--cwd` inside the project root (a worktree under `.claude/worktrees` counts; a relative path is read from the session's cwd): a tab without it starts in the herdr server's directory, and the inventory neither counts nor watches it. With the own workspace known
   the value is its id or a reference, and only the exact variable names count (`$HERDR_WORKSPACE_ID`, `${HERDR_WORKSPACE_ID}`,
   `$env:HERDR_WORKSPACE_ID`, `%HERDR_WORKSPACE_ID%`, quoted or not); a single-quoted reference (the shell does not expand it) or another
   variable name is denied, known workspace or not. Without `--workspace` herdr uses the UI-focused workspace, which can belong to another
@@ -371,7 +376,13 @@ that binds every session (lead, subagent, worker) is the dev-command rule below.
   separate workspace), `herdr pane move`, and any herdr command above aimed at another session, machine or host with
   `--session`, `--machine` or `--remote` anywhere in the herdr part of the command, before or after the verb (reading there stays
   allowed). Operator actions - `agent prompt|send-keys`, `pane run|send-keys|send-text|read`
-  - are not judged: the owner may ask for them. Inventory, duplicate-name and limit checks count only agents of the own workspace
+  - are not judged for their workspace: the owner may ask for them. Two send rules hold for the lead: a `herdr pane run|send-text`
+  whose text (the argument after the pane, decoded with the quoting of bash or PowerShell) has a newline, a double quote or a
+  backtick is denied, because the text may be cut or submitted early and PowerShell drops quotes in an argument (send one line
+  that points to a file); and `herdr pane run|send-text|send-keys` to a pane whose row in a fresh `herdr agent list` (matched
+  by pane id or agent name) is `blocked` is denied, because the text or the key would answer its dialog. `unknown` is not
+  denied (a session that just started may show it). The list is read for the check, never taken from a cache; an unreadable
+  list allows the send. Inventory, duplicate-name and limit checks count only agents of the own workspace
   (their `workspace_id`, else the pane id prefix; when the own workspace is known), besides the cwd filter; on hc only terminals whose parent is this terminal or whose cwd is in the project.
 - **Dev commands (every session in a project with a ghorc config).** `tabs.devCommands` (regexes, default list in `scripts/lib/defaults.json`)
   matches dev servers and watchers: `npm|pnpm|yarn|bun [options] [workspace <w>] [run [options]] dev|start|serve|watch|preview` (a script name
@@ -384,7 +395,7 @@ that binds every session (lead, subagent, worker) is the dev-command rule below.
   `grep "npm run dev"`). A matching segment is denied on backend hc or herdr (backend `none`: allowed), foreground or with
   `run_in_background`, unless it is the payload of a tab launch: `herdr pane run <pane> "<cmd>"` (quoted text is not read as a command) or
   `hc run ... <cmd>` with a `<pkg>-runner` name (in another `hc` tab name it is denied, for the lead). The lead's reason gives the runner form
-  (herdr: `herdr tab create --workspace "$HERDR_WORKSPACE_ID" --no-focus --label <pkg>-runner --cwd <dir>`, then `herdr pane run <pane_id> "<cmd>"`;
+  (herdr: `herdr tab create --workspace "$HERDR_WORKSPACE_ID" --no-focus --label <pkg>-runner --cwd <dir>`, then `MSYS_NO_PATHCONV=1 herdr pane run <pane_id> "<cmd>"`, from PowerShell without the prefix;
   hc: `hc run --bg --outlive-parent --name <pkg>-runner --cwd <dir> <cmd>`); a subagent's or worker's reason tells it to end its report
   `BLOCKED <name>: ...` with the exact command, and the lead starts it in a runner tab. `[]` turns the rule off; a pattern that does not compile
   is dropped (`check-config.cjs` reports it, the config stays usable). Not covered by default (extend the list): `ng serve`, `gatsby develop`,
@@ -402,7 +413,7 @@ inside the project (directories compare in one form: separators, case, a Windows
 - `FINISHED`: a result line counts only when the report file is not older than the first sighting of the tab (a name is reused across fix rounds, so an earlier round's report is ignored). The last non-empty line of `<project root>/.claude/ghorc-out/<name>.md` is `DONE <name>`, `BLOCKED <name>: ...`,
   `HANDOFF <name>` or `VERDICT <ACCEPT|ACCEPT_WITH_NOTES|CHANGES_REQUIRED|BLOCKED>` while the tab is still open (a tab that is
   `working` counts only when the report is newer than its last status change, so the report of an earlier round is not read as a
-  result). A report ending `BLOCKED <name>: ...` (or `VERDICT BLOCKED`) is shown as "BLOCKED by the worker: bring it to the owner; close the tab after the owner decides". Otherwise: accept the report and close the tab (hc: `hc kill <name>; hc rm <name>`; herdr: `herdr tab list`, then `herdr tab close <tab_id>`).
+  result). A report ending `BLOCKED <name>: ...` (or `VERDICT BLOCKED`) is shown as "BLOCKED by the worker: bring it to the owner; close the tab after the owner decides". Otherwise: accept the report and close the tab (hc: `hc kill <name>; hc rm <name>`; herdr: `herdr tab close <tab_id>` with the `tab_id` of its `herdr agent list` row).
 - `STALLED`: idle (`idle` or `done`) for `tabs.idleMin` minutes with no result line (a tab whose report has a result line, old or fresh, is never stalled "without" one). `OVERTIME`: running `tabs.overtimeMin`
   minutes and not finished. STALLED is judged on the fresh result line. Neither applies to `full`, `runner`, `train`.
 - `OVER_LIMIT`: more than `tabs.maxWorkers` agent-kind workers are live.
@@ -411,6 +422,10 @@ inside the project (directories compare in one form: separators, case, a Windows
   round, accept it and close the tab`. Shown on that run only; it never blocks Stop, and the tab stays quiet (no OVERTIME) until its status changes.
 - `UNKNOWN`: a status that is none of `working`, `idle`, `done`, `blocked`: `tabs UNKNOWN: <name> reports status "<x>": read its screen`, so a renamed
   status cannot hide a dialog (no Stop block).
+- `GONE`: a worker seen by an earlier run left the list without a fresh result line (its tab was closed or its session
+  ended): read its report file if there is one, then re-brief or drop the package. Shown once (the name is then forgotten).
+- `CLOSE?` (hc): the lead ran `hc kill <name>` or `hc rm <name>` (recorded by the PreToolUse check) and the next report still
+  finds the name live in `hc ls`. These hc forms are not verified against a live hc, so the close is checked once and reported.
 - `BADNAME`: a live agent of this workspace (herdr) or a claude-code terminal of this terminal or project (hc) whose name breaks the policy
   (too long, uppercase, no `<pkg>-<kind>`): the guard neither counts nor watches it, so the line says so (this session's own tab is never listed).
 Stop blocks once per occurrence (never with `stop_hook_active`) when a tab turns `BLOCKED` or `FINISHED` and `tabs.stopBlock` is true, with the same
@@ -430,7 +445,7 @@ program included, as one JSON line instead of running herdr), `GHORC_HC_BIN` / `
 not told in between (the notification is raised at the next run too). herdr's `blocked` is read from the screen by herdr and may lag
 a Claude Code update that changes its dialogs. The runtime counts from the first sighting, so a tab that was already open when the
 lead started shows 0m. Identical repeated segments of one command line are read once, so a name opened twice in one command is
-not caught. The `herdr tab close <tab_id>` form needs the id from `herdr tab list` (its output was not captured here).
+not caught. The `herdr tab close <tab_id>` form takes the `tab_id` of the worker's `herdr agent list` row; the flags print it when the list has it.
 
 ## git-guard.cjs
 

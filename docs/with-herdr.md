@@ -6,6 +6,13 @@ command run `node scripts/backend.cjs`: it prints `hc`, `herdr` or `none` (with 
 while `herdr agent list` answers). The hooks and the skills use the same detection. The rest of this page describes the
 `herdr` forms; the `hc` forms are in skills/lead/SKILL.md ("Terminal backend") and skills/handoff/SKILL.md.
 
+Tested versions: the live checks quoted on this page ran on herdr 0.9.5. The fixes of ghorc 0.11.4 were checked with fake
+`herdr` and `hc` programs in the tests only, not against a live herdr or hc. The `hc` forms (`hc kill`, `hc rm`,
+`hc ls --json`, `hc wait <n>`, the Enter of `hc send`, `--cwd` without `--on`) are UNVERIFIED against a live hc: after a
+close the lead checks that the name is gone from `hc ls`, and the tabs guard reports a name still listed as `CLOSE?`.
+`node scripts/backend.cjs` on herdr also prints `herdr status` (client and server versions) and a warning when
+`server_binary_stale` is yes; a restart of the herdr server is the owner's.
+
 | | `hc` | `herdr` |
 |---|---|---|
 | worker with a role | `hc run --bg --name n --cwd d "<path>\env.exe" GHORC_ROLE=worker claude.exe -n n --model <alias> --effort <e> <permissionArgs> "<task>"` | `herdr tab create --workspace "$HERDR_WORKSPACE_ID" --no-focus --env GHORC_ROLE=worker` + `herdr agent start` |
@@ -25,17 +32,26 @@ when the tab is created:
 
 ```
 herdr tab create --workspace "$HERDR_WORKSPACE_ID" --no-focus --label <name> --cwd <dir> --env GHORC_ROLE=worker    # note result.root_pane.pane_id
+herdr pane wait-output <pane_id> --regex '[>$#%] ?$' --timeout 15000    # the shell prompt (single quotes in bash and PowerShell); on a timeout go on
 herdr agent start <name> --kind claude --pane <pane_id> -- -n <name> --model sonnet --effort medium <worker.permissionArgs>
 ```
 
 The tabs guard (`docs/hooks.md`) denies a start that misses the name rule, `-n <name>`, the model alias, the effort or
-the permission arguments, and shows the corrected form.
+the permission arguments, and a `herdr tab create` without `--cwd` inside the project, and shows the corrected form.
+The task goes in as one line that points to a file: `MSYS_NO_PATHCONV=1 herdr pane run <pane_id> "Read <brief file> and do
+the task in it."` (from PowerShell without the prefix). The guard denies a `herdr pane run|send-text` whose text has a
+newline, a double quote or a backtick, and any send to a pane that `herdr agent list` shows `blocked`.
 
 `herdr agent start` types the `claude` command into an existing pane's shell, so `GHORC_ROLE=worker herdr agent start`
 (or `$env:GHORC_ROLE='worker'; herdr agent start`) sets the variable on the herdr CLI only and the session never sees
 it. Checked live on herdr 0.9.5: in a tab created with `--env GHORC_ROLE=worker` the pane shell had the variable; with
 the variable set only before `herdr agent start` the session's `GHORC_ROLE` was empty. Check the first worker's
 SessionStart line: it must print `role=worker`. Do not tell a worker from the lead by the tab name.
+
+A lead is proven on herdr by its agent name (the `<name>` of `herdr agent start <name>`) starting with
+`capacity.leadNamePrefix`, not by the tab label. A lead the owner starts by hand in a herdr pane has no agent name, so
+start it with `GHORC_ROLE=lead` (for example `herdr tab create ... --env GHORC_ROLE=lead`, or the variable set in the
+shell before `claude`) when `handoff.stickyOnCompact` should apply to it.
 
 The read guard does not apply the media rule to a worker session (it has no `agent_id`), so a worker may read images
 and PDFs within the budgets. The limit (`capacity.agents` when the capacity guard is enabled, otherwise bounded by machine load)
