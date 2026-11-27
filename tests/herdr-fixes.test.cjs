@@ -491,7 +491,7 @@ test('tabs-guard: --cwd one parser: each tab create is judged on its own decoded
   assert.match(reasonOf(pre(p, `${head} --cwd "/tmp/x`)), /plain absolute or relative path inside the project|outside the project/);
 });
 
-test('tabs-guard: --cwd review cases: blocks, heredocs fed to a shell, .., cd, escaped quotes and $env:PWD are judged; legit forms pass', () => {
+test('tabs-guard: --cwd review cases: blocks, captures, heredocs fed to a shell, .., cd, escaped quotes and $env:PWD are judged; legit forms pass', () => {
   const tabs = require('../scripts/lib/tabs.cjs');
   const s = tabs.settings({});
   const root = 'D:/proj/app';
@@ -500,6 +500,7 @@ test('tabs-guard: --cwd review cases: blocks, heredocs fed to a shell, .., cd, e
   const P = 'herdr tab create --workspace $env:HERDR_WORKSPACE_ID --no-focus --label a-implementer --env GHORC_ROLE=worker';
   const T = (ws, cwd, extra = '') => `herdr tab create --workspace ${ws} --no-focus --label a-implementer --cwd ${cwd} --env GHORC_ROLE=worker${extra}`;
   const BW = '"$HERDR_WORKSPACE_ID"';
+  const N = (ws, cwd) => `herdr tab create --workspace ${ws} --label a-implementer --cwd ${cwd} --env GHORC_ROLE=worker`; // no --no-focus
   const PW = '$env:HERDR_WORKSPACE_ID';
   // [id, command, powershell, verdict]
   const cases = [
@@ -550,6 +551,18 @@ test('tabs-guard: --cwd review cases: blocks, heredocs fed to a shell, .., cd, e
     ['F13', "git commit -m @'\nfix(tabs): herdr tab create --cwd, don't miss it\n'@", true, 'allow'],
     ['F15', "echo herdr tab create docs; echo it's", false, 'allow'],
     ['U1', `${B} --cwd 'D:/proj/app`, false, 'deny'],
+    // a captured tab create: PowerShell $t = ..., bash TAB=$(...), TAB="$(...)" and backticks; the whole tab policy applies
+    ['P5', `$t = ${T('w1', 'C:/tmp')}`, true, 'deny'],
+    ['P5b', `$t = ${T(PW, '$PWD')} | ConvertFrom-Json`, true, 'allow'],
+    ['P5c', `$t = ${N(PW, '$PWD')} | ConvertFrom-Json`, true, 'deny'],
+    ['P5d', `$tab = ${T(PW, 'D:/proj/app/.claude/worktrees/a')}`, true, 'allow'],
+    ['G8', `TAB="$(${T('w1', '"/tmp"')} | jq -r .id)"`, false, 'deny'],
+    ['G8b', `TAB="$(${T(BW, '"$PWD"')} | jq -r .result.tab.tab_id)"`, false, 'allow'],
+    ['G8c', `TAB="$(${N(BW, '"$PWD"')} | jq -r .id)"`, false, 'deny'],
+    ['G8d', `TAB=$(${T(BW, '"$PWD"')} | jq -r .id)`, false, 'allow'],
+    ['G8e', `TAB=$(${N(BW, '.')} | jq -r .id)`, false, 'deny'],
+    ['G8f', `TAB="\`${T(BW, '"/tmp"')}\`"`, false, 'deny'],
+    ['G8g', `echo "tab: $(${T(BW, '"$PWD/.claude/worktrees/a"')} | jq -r .id) done"`, false, 'allow'],
     // legit forms of the skills and docs
     ['F1', T(BW, 'D:/proj/app/.claude/worktrees/a'), false, 'allow'],
     ['F2', T(PW, 'D:\\proj\\app\\.claude\\worktrees\\a'), true, 'allow'],

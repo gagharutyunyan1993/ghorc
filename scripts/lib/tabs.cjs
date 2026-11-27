@@ -146,9 +146,14 @@ function scan(tokens, from, to, valueOpts) {
 const isHelp = (o) => o.name === '--help' || o.name === '-h';
 const optVals = (opts, ...names) => opts.filter((o) => names.includes(o.name));
 
+// A PowerShell assignment in front of the program ($t = herdr tab create ...) is skipped like the other leading words.
 function cliTokens(segment) {
   const w = Array.isArray(segment) ? segment : String(segment).trim().split(/\s+/);
   for (let i = 0; i < w.length; i++) {
+    if (/^\$[\w:]+$/.test(w[i]) && w[i + 1] === '=') {
+      i++;
+      continue;
+    }
     for (const prog of ['hc', 'herdr']) if (PROGRAMS[prog].test(w[i])) return { prog, tokens: w.slice(i) };
     if (!LEADING.test(w[i])) return null;
   }
@@ -253,11 +258,83 @@ function readable(command) {
     .replace(/(--(?:workspace|label|pane|tab|name|kind)(?:=|\s+))(["'])([\w:.$%/-]*)\2/g, '$1$3');
 }
 
+// bash: a command substitution inside double quotes ("$(herdr tab create ... --cwd "$PWD" | jq .id)", "`...`") is taken out of
+// the quotes ("a$(X)b" -> "a"$(X)"b"), so the quotes inside it are its own and the command is seen. Unchanged when a quote or
+// a parenthesis does not close.
+function closeSub(s, k, tick) {
+  let depth = 1;
+  for (let i = k; i < s.length; i++) {
+    const c = s[i];
+    if (c === '\\') i++;
+    else if (tick) {
+      if (c === '`') return i;
+    } else if (c === "'" || c === '"') {
+      const e = c === "'" ? s.indexOf("'", i + 1) : closeDq(s, i + 1);
+      if (e < 0) return -1;
+      i = e;
+    } else if (c === '(') depth++;
+    else if (c === ')' && --depth === 0) return i;
+  }
+  return -1;
+}
+function closeDq(s, k) {
+  for (let i = k; i < s.length; i++) {
+    if (s[i] === '\\') i++;
+    else if (s[i] === '"') return i;
+    else if (s[i] === '$' && s[i + 1] === '(') {
+      const e = closeSub(s, i + 2, false);
+      if (e < 0) return -1;
+      i = e;
+    } else if (s[i] === '`') {
+      const e = closeSub(s, i + 1, true);
+      if (e < 0) return -1;
+      i = e;
+    }
+  }
+  return -1;
+}
+function splitSubs(s) {
+  if (!/"[^"]*(?:\$\(|`)/.test(s)) return s;
+  let out = '';
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (c === '\\') {
+      out += s.slice(i, i + 2);
+      i++;
+    } else if (c === "'") {
+      const e = s.indexOf("'", i + 1);
+      if (e < 0) return s;
+      out += s.slice(i, e + 1);
+      i = e;
+    } else if (c === '"') {
+      out += '"';
+      let j = i + 1;
+      for (; j < s.length && s[j] !== '"'; j++) {
+        if (s[j] === '\\') {
+          out += s.slice(j, j + 2);
+          j++;
+        } else if ((s[j] === '$' && s[j + 1] === '(') || s[j] === '`') {
+          const tick = s[j] === '`';
+          const e = closeSub(s, j + (tick ? 1 : 2), tick);
+          if (e < 0) return s;
+          out += `"${tick ? s.slice(j, e + 1) : `$(${splitSubs(s.slice(j + 2, e))})`}"`;
+          j = e;
+        } else out += s[j];
+      }
+      if (j >= s.length) return s;
+      out += '"';
+      i = j;
+    } else out += c;
+  }
+  return out;
+}
+
 // Every tab command of a shell command line: [{ type, ... }]. Segments come from cmd.cjs (quotes blanked, wrappers inlined).
 function parseCommand(command, powershell) {
   const out = [];
   const seen = new Set();
-  for (const seg of segments(readable(command), { powershell })) {
+  const text = readable(command);
+  for (const seg of segments(powershell ? text : splitSubs(text), { powershell })) {
     if (!/\b(?:hc|herdr)(?:\.exe)?\b/i.test(seg)) continue;
     // a wrapper cmd.cjs leaves in place (timeout 5, nice -n 5, env -u X ...) is peeled as in the send checks
     const p = parseSegment(seg) || parseSegment(peelWrappers(String(seg).trim().split(/\s+/)));
@@ -436,7 +513,7 @@ function tabCreateCwds(command, powershell) {
   let movedMain = false;
   texts.forEach(({ t: raw, ps }, n) => {
     let text = raw.replace(/\$\(pwd\)|\$\{PWD\}/g, '$$PWD');
-    if (!ps) text = stripHeredocs(text); // in PowerShell << is not a heredoc
+    if (!ps) text = splitSubs(stripHeredocs(text)); // in PowerShell << is not a heredoc
     text = inlineWrapped(text, ps, true);
     let moved = n > 0 && movedMain;
     for (const words of rawSegments(text, ps)) {

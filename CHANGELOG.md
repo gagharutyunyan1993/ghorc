@@ -52,10 +52,12 @@
   denied with a request for an absolute path. Escaped quotes inside `sh -c "..."` and `pwsh -c "..."` are decoded,
   so `--cwd \"D:/other proj\"` is judged as that path. bash `$pwd` (another, unset variable) is no longer read as
   `$PWD`. An unclosed quote denies only in the segment of a tab create, so a PowerShell here-string commit message that
-  mentions `herdr tab create` passes.
+  mentions `herdr tab create` passes. A captured tab create is now seen by both parsers and gets the whole tab policy:
+  PowerShell `$t = herdr tab create ...` and bash `TAB=$(herdr tab create ...)`, `TAB="$(... --cwd "$PWD" ...)"` and a
+  backtick form inside double quotes (the quotes inside the substitution are its own).
   Known limit: a bash `# <<EOF` comment or `\<<EOF` before a tab create, and a PowerShell here-string that the tokenizer
   closes at another place than PowerShell, can still hide a tab create from both parsers; so do variables, functions,
-  `eval` and control words (`then`, `do`, `!`) in front of herdr.
+  `eval` and control words (`then`, `do`, `!`) in front of herdr, and a nested quote in a quoted string inside `"$( )"`.
 - The skills wait for the shell prompt with `herdr pane wait-output <pane_id> --regex '[>$#%] ?$' --timeout 15000`
   before `herdr agent start`: single quotes in both shells, and `%` for zsh.
 - One slow `herdr agent list` turned the backend into `none` for that hook run. The herdr verdict is cached for 30 s per
