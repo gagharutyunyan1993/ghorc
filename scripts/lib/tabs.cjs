@@ -6,7 +6,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
-const { segments, matches, compile, inlineWrapped } = require('./cmd.cjs');
+const { segments, matches, compile, inlineWrapped, stripHeredocs } = require('./cmd.cjs');
 const backend = require('./backend.cjs');
 const { tmpDir, atomicWrite } = require('./tmp.cjs');
 const { safeId } = require('./hook-io.cjs');
@@ -315,6 +315,7 @@ function rawSegments(command, powershell) {
           cur += e in C_ESC ? C_ESC[e] : `\\${e}`;
         } else cur += s[i];
       }
+      if (i >= s.length) segs.unclosed = true;
       continue;
     }
     if (c === "'") {
@@ -329,6 +330,7 @@ function rawSegments(command, powershell) {
         }
         cur += s[i];
       }
+      if (i >= s.length) segs.unclosed = true;
       continue;
     }
     if (c === '"') {
@@ -350,6 +352,7 @@ function rawSegments(command, powershell) {
           if (e !== '\n') cur += e;
         } else cur += d;
       }
+      if (i >= s.length) segs.unclosed = true;
       continue;
     }
     if ((powershell ? c === '`' : c === '\\') && i + 1 < s.length) {
@@ -406,39 +409,48 @@ function sendCommands(command, powershell) {
   return out;
 }
 
-// The decoded --cwd values of every herdr tab create in a command line (for a value that cmd.cjs cut at an escaped space).
-function rawCwds(command, powershell) {
-  const out = [];
-  try {
-    // the same wrapper-inlined text cmd.cjs cuts (bash -c "..." and the like), so both see the same tab creates
-    for (const words of rawSegments(inlineWrapped(String(command).replace(/\$\(pwd\)|\$\{PWD\}/g, '$$PWD'), powershell), powershell)) {
-      const c = cliTokens(words) || cliTokens(peelWrappers(words));
-      if (!c || c.prog !== 'herdr') continue;
-      for (let i = 1; i + 1 < c.tokens.length; i++) {
-        if (c.tokens[i] === '--cwd') out.push(c.tokens[i + 1]);
-        else if (c.tokens[i].startsWith('--cwd=')) out.push(c.tokens[i].slice(6));
-      }
+// The --cwd values of every herdr tab create, from one quote-aware tokenizer (rawSegments, for bash or PowerShell) run on the
+// text cmd.cjs cuts too (heredocs stripped, bash -c "..." and similar wrappers inlined, $(pwd) and ${PWD} read as $PWD).
+// Each tab create keeps its own values (--cwd v and --cwd=v, only before a `--`; null for a --cwd without a value).
+// -> { creates: [[value, ...], ...], unreadable } ; unreadable: a quote is not closed in a line that holds "tab create".
+function tabCreateCwds(command, powershell) {
+  const text = inlineWrapped(stripHeredocs(String(command)).replace(/\$\(pwd\)|\$\{PWD\}/g, '$$PWD'), powershell);
+  const segs = rawSegments(text, powershell);
+  const creates = [];
+  for (const words of segs) {
+    const c = cliTokens(words) || cliTokens(peelWrappers(words));
+    if (!c || c.prog !== 'herdr') continue;
+    const t = c.tokens;
+    const dd = t.indexOf('--');
+    const end = dd < 0 ? t.length : dd;
+    const low = t.map((x) => String(x).toLowerCase());
+    const at = low.findIndex((x, i) => i < end - 1 && x === 'tab' && low[i + 1] === 'create');
+    if (at < 0 || t.slice(at + 2, end).some((x) => x === '--help' || x === '-h')) continue; // --help creates nothing
+    const vals = [];
+    for (let i = at + 2; i < end; i++) {
+      if (t[i] === '--cwd') vals.push(i + 1 < end ? t[++i] : null);
+      else if (t[i].startsWith('--cwd=')) vals.push(t[i].slice(6));
     }
-  } catch {
-    /* unreadable: nothing decoded */
+    creates.push(vals);
   }
-  return out;
+  return { creates, unreadable: Boolean(segs.unclosed) && /\btab\s+create\b/i.test(text) };
 }
 
-// The --cwd value the shell will pass, from the cmd.cjs word (quotes blanked, cut at an escaped space). A plain word is judged
-// as it is. A word cut at an escaped space takes the decoded value that continues it with a space. A blanked word, or one
-// with an escape of the shell, takes the decoded value only when the line holds exactly one tab create and one decoded
-// value, so the two parsers cannot pair different tab creates. Otherwise null (denied as unreadable).
-function cwdValue(raw, decoded, tabCreates, powershell) {
-  const esc = powershell ? '`' : '\\';
-  // PowerShell: cmd.cjs drops the backtick of an escaped space, so a word with one tab create may be cut without a mark
-  if (raw.endsWith(esc) || (powershell && tabCreates === 1)) {
-    const cut = raw.endsWith(esc) ? raw.slice(0, -1) : raw;
-    const longer = decoded.find((r) => cut && r.length > cut.length && r.startsWith(cut) && r[cut.length] === ' ');
-    if (longer) return longer;
+// The --cwd lines of a command: every value of every tab create judged by cwdProblem; a tab create without --cwd is reported
+// unless the cmd.cjs check already did; an unreadable line is denied.
+function cwdLines(command, ctx, missingShown) {
+  const out = [];
+  const add = (x) => {
+    if (x && !out.includes(x)) out.push(x);
+  };
+  const ask = 'pass a plain absolute or relative path inside the project, or $PWD (a worktree under .claude/worktrees counts)';
+  const r = tabCreateCwds(command, ctx.powershell);
+  if (r.unreadable) add(`the command has a quote that is not closed, so the guard cannot read the --cwd of its tab create: ${ask}`);
+  for (const vals of r.creates) {
+    if (!vals.length && !missingShown) add(`--cwd is missing: without it the tab starts in the herdr server's directory, outside the project; ${ask}`);
+    for (const v of vals) add(v === null ? `--cwd has no value: ${ask}` : cwdProblem(v, ctx));
   }
-  if (/["']/.test(raw) || raw.includes(esc)) return tabCreates === 1 && decoded.length === 1 ? decoded[0] : null;
-  return raw;
+  return out;
 }
 const PWD_REF = /^(?:\$PWD|\$\{PWD\}|\$\(pwd\)|\$env:PWD)(?=$|[\\/])/i;
 // -> a deny line for a --cwd value, or '' when it is inside the project
@@ -772,15 +784,8 @@ function checkParsed(p, ctx) {
     if (!cwdOpt) {
       v.push("--cwd is missing: without it the tab starts in the herdr server's directory, outside the project, and the guard neither counts nor watches it; pass --cwd <dir> inside the project (a worktree under .claude/worktrees counts)");
       tail.push('--cwd', '<dir>');
-    } else if (ctx.root) {
-      // judged on the value as the shell passes it (decoded by rawSegments, quotes and escaped spaces resolved); allowed are a
-      // plain path inside the project and the session's own directory ($PWD, ${PWD}, $(pwd), PowerShell $PWD / $env:PWD), alone
-      // or with a relative subpath without "..". Any other variable, expansion, ~ or a value that cannot be decoded is denied:
-      // the guard cannot tell where it points.
-      const val = cwdValue(String(cwdOpt.value || ''), ctx.rawCwds || [], ctx.tabCreates, ctx.powershell);
-      const why = cwdProblem(val, ctx);
-      if (why) v.push(why);
     }
+    // the value is judged in cwdLines (checkCommand), on the decoded words of each tab create
     if (v.length) fixed = [...tk, ...tail];
     if (valid) dupAndLimit(label.value);
   } else if (p.type === 'agent-start') {
@@ -930,7 +935,7 @@ function checkCommand(command, { powershell = false, s, list, root, cwd, self, s
     } catch {
       /* a parse problem is "fine" */
     }
-    if (!cmds.length && !sends.length) return null;
+    if (!cmds.length && !sends.length && !/\btab\b/i.test(command)) return null;
     const cache = {};
     const needWs = sends.length > 0 || cmds.some((p) => p.type !== 'hc-run');
     let ws = workspace;
@@ -941,7 +946,7 @@ function checkCommand(command, { powershell = false, s, list, root, cwd, self, s
         ws = '';
       }
     }
-    const ctx = { s, root, cwd, self, session, workspace: ws, envWorkspace: String(envWorkspace || '').toLowerCase(), rawCwds: rawCwds(command, powershell), tabCreates: cmds.filter((c) => c.type === 'tab-create').length, powershell, devRe: compile(s.devCommands), pending: [], list: (kind) => (kind in cache ? cache[kind] : (cache[kind] = list(kind))) };
+    const ctx = { s, root, cwd, self, session, workspace: ws, envWorkspace: String(envWorkspace || '').toLowerCase(), powershell, devRe: compile(s.devCommands), pending: [], list: (kind) => (kind in cache ? cache[kind] : (cache[kind] = list(kind))) };
     const lines = [];
     for (const p of cmds) {
       let r;
@@ -955,6 +960,19 @@ function checkCommand(command, { powershell = false, s, list, root, cwd, self, s
       lines.push(`${head}:`);
       for (const x of r.violations) lines.push(`- ${x}`);
       if (r.fixed) lines.push(`Corrected form: ${r.fixed}`);
+    }
+    // the --cwd values: one decoder for the whole line (allowed: a plain path inside the project, ., $PWD forms; see cwdProblem)
+    if (root && /\btab\b/i.test(command)) {
+      let v;
+      try {
+        v = cwdLines(command, ctx, lines.some((l) => l.startsWith('- --cwd is missing')));
+      } catch {
+        v = [];
+      }
+      if (v.length) {
+        lines.push('herdr tab create --cwd:');
+        for (const t of v) lines.push(`- ${t}`);
+      }
     }
     for (const x of sends) {
       let v = [];

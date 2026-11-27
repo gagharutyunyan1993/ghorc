@@ -463,3 +463,30 @@ test('tabs-guard: --cwd parser differential: wrapped commands and two tab create
   ]) assert.ok(denied(pre(p, c)), c);
   allowed(pre(p, `${tc('a-implementer', '.')}; ${tc('b-implementer', '.claude/worktrees/b')}`));
 });
+
+test('tabs-guard: --cwd one parser: each tab create is judged on its own decoded words, never on another --cwd in the line', () => {
+  const base = project();
+  const spaced = path.join(path.dirname(base.cwd), `proj y ${process.pid}-${Date.now()}`);
+  fs.cpSync(base.cwd, spaced, { recursive: true });
+  const p = { cwd: spaced, sid: base.sid };
+  const fwd = spaced.replace(/\\/g, '/');
+  const outside = path.dirname(fwd) + '/other y';
+  const tc = (label, cwd) => `herdr tab create --workspace w1 --no-focus --label ${label} --env GHORC_ROLE=worker --cwd ${cwd}`;
+  const tick = (x) => x.replace(/ /g, '` ');
+  // PowerShell, one tab create with a backtick-escaped space, and another --cwd elsewhere in the line
+  allowed(pre(p, `${tc('a-implementer', tick(fwd) + '/.claude/worktrees/p2')}; Write-Output "--cwd /tmp"`, { tool: 'PowerShell' }));
+  assert.ok(denied(pre(p, `${tc('a-implementer', tick(outside))}; Write-Output "--cwd ${fwd}"`, { tool: 'PowerShell' })));
+  assert.ok(denied(pre(p, `Write-Output "--cwd ${fwd}"; ${tc('a-implementer', tick(outside))}`, { tool: 'PowerShell' })));
+  // a quoted outside path next to an in-project path of another tab create, both orders and both shells
+  for (const tool of ['Bash', 'PowerShell']) {
+    assert.ok(denied(pre(p, `${tc('a-implementer', '"/tmp/x"')}; ${tc('b-implementer', '"."')}`, { tool })), tool);
+    assert.ok(denied(pre(p, `${tc('a-implementer', '"."')}; ${tc('b-implementer', "'/tmp/x'")}`, { tool })), tool);
+  }
+  // --cwd after -- is not an option of the tab create
+  const head = 'herdr tab create --workspace w1 --no-focus --label a-implementer --env GHORC_ROLE=worker';
+  assert.ok(denied(pre(p, `${head} -- --cwd .`)));
+  assert.ok(denied(pre(p, `${head} --cwd /tmp/x -- --cwd .`)));
+  allowed(pre(p, `${head} --cwd . -- --cwd /tmp/x`));
+  // a quote that is not closed
+  assert.match(reasonOf(pre(p, `${head} --cwd "/tmp/x`)), /plain absolute or relative path inside the project|outside the project/);
+});

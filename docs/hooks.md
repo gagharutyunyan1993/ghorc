@@ -369,7 +369,8 @@ that binds every session (lead, subagent, worker) is the dev-command rule below.
   names another workspace than `HERDR_WORKSPACE_ID` (the pane was moved), `--workspace "$HERDR_WORKSPACE_ID"` is denied, because the
   variable still holds the old id, and the deny shows the row's id (the id forms
   `w1` and `w1:p1` are herdr's documented public ids; `herdr api schema` lists `workspace_id` in every agent entry). `herdr tab create` needs `--workspace`, `--no-focus` and `--cwd` inside the project root (a worktree under `.claude/worktrees` counts; a relative path is read from the session's cwd; a space escaped with `\` in bash or a backtick in PowerShell is decoded; besides plain paths only `$PWD`, `${PWD}`, `$(pwd)` and
-  `$env:PWD`, alone or with a relative subpath without `..`, pass, and any other variable, expansion or `~` is denied): a tab without it starts in the herdr server's directory, and the inventory neither counts nor watches it. With the own workspace known
+  `$env:PWD`, alone or with a relative subpath without `..`, pass, and any other variable, expansion or `~` is denied; the
+  values are read by one quote-aware tokenizer of the shell, per tab create and before any `--`): a tab without it starts in the herdr server's directory, and the inventory neither counts nor watches it. With the own workspace known
   the value is its id or a reference, and only the exact variable names count (`$HERDR_WORKSPACE_ID`, `${HERDR_WORKSPACE_ID}`,
   `$env:HERDR_WORKSPACE_ID`, `%HERDR_WORKSPACE_ID%`, quoted or not); a single-quoted reference (the shell does not expand it) or another
   variable name is denied, known workspace or not. Without `--workspace` herdr uses the UI-focused workspace, which can belong to another
