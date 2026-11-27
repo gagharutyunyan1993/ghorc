@@ -15,13 +15,13 @@ if (process.argv.includes('--help')) {
       '(no agent_id, not GHORC_ROLE=worker) and only with tabs.enabled (default true). ' +
       'PreToolUse denies `herdr tab create`, `herdr agent start` and `hc run` that break the tab policy: name <pkg>-<kind> (worker) or ' +
       'capacity.leadNamePrefix + name (lead), a letter first then [a-z0-9-], 32 characters at most; herdr tab create needs --workspace (the own one), --no-focus and --cwd inside the project; the lead may not create, close or start in another workspace (the own workspace is read from this session\'s row in herdr agent list, else HERDR_PANE_ID / HERDR_WORKSPACE_ID);  GHORC_ROLE on the tab; --model alias, --effort, ' +
-      '`herdr pane run|send-text` text with a newline, a double quote or a backtick (judged on the decoded argument); `herdr pane run|send-text|send-keys` to a pane whose row in a fresh herdr agent list is blocked (unknown is allowed); ' +
+      '`herdr pane run|send-text` text with a newline, a double quote or a backtick (judged on the decoded argument); a text send (pane run|send-text, send-keys of more than single keys) to a pane whose row in a fresh herdr agent list is blocked (single keys and unknown are allowed); ' +
       '-n equal to the tab name, worker.permissionArgs / handoff.candidatePermissionArgs; no live name twice; at most tabs.maxWorkers agent workers; ' +
       '--outlive-parent for full/runner/train. The reason shows the corrected form. Internal errors and unreadable lists allow the command. ' +
       'tabs.devCommands (regexes; every session, backend hc or herdr): dev servers and watchers are denied outside a <pkg>-runner tab. '+
       'The other events list the project\'s worker tabs (`tabs: N live (name status minutes, ...)`) with a flag line for BLOCKED, FINISHED ' +
       '(report file has a result line, tab still open), STALLED (idle >= tabs.idleMin, no result), OVERTIME (>= tabs.overtimeMin), OVER_LIMIT and RESULT? (a result line at the first sighting, never blocks Stop), ' +
-      'GONE (a worker seen before left the list without a fresh result line; once) and CLOSE? (a name still in hc ls after the lead ran hc kill / hc rm). ' +
+      'GONE (a worker seen before left the whole list without a fresh result line; not for long-lived tabs; kept until a report reaches the lead) and CLOSE? (a name still in hc ls after the lead ran hc kill / hc rm). ' +
       'Stop blocks once per (tab, flag) occurrence (never on stop_hook_active) when a tab turns BLOCKED or FINISHED and tabs.stopBlock is true; it stays silent once HANDOFF.md says SENT for this session and for a candidate lead before ACTIVATE. On herdr a worker turning blocked ' +
       'raises one `herdr notification show` (tabs.notify). Test seams: GHORC_CAPACITY_HC_JSON, GHORC_CAPACITY_HERDR_JSON, GHORC_TABS_NOTIFY_LOG, ' +
       'GHORC_HC_BIN, GHORC_HERDR_BIN; HERDR_PANE_ID (prefix) / HERDR_WORKSPACE_ID is the own workspace; only a project with .claude/ghorc.json is judged.',
@@ -77,6 +77,8 @@ run((input) => {
       s,
       // the row of this session in the live list first (a moved pane keeps stale ids in its env), else the env
       workspace: () => tabs.ownWorkspace(process.env, list('herdr'), session),
+      // what $HERDR_WORKSPACE_ID stands for: after a move it differs from the row, and the variable form is then denied
+      envWorkspace: String(process.env.HERDR_WORKSPACE_ID || '').trim(),
       root,
       cwd,
       self: String(process.env.HC_TERMINAL_ID || '').trim(),
@@ -130,10 +132,12 @@ run((input) => {
       return;
     }
     tabs.markStopped(r.state, r.stopNew);
+    tabs.markShown(r.state);
     tabs.writeTabState(session, r.state);
     out({ decision: 'block', reason: `tabs-guard: ${text}` });
     return;
   }
+  tabs.markShown(r.state);
   tabs.writeTabState(session, r.state);
   out({ hookSpecificOutput: { hookEventName: event, additionalContext: text } });
 }, 'tabs-guard');

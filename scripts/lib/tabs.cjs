@@ -300,6 +300,11 @@ function rawSegments(command, powershell) {
       if ((c === '&' || c === '|') && s[i + 1] === c) i++;
       continue;
     }
+    if (c === '#' && cur === null) {
+      // a comment runs to the end of the line (its quotes are not quotes)
+      while (i + 1 < s.length && s.charCodeAt(i + 1) !== 10 && s.charCodeAt(i + 1) !== 13) i++;
+      continue;
+    }
     if (cur === null) cur = '';
     if (!powershell && c === '$' && s[i + 1] === "'") {
       for (i += 2; i < s.length && s[i] !== "'"; i++) {
@@ -356,13 +361,33 @@ function rawSegments(command, powershell) {
   return segs;
 }
 
+// Wrappers in front of a decoded command that cliTokens does not know: timeout, nice, stdbuf, setsid, and env, command and
+// exec with their options (env -u NAME, exec -a NAME). -> the words from the program on.
+const WRAP_VALUE = { timeout: ['-s', '--signal', '-k', '--kill-after'], nice: ['-n', '--adjustment'], stdbuf: ['-i', '-o', '-e', '--input', '--output', '--error'], setsid: [], env: ['-u', '--unset', '-C', '--chdir', '-S', '--split-string'], command: [], exec: ['-a'] };
+function peelWrappers(words) {
+  let i = 0;
+  for (let guard = 0; guard < 16 && i < words.length; guard++) {
+    const w = String(words[i]).toLowerCase().replace(/\.exe$/, '');
+    if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(words[i])) {
+      i++;
+      continue;
+    }
+    if (!(w in WRAP_VALUE)) break;
+    i++;
+    while (i < words.length && /^-/.test(words[i]) && words[i] !== '--') i += WRAP_VALUE[w].includes(words[i]) ? 2 : 1;
+    if (words[i] === '--') i++;
+    if (w === 'timeout' && i < words.length && /^\d/.test(words[i])) i++; // the duration
+  }
+  return words.slice(i);
+}
+
 // The lead's sends into a pane: `herdr pane run|send-text|send-keys <pane> <payload...>` -> [{ verb, target, payload }],
 // payload decoded (rawSegments). The target is the first positional word, or --pane.
 const SEND_VERBS = new Set(['run', 'send-text', 'send-keys']);
 function sendCommands(command, powershell) {
   const out = [];
   for (const words of rawSegments(command, powershell)) {
-    const c = cliTokens(words);
+    const c = cliTokens(words) || cliTokens(peelWrappers(words));
     if (!c || c.prog !== 'herdr') continue;
     const t = c.tokens;
     const low = t.map((x) => x.toLowerCase());
@@ -375,6 +400,24 @@ function sendCommands(command, powershell) {
       }
       break;
     }
+  }
+  return out;
+}
+
+// The decoded --cwd values of every herdr tab create in a command line (for a value that cmd.cjs cut at an escaped space).
+function rawCwds(command, powershell) {
+  const out = [];
+  try {
+    for (const words of rawSegments(command, powershell)) {
+      const c = cliTokens(words) || cliTokens(peelWrappers(words));
+      if (!c || c.prog !== 'herdr') continue;
+      for (let i = 1; i + 1 < c.tokens.length; i++) {
+        if (c.tokens[i] === '--cwd') out.push(c.tokens[i + 1]);
+        else if (c.tokens[i].startsWith('--cwd=')) out.push(c.tokens[i].slice(6));
+      }
+    }
+  } catch {
+    /* unreadable: nothing decoded */
   }
   return out;
 }
@@ -673,6 +716,11 @@ function checkParsed(p, ctx) {
       v.push(`--workspace ${String(wsOpt.value).replace('__SQ__', "'") + (String(wsOpt.value).startsWith('__SQ__') ? "'" : '')} does not name the own workspace: a single-quoted reference is not expanded and only the exact variable counts; pass --workspace ${wsToken}`);
       if (wsOpt.inline) tk[wsOpt.i] = `--workspace=${wsToken}`;
       else tk[wsOpt.i + 1] = wsToken;
+    } else if (ownWs && ctx.envWorkspace && ctx.envWorkspace !== ownWs && WS_REF.test(wsOpt.value || '')) {
+      // the pane was moved: its list row is in ownWs, while HERDR_WORKSPACE_ID of this process still holds the old workspace
+      v.push(`--workspace ${wsOpt.value} still expands to ${ctx.envWorkspace}, but this pane is now in ${ownWs} (its herdr agent list row; the pane was moved): pass --workspace ${ownWs}`);
+      if (wsOpt.inline) tk[wsOpt.i] = `--workspace=${ownWs}`;
+      else tk[wsOpt.i + 1] = ownWs;
     } else if (ownWs && !WS_REF.test(wsOpt.value || '') && !unknownValue(wsOpt.value) && wsOpt.value.toLowerCase() !== ownWs) {
       v.push(`--workspace ${wsOpt.value} is not this pane's workspace (${ownWs}): the lead creates tabs in its own workspace only; pass --workspace ${wsToken}`);
       if (wsOpt.inline) tk[wsOpt.i] = `--workspace=${wsToken}`;
@@ -687,10 +735,17 @@ function checkParsed(p, ctx) {
     if (!cwdOpt) {
       v.push("--cwd is missing: without it the tab starts in the herdr server's directory, outside the project, and the guard neither counts nor watches it; pass --cwd <dir> inside the project (a worktree under .claude/worktrees counts)");
       tail.push('--cwd', '<dir>');
-    } else if (ctx.root && !unknownValue(cwdOpt.value) && !/^~/.test(cwdOpt.value)) {
-      const val = cwdOpt.value;
-      const abs = /^(?:[A-Za-z]:)?[\\/]/.test(val) ? val : path.resolve(ctx.cwd || ctx.root, val);
-      if (!inside(abs, ctx.root)) v.push(`--cwd ${val} is outside the project (${ctx.root}): the guard would neither count nor watch the tab; start it in the project or a worktree under .claude/worktrees`);
+    } else if (ctx.root && !/^~/.test(cwdOpt.value || '')) {
+      // the value as the shell passes it (decoded by rawSegments): an escaped space (\  in bash, ` in PowerShell) cuts the
+      // cmd.cjs word; a value that cannot be matched to a decoded one is not judged
+      const raw = String(cwdOpt.value || '');
+      const cut = /[\\`]$/.test(raw) ? raw.slice(0, -1) : raw;
+      const longer = (ctx.rawCwds || []).find((r) => cut && r.length > cut.length && r.startsWith(cut) && r[cut.length] === ' ');
+      const val = longer || (cut !== raw || unknownValue(raw) ? '' : raw);
+      if (val && !/[$%<>{}]/.test(val)) {
+        const abs = /^(?:[A-Za-z]:)?[\\/]/.test(val) ? val : path.resolve(ctx.cwd || ctx.root, val);
+        if (!inside(abs, ctx.root)) v.push(`--cwd ${val} is outside the project (${ctx.root}): the guard would neither count nor watch the tab; start it in the project or a worktree under .claude/worktrees`);
+      }
     }
     if (v.length) fixed = [...tk, ...tail];
     if (valid) dupAndLimit(label.value);
@@ -802,7 +857,11 @@ const msys = (powershell) => (powershell ? '' : 'MSYS_NO_PATHCONV=1 ');
 
 // A send into a pane by the lead: the payload is one line without " or a backtick (it may be cut or submitted early, and
 // PowerShell drops quotes in a native argument), and nothing goes to a pane whose fresh list row is `blocked` (the text plus
-// Enter would answer its dialog). `unknown` is not denied: a freshly started session may show it before its first prompt.
+// Enter would answer its dialog). `send-keys` of single keys only (a digit, a letter, enter, escape, an arrow) stays allowed to a
+// blocked pane: that is how a dialog is answered when the owner says so. `unknown` is not denied: a freshly started session may
+// show it before its first prompt.
+const KEY_NAMES = /^(?:.|enter|return|escape|esc|tab|space|backspace|bspace|delete|del|up|down|left|right|home|end|pageup|pagedown|pgup|pgdn|(?:c|ctrl|m|alt|s|shift)[-+].|f\d{1,2})$/i;
+const onlyKeys = (x) => x.verb === 'send-keys' && x.payload.length > 0 && x.payload.every((k) => KEY_NAMES.test(k));
 function checkSend(x, ctx) {
   const v = [];
   const pfx = msys(ctx.powershell);
@@ -814,12 +873,12 @@ function checkSend(x, ctx) {
     }
   }
   const tgt = x.target;
-  if (tgt && !unknownValue(tgt)) {
+  if (tgt && !unknownValue(tgt) && !onlyKeys(x)) {
     const all = ctx.list('herdr');
     const low = tgt.toLowerCase();
     const e = all && all.find((a) => (a.pane && a.pane.toLowerCase() === low) || (a.name && a.name.toLowerCase() === low));
     if (e && e.status === 'blocked') {
-      v.push(`${tgt} is blocked on a dialog (herdr agent list): text or a key sent now would answer it. Read its screen (herdr pane read ${e.pane || tgt} --source recent --lines 40) and tell the owner; never answer a permission prompt yourself.`);
+      v.push(`${tgt} is blocked on a dialog (herdr agent list): text sent now would answer it. Read its screen (herdr pane read ${e.pane || tgt} --source recent --lines 40) and tell the owner; never answer a permission prompt yourself. When the owner tells you the answer, send it as single keys: ${pfx}herdr pane send-keys ${e.pane || tgt} <key> enter (a digit, y/n, enter, escape or an arrow).`);
     }
   }
   return v;
@@ -827,7 +886,7 @@ function checkSend(x, ctx) {
 
 // -> reason string, or null when the command is fine. Never throws (a parse problem is "fine").
 // workspace: the own herdr workspace id, or a function that returns it (asked once, only when a herdr command is judged).
-function checkCommand(command, { powershell = false, s, list, root, cwd, self, session, workspace = '' }) {
+function checkCommand(command, { powershell = false, s, list, root, cwd, self, session, workspace = '', envWorkspace = '' }) {
   try {
     if (!/\b(?:hc|herdr)(?:\.exe)?\b/i.test(command)) return null;
     const cmds = parseCommand(command, powershell);
@@ -848,7 +907,7 @@ function checkCommand(command, { powershell = false, s, list, root, cwd, self, s
         ws = '';
       }
     }
-    const ctx = { s, root, cwd, self, session, workspace: ws, powershell, devRe: compile(s.devCommands), pending: [], list: (kind) => (kind in cache ? cache[kind] : (cache[kind] = list(kind))) };
+    const ctx = { s, root, cwd, self, session, workspace: ws, envWorkspace: String(envWorkspace || '').toLowerCase(), rawCwds: rawCwds(command, powershell), powershell, devRe: compile(s.devCommands), pending: [], list: (kind) => (kind in cache ? cache[kind] : (cache[kind] = list(kind))) };
     const lines = [];
     for (const p of cmds) {
       let r;
@@ -948,7 +1007,7 @@ function writeTabState(session, state, now = Date.now()) {
     fs.mkdirSync(tmpDir(), { recursive: true });
     atomicWrite(stateFile(session), JSON.stringify(state));
     for (const f of fs.readdirSync(tmpDir())) {
-      if (!/^tabs-.*\.json$/.test(f)) continue;
+      if (!/^(?:tabs|backend)-.*\.json$/.test(f)) continue; // backend-*: the verdict cache of lib/backend.cjs
       try {
         const p = path.join(tmpDir(), f);
         if (p !== stateFile(session) && now - fs.statSync(p).mtimeMs > STATE_KEEP_MS) fs.rmSync(p, { force: true });
@@ -1094,13 +1153,18 @@ function evaluate(live, prevState, now, { root, s, workspace = '', session = '' 
     const why = parseName(String(e.name).toLowerCase(), s.leadPrefix).why;
     lines.push(`tabs BADNAME: ${e.name ? JSON.stringify(e.name) : '(no name)'} (${e.status || '?'}) breaks the tab naming policy (${why}), so it is neither counted nor watched: rename it or close it`);
   }
-  // a worker seen before that left the list without a fresh result line: its tab was closed or its session ended (shown once,
-  // because a name that leaves the list is forgotten)
-  const seen = new Set(inv.map((e) => e.name.toLowerCase()));
-  for (const [key, w] of Object.entries(prevState.workers || {})) {
-    if (seen.has(key) || !w || typeof w !== 'object' || typeof w.firstSeen !== 'number') continue;
+  // a worker seen before that left the list without a fresh result line: its tab was closed or its session ended. Only a name
+  // gone from the whole list counts (not one that merely left the inventory: another cwd, a workspace verdict that flipped), and
+  // never a long-lived tab (a runner has no result line). Kept in state.gone until a run shows it (markShown): a Stop that does
+  // not block shows nothing.
+  const listed = new Set(live.entries.map((e) => String(e.name).toLowerCase()));
+  const goneOld = prevState.gone && typeof prevState.gone === 'object' && !Array.isArray(prevState.gone) ? prevState.gone : {};
+  for (const [key, w] of Object.entries({ ...goneOld, ...(prevState.workers || {}) })) {
+    if (listed.has(key) || !w || typeof w !== 'object' || typeof w.firstSeen !== 'number') continue;
+    if (parseName(key, s.leadPrefix).long) continue;
     const res = resultLine(root, key);
     if (res && res.mtimeMs >= w.firstSeen) continue;
+    state.gone = { ...(state.gone || {}), [key]: w };
     lines.push(`tabs GONE: ${key} left ${live.kind === 'hc' ? 'hc ls' : 'herdr agent list'} without a result line: its tab was closed or its session ended. Read its report file (.claude/ghorc-out/${key}.md) if there is one, then re-brief or drop the package.`);
   }
   // an hc close (hc kill / hc rm, recorded by the PreToolUse check) whose name is still listed: these hc forms are not verified
@@ -1109,11 +1173,18 @@ function evaluate(live, prevState, now, { root, s, workspace = '', session = '' 
   for (const [name, at] of Object.entries(closing)) {
     if (live.kind !== 'hc' || typeof at !== 'number' || now - at > CLOSE_CHECK_MS) continue;
     if (live.entries.some((e) => String(e.name).toLowerCase() === name)) {
+      state.closing = { ...(state.closing || {}), [name]: at }; // kept until a run shows it (markShown)
       lines.push(`tabs CLOSE?: ${name} is still listed by hc ls after hc kill / hc rm: the close did not take (these hc forms are unverified). Close it by hand or tell the owner.`);
     }
   }
   const working = rows.filter((r) => !r.long && r.e.status === 'working').map((r) => r.e.name);
   return { live: rows.length, lines, blocked, finished: finishedNames, stopNew, state, toNotify, working };
+}
+
+// The lines of this run reached the lead (a prompt, a session start or a blocking Stop): GONE and CLOSE? are not repeated.
+function markShown(state) {
+  delete state.gone;
+  delete state.closing;
 }
 
 // Records in the state that these (name, flag) pairs have blocked Stop.
@@ -1195,6 +1266,8 @@ module.exports = {
   readLive,
   evaluate,
   markStopped,
+  markShown,
+  peelWrappers,
   candidateBeforeActivation,
   readTabState,
   writeTabState,

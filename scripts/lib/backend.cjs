@@ -69,15 +69,17 @@ function configuredPrefer(cwd) {
 // backend does not flip to none for one slow call; the list itself is always read fresh. A stopped server or a missing
 // program is an answer and drops the cache.
 const CACHE_MS = 30 * 1000;
+const REWRITE_MS = 10 * 1000;
 const cacheFile = (session) => path.join(tmpDir(), `backend-${String(session).replace(/[^A-Za-z0-9_.-]/g, '_').slice(0, 64)}.json`);
+// -> the age in ms of a fresh herdr verdict of this session and pane, or -1
 function cachedHerdr(session, env, now) {
-  if (!session) return false;
+  if (!session) return -1;
   try {
     const c = JSON.parse(fs.readFileSync(cacheFile(session), 'utf8'));
     const age = now - c.at;
-    return c.backend === 'herdr' && c.pane === String(env.HERDR_PANE_ID || '') && age >= 0 && age < CACHE_MS;
+    return c.backend === 'herdr' && c.pane === String(env.HERDR_PANE_ID || '') && age >= 0 && age < CACHE_MS ? age : -1;
   } catch {
-    return false;
+    return -1;
   }
 }
 function saveVerdict(session, env, backendName, now) {
@@ -126,7 +128,8 @@ function detect(opts = {}) {
   }
   const session = String(opts.session || '').trim();
   const now = Date.now();
-  const cached = cachedHerdr(session, env, now);
+  const age = cachedHerdr(session, env, now);
+  const cached = age >= 0;
   if (cached && opts.verdictOnly) return { backend: 'herdr', reason: 'HERDR_ENV=1 and the herdr server answered (cached verdict)' };
   const keep = (reason) => (cached ? { backend: 'herdr', reason: `${reason}; the herdr server answered less than 30 s ago, so the backend stays herdr and its list is unknown`, failed: true } : null);
   try {
@@ -146,7 +149,8 @@ ${r.stderr}`;
       const reason = `herdr agent list exited with ${r.status}${err ? `: ${err}` : ''}`;
       return hc || keep(reason) || { backend: 'none', reason, failed: true };
     }
-    saveVerdict(session, env, 'herdr', now);
+    // several hooks probe at once: a verdict younger than 10 s is not rewritten (fewer concurrent renames)
+    if (!(cached && age < REWRITE_MS)) saveVerdict(session, env, 'herdr', now);
     return { backend: 'herdr', reason: 'HERDR_ENV=1 and the herdr server answers', raw: r.stdout };
   } catch (e) {
     const reason = `herdr agent list: ${e && e.message ? e.message : e}`;
