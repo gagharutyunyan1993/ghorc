@@ -145,7 +145,8 @@ test('herdr tab create: tabs opened in one command count together', () => {
   const r = pre(p, cmd);
   assert.ok(denied(r));
   assert.match(reasonOf(r), /2 agent workers are already live/);
-  allowed(pre(p, [TAB('a-implementer', 'worker'), TAB('b-implementer', 'worker')].join('; ')));
+  // two tab creates in one command are not the one-line form
+  assert.match(reasonOf(pre(p, [TAB('a-implementer', 'worker'), TAB('b-implementer', 'worker')].join('; '))), /allowed only as a one-line command of its own/);
 });
 
 // ---- herdr agent start ----
@@ -278,7 +279,7 @@ test('PowerShell form', () => {
   assert.ok(denied(ps('herdr tab create --label Bad_Label --env GHORC_ROLE=worker ' + WSF)));
   allowed(ps('herdr tab create --label a1-implementer --cwd . --env GHORC_ROLE=worker --workspace $env:HERDR_WORKSPACE_ID --no-focus'));
   assert.ok(denied(ps(String.raw`Start-Process hc -ArgumentList "run --bg --name a-implementer claude --model opus --effort medium"`)));
-  allowed(ps('herdr tab create --label a1-implementer --cwd . --env GHORC_ROLE=worker --workspace $env:HERDR_WORKSPACE_ID --no-focus; herdr tab list'));
+  assert.ok(denied(ps('herdr tab create --label a1-implementer --cwd . --env GHORC_ROLE=worker --workspace $env:HERDR_WORKSPACE_ID --no-focus; herdr tab list')));
 });
 
 test('commands that are not tab commands and quoted values pass', () => {
@@ -717,7 +718,7 @@ process.stdout.write(a[0] === 'herdr' ? process.env.FAKE_HERDR_LIST : '{"termina
   );
   const bins = { GHORC_HERDR_BIN: JSON.stringify([process.execPath, fake, 'herdr']), GHORC_HC_BIN: JSON.stringify([process.execPath, fake, 'hc']) };
   const both = { CLAUDE_PROJECT_DIR: p.cwd, HERDR_ENV: '1', HC_TERMINAL_ID: 'self1', ...bins };
-  const two = `${TAB('a-implementer', 'worker')} && ${HC('b-implementer', 'worker', `${ARGS} -n b-implementer ${PERM}`)}`;
+  const two = TAB('a-implementer', 'worker'); // a tab create is a command of its own (shape rule)
   const run = (command, list) =>
     runScript('tabs-guard.cjs', { hook_event_name: 'PreToolUse', tool_name: 'Bash', session_id: p.sid, cwd: p.cwd, tool_input: { command } }, { cwd: p.cwd, env: { ...both, FAKE_HERDR_LIST: list } });
   allowed(run(two, NONE));

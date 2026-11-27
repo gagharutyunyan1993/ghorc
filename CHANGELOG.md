@@ -36,28 +36,17 @@
   a plain path and the session's directory (`.`, `$PWD`, `${PWD}`, `"$PWD"`, `$(pwd)`, alone or with a relative subpath
   without `..`) pass; any other variable (`$HOME`, `%TEMP%`), expansion (`$(echo /tmp)`), `~` or a value
   the guard cannot decode is denied with a request for a plain path inside the project.
-  The decoded value is read from the same wrapper-inlined text as the rest of the check, a tab create behind `timeout`,
-  `nice`, `env` and the like is checked too, and with two tab creates in one command each `--cwd` is judged on its own
-  value; a quoted value that cannot be paired with its tab create is denied. The `--cwd` values now come from one
-  quote-aware tokenizer for bash or PowerShell, run on the same pre-processed text (heredocs stripped, wrappers inlined):
-  each `herdr tab create` is judged on its own `--cwd` and `--cwd=` words before any `--`, with no matching against a
-  second parser, and a line with an unclosed quote is denied.
-  After a review of that tokenizer: a tab create that the cmd.cjs parser finds but the tokenizer does not, or a
-  tokenizer error, is denied (deny by default); the tokenizer cuts at `{`, `}` and bash backticks, looks through `xargs`,
-  skips PowerShell `<# #>` comments, strips heredocs only for bash, and also reads the Start-Process form, encoded
-  PowerShell and the body of a heredoc fed to a shell (`bash <<EOF`, `cat <<EOF | sh`). An absolute `--cwd` is normalized
-  before the inside-project test (`D:/proj/..`, `<root>/.claude/worktrees/../..` and `/d/proj/../x` were taken as inside).
-  PowerShell `$env:PWD` is no longer allowed: it is the client's inherited environment, not the session's directory.
-  After a `cd`, `pushd`, `Set-Location` or `Push-Location` earlier in the same command, `.`, a relative path and `$PWD` are
-  denied with a request for an absolute path. Escaped quotes inside `sh -c "..."` and `pwsh -c "..."` are decoded,
-  so `--cwd \"D:/other proj\"` is judged as that path. bash `$pwd` (another, unset variable) is no longer read as
-  `$PWD`. An unclosed quote denies only in the segment of a tab create, so a PowerShell here-string commit message that
-  mentions `herdr tab create` passes. A captured tab create is now seen by both parsers and gets the whole tab policy:
-  PowerShell `$t = herdr tab create ...` and bash `TAB=$(herdr tab create ...)`, `TAB="$(... --cwd "$PWD" ...)"` and a
-  backtick form inside double quotes (the quotes inside the substitution are its own).
-  Known limit: a bash `# <<EOF` comment or `\<<EOF` before a tab create, and a PowerShell here-string that the tokenizer
-  closes at another place than PowerShell, can still hide a tab create from both parsers; so do variables, functions,
-  `eval` and control words (`then`, `do`, `!`) in front of herdr, and a nested quote in a quoted string inside `"$( )"`.
+  A `herdr tab create` is now allowed only in one shape: a one-line command of its own with plain flags and values,
+  optionally `MSYS_NO_PATHCONV=1` in front, a capture (`$t = herdr tab create ...` in PowerShell, `TAB=$(herdr tab create ...)`
+  or `TAB="$(... | jq ...)"` in bash) and a trailing `#` comment. Any other command where herdr is a command word with
+  `tab create` after it (chained with `;`, `&&` or `|`, several lines, a redirect, a block or loop, `sh -c`, `Start-Process`,
+  `xargs`, `eval`, a heredoc, a `cd` before it) is denied with the documented form. The quoted text of another program's
+  argument (a commit message that mentions `herdr tab create`) is not a command. In the allowed shape the `--cwd` is judged
+  as before; an absolute value is normalized first (`D:/proj/..` and `<root>/.claude/worktrees/../..` were taken as inside),
+  Git Bash's `/d/x` is read as `d:/x` only without `MSYS_NO_PATHCONV=1`, and in PowerShell a rooted path without a drive is on
+  the drive of the session's directory. PowerShell `$env:PWD` is denied (it is the client's inherited environment, not the
+  session's directory), and bash `$pwd` is not `$PWD`. A captured tab create gets the whole tab policy. A command with an `hc`
+  or `herdr` word that the guard cannot parse (an internal error, nesting deeper than 32) is denied instead of allowed.
 - The skills wait for the shell prompt with `herdr pane wait-output <pane_id> --regex '[>$#%] ?$' --timeout 15000`
   before `herdr agent start`: single quotes in both shells, and `%` for zsh.
 - One slow `herdr agent list` turned the backend into `none` for that hook run. The herdr verdict is cached for 30 s per

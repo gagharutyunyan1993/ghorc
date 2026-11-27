@@ -159,18 +159,11 @@ const PS_GREEDY = /(^|[\s;&|(\x60{])((?:\S*[\\/])?(?:powershell|pwsh)(?:\.exe)?(
 // npm global options before the subcommand; the listed ones take a value.
 const NPM_OPTS = /^npm((?:\s+(?:(?:--prefix|-C|--workspace|-w)(?:=|\s+)\S+|-{1,2}[\w-]+(?:=\S+)?))+)(?=\s)/i;
 
-// decode: one level of the outer shell's escapes in the inlined body is undone (bash "...": \" \\ \$ \` and \<newline>;
-// PowerShell "...": `x and ""; PowerShell '...': ''), so an escaped quote inside `sh -c "..."` is a quote again.
-const decodeBody = (q, ps) => {
-  const body = q.slice(1, -1);
-  if (q[0] === "'") return ps ? body.replace(/''/g, "'") : body;
-  return ps ? body.replace(/\x60([\s\S])|""/g, (_m, e) => (e === undefined ? '"' : e)) : body.replace(/\\(["\\$\x60\n])/g, (_m, e) => (e === '\n' ? '' : e));
-};
-function inlineWrapped(command, ps, decode = false) {
+function inlineWrapped(command, ps) {
   let s = String(command);
   const re = ps ? WRAPPED_QUOTE_PS : WRAPPED_QUOTE;
   for (let i = 0; i < 4; i++) {
-    const next = s.replace(re, (_m, pre, head, q) => `${pre}${head}${decode ? decodeBody(q, ps) : q.slice(1, -1)}`);
+    const next = s.replace(re, (_m, pre, head, q) => `${pre}${head}${q.slice(1, -1)}`);
     if (next === s) break;
     s = next;
   }
@@ -188,14 +181,14 @@ function stripQuotes(command, ps = false) {
   });
 }
 
-// Heredoc operators on one line, outside quotes: [{ tag, dash }]. <<< (a here-string) is not one.
+// Heredoc operators on one line, outside quotes and comments: [{ tag, dash }]. <<< (a here-string) and \<< are not one.
 function heredocTags(line) {
-  const masked = line.replace(new RegExp(`${BASH_DQ}|${SQ}`, 'g'), (q) => ' '.repeat(q.length));
+  const masked = line.replace(new RegExp(`${BASH_DQ}|${SQ}`, 'g'), (q) => ' '.repeat(q.length)).replace(/(^|\s)#.*$/, (m) => ' '.repeat(m.length));
   const out = [];
   const re = /<<(-?)[ \t]*(?:'([^']+)'|"([^"]+)"|\\?(\w+))/g;
   let m;
   while ((m = re.exec(line))) {
-    if (masked.slice(m.index, m.index + 2) !== '<<' || line[m.index - 1] === '<') continue;
+    if (masked.slice(m.index, m.index + 2) !== '<<' || line[m.index - 1] === '<' || line[m.index - 1] === '\\') continue;
     out.push({ tag: m[2] || m[3] || m[4], dash: m[1] === '-' });
   }
   return out;
@@ -529,7 +522,6 @@ function hcSendTargets(command, opts = {}) {
 module.exports = {
   inlineWrapped,
   stripHeredocs,
-  startProcess,
   stdinScripts,
   encodedScripts,
   BUILTIN_SUBAGENT_DENY,

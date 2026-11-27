@@ -368,12 +368,15 @@ that binds every session (lead, subagent, worker) is the dev-command rule below.
   it is, and when both are set and disagree, or neither is, the workspace is unknown and only presence checks apply. When the row
   names another workspace than `HERDR_WORKSPACE_ID` (the pane was moved), `--workspace "$HERDR_WORKSPACE_ID"` is denied, because the
   variable still holds the old id, and the deny shows the row's id (the id forms
-  `w1` and `w1:p1` are herdr's documented public ids; `herdr api schema` lists `workspace_id` in every agent entry). `herdr tab create` needs `--workspace`, `--no-focus` and `--cwd` inside the project root (a worktree under `.claude/worktrees` counts; a relative path is read from the session's cwd; a space escaped with `\` in bash or a backtick in PowerShell is decoded; an absolute path is normalized first (`..`, separators, drive case, Git-Bash `/d/x`); besides plain paths only `$PWD`, `${PWD}` and
+  `w1` and `w1:p1` are herdr's documented public ids; `herdr api schema` lists `workspace_id` in every agent entry). `herdr tab create` needs `--workspace`, `--no-focus` and `--cwd` inside the project root (a worktree under `.claude/worktrees` counts; a relative path is read from the session's cwd; a space escaped with `\` in bash or a backtick in PowerShell is decoded; an absolute path is normalized first (`..`, separators, drive case; Git Bash rewrites `/d/x` to `d:/x` unless `MSYS_NO_PATHCONV=1`, and in PowerShell a rooted path without a drive is on the drive of the session's directory); besides plain paths only `$PWD`, `${PWD}` and
   `$(pwd)` (case-sensitive in bash), alone or with a relative subpath without `..`, pass, and any other variable (PowerShell's `$env:PWD` too: it is the
-  client's environment, not the session's directory), expansion or `~` is denied; after a `cd`, `pushd` or `Set-Location` earlier in the
-  same command only an absolute path passes; the values are read by one quote-aware tokenizer of the shell, per tab create and
-  before any `--`, also inside `{ }` blocks, backticks, `xargs`, `Start-Process` and a heredoc fed to a shell, and a tab create
-  the tokenizer cannot read is denied): a tab without it starts in the herdr server's directory, and the inventory neither counts nor watches it. With the own workspace known
+  client's environment, not the session's directory), expansion or `~` is denied). A `herdr tab create` is allowed only in one shape: a one-line
+  command of its own, `herdr tab create` (any path to herdr) with plain flags and values, optionally `MSYS_NO_PATHCONV=1` in front (bash), a capture
+  (`$t = ...` in PowerShell, `VAR=$(...)` or `VAR="$(...)"` in bash, with `| jq ...` or `| ConvertFrom-Json` inside) and a trailing `#` comment;
+  any other command where herdr is a command word with `tab create` after it (`;`, `&&`, `|`, a newline, a redirect, a block, a loop, a wrapper such
+  as `sh -c`, `Start-Process`, `xargs` or `eval`, a heredoc, a `cd`) is denied with that form. The text of a quoted argument of another program (a
+  commit message) is not a command, unless a shell or eval-like program in the same command could run it. A command with an `hc` or `herdr` word that
+  the guard cannot parse is denied: a tab without it starts in the herdr server's directory, and the inventory neither counts nor watches it. With the own workspace known
   the value is its id or a reference, and only the exact variable names count (`$HERDR_WORKSPACE_ID`, `${HERDR_WORKSPACE_ID}`,
   `$env:HERDR_WORKSPACE_ID`, `%HERDR_WORKSPACE_ID%`, quoted or not); a single-quoted reference (the shell does not expand it) or another
   variable name is denied, known workspace or not. Without `--workspace` herdr uses the UI-focused workspace, which can belong to another

@@ -440,28 +440,27 @@ test('tabs-guard: --cwd forms: the session directory and plain paths pass; varia
   for (const v of bad) {
     const r = pre(p, head + v);
     assert.ok(denied(r), v);
-    assert.match(reasonOf(r), /--cwd .*(cannot|leaves|outside)/, v);
-    assert.match(reasonOf(r), /plain absolute or relative path inside the project|outside the project/, v);
+    assert.match(reasonOf(r), /--cwd .*(cannot|leaves|outside)|allowed only as a one-line command/, v);
+    assert.match(reasonOf(r), /plain absolute or relative path inside the project|outside the project|one-line command of its own/, v);
   }
   for (const v of ['$env:PWD', '$env:TEMP', '$HOME', '%TEMP%']) assert.ok(denied(pre(p, head + v, { tool: 'PowerShell' })), `ps ${v}`);
 });
 
-test('tabs-guard: --cwd parser differential: wrapped commands and two tab creates are judged on their own values', () => {
+test('tabs-guard: tab create shape: wrapped commands and two tab creates in one command are denied with the one-line form', () => {
   const p = project();
   const tc = (label, cwd) => `herdr tab create --workspace w1 --no-focus --label ${label} --env GHORC_ROLE=worker --cwd ${cwd}`;
-  // wrappers
-  assert.ok(denied(pre(p, `timeout 5 ${tc('a-implementer', '"/tmp/x"')}`)));
-  allowed(pre(p, `timeout 5 ${tc('a-implementer', '"."')}`));
-  assert.ok(denied(pre(p, `bash -c "${tc('a-implementer', "'/tmp/x'")}"`)));
-  allowed(pre(p, `bash -c "${tc('a-implementer', '.')}"`));
-  // two tab creates, one outside: the inside one must not stand in for the other
+  allowed(pre(p, tc('a-implementer', '"."')));
+  for (const c of [
+    `timeout 5 ${tc('a-implementer', '"."')}`,
+    `bash -c "${tc('a-implementer', '.')}"`,
+    `${tc('a-implementer', '.')}; ${tc('b-implementer', '.claude/worktrees/b')}`,
+  ]) assert.match(reasonOf(pre(p, c)), /allowed only as a one-line command of its own/, c);
   for (const c of [
     `${tc('a-implementer', '"."')}; bash -c "${tc('b-implementer', "'/tmp/x'")}"`,
     `${tc('a-implementer', '.')}; ${tc('b-implementer', '/tmp/x')}`,
     `${tc('a-implementer', '"."')}; ${tc('b-implementer', '"/tmp/x"')}`,
     `${tc('a-implementer', '"/tmp/x"')} && ${tc('b-implementer', '.')}`,
   ]) assert.ok(denied(pre(p, c)), c);
-  allowed(pre(p, `${tc('a-implementer', '.')}; ${tc('b-implementer', '.claude/worktrees/b')}`));
 });
 
 test('tabs-guard: --cwd one parser: each tab create is judged on its own decoded words, never on another --cwd in the line', () => {
@@ -474,7 +473,7 @@ test('tabs-guard: --cwd one parser: each tab create is judged on its own decoded
   const tc = (label, cwd) => `herdr tab create --workspace w1 --no-focus --label ${label} --env GHORC_ROLE=worker --cwd ${cwd}`;
   const tick = (x) => x.replace(/ /g, '` ');
   // PowerShell, one tab create with a backtick-escaped space, and another --cwd elsewhere in the line
-  allowed(pre(p, `${tc('a-implementer', tick(fwd) + '/.claude/worktrees/p2')}; Write-Output "--cwd /tmp"`, { tool: 'PowerShell' }));
+  allowed(pre(p, tc('a-implementer', tick(fwd) + '/.claude/worktrees/p2'), { tool: 'PowerShell' }));
   assert.ok(denied(pre(p, `${tc('a-implementer', tick(outside))}; Write-Output "--cwd ${fwd}"`, { tool: 'PowerShell' })));
   assert.ok(denied(pre(p, `Write-Output "--cwd ${fwd}"; ${tc('a-implementer', tick(outside))}`, { tool: 'PowerShell' })));
   // a quoted outside path next to an in-project path of another tab create, both orders and both shells
@@ -488,10 +487,10 @@ test('tabs-guard: --cwd one parser: each tab create is judged on its own decoded
   assert.ok(denied(pre(p, `${head} --cwd /tmp/x -- --cwd .`)));
   allowed(pre(p, `${head} --cwd . -- --cwd /tmp/x`));
   // a quote that is not closed
-  assert.match(reasonOf(pre(p, `${head} --cwd "/tmp/x`)), /plain absolute or relative path inside the project|outside the project/);
+  assert.match(reasonOf(pre(p, `${head} --cwd "/tmp/x`)), /one-line command of its own/);
 });
 
-test('tabs-guard: --cwd review cases: blocks, captures, heredocs fed to a shell, .., cd, escaped quotes and $env:PWD are judged; legit forms pass', () => {
+test('tabs-guard: --cwd review cases: only the one-line shape passes, .. is normalized, $env:PWD and bash $pwd are denied; legit forms pass', () => {
   const tabs = require('../scripts/lib/tabs.cjs');
   const s = tabs.settings({});
   const root = 'D:/proj/app';
@@ -520,7 +519,7 @@ test('tabs-guard: --cwd review cases: blocks, captures, heredocs fed to a shell,
     ['R5', `bash <<'EOF'\nset -e\n${B} --cwd /tmp\nEOF`, false, 'deny'],
     ['H4', `cat <<EOF | sh\n${B} --cwd /tmp\nEOF`, false, 'deny'],
     ['P4', `<# c #> ${P} --cwd C:/tmp`, true, 'deny'],
-    ['N1', `cmd /c start "" ${B} --cwd C:/tmp`, false, 'deny'], // seen by parseCommand only: the count check denies it
+    ['N1', `cmd /c start "" ${B} --cwd C:/tmp`, false, 'deny'],
     // R-2: absolute values are normalized
     ['A1', `${B} --cwd D:/proj/app/..`, false, 'deny'],
     ['A2', `${B} --cwd D:/proj/app/.claude/worktrees/../../..`, false, 'deny'],
@@ -537,11 +536,11 @@ test('tabs-guard: --cwd review cases: blocks, captures, heredocs fed to a shell,
     ['C2', `cd D:/other; ${B} --cwd "$PWD"`, false, 'deny'],
     ['C3', `Set-Location C:/; ${P} --cwd .`, true, 'deny'],
     ['C4', `pushd /tmp && ${B} --cwd $PWD`, false, 'deny'],
-    ['K1', `cd D:/proj/app && ${B} --cwd D:/proj/app/.claude/worktrees/a`, false, 'allow'],
+    ['K1', `cd D:/proj/app && ${B} --cwd D:/proj/app/.claude/worktrees/a`, false, 'deny'], // shape
     // R-5: escaped quotes inside sh -c "..." and pwsh -c "..."
     ['R6', `sh -c "${B} --cwd \\"D:/other proj\\""`, false, 'deny'],
     ['W2', `sh -c "${B} --cwd \\"/tmp\\""`, false, 'deny'],
-    ['E1', `sh -c "${B} --cwd \\"D:/proj/app/x y\\""`, false, 'allow'],
+    ['E1', `sh -c "${B} --cwd \\"D:/proj/app/x y\\""`, false, 'deny'], // shape
     ['E2', `pwsh -c "${P} --cwd \`"C:/other\`""`, true, 'deny'],
     // R-6: bash $pwd is another variable
     ['L1', `${B} --cwd $pwd/sub`, false, 'deny'],
@@ -549,7 +548,7 @@ test('tabs-guard: --cwd review cases: blocks, captures, heredocs fed to a shell,
     ['L4', `${P} --cwd $pwd`, true, 'allow'],
     // R-7: an unclosed-looking quote outside a tab create
     ['F13', "git commit -m @'\nfix(tabs): herdr tab create --cwd, don't miss it\n'@", true, 'allow'],
-    ['F15', "echo herdr tab create docs; echo it's", false, 'allow'],
+    ['F15', "echo herdr tab create docs; echo it's", false, 'deny'], // shape
     ['U1', `${B} --cwd 'D:/proj/app`, false, 'deny'],
     // a captured tab create: PowerShell $t = ..., bash TAB=$(...), TAB="$(...)" and backticks; the whole tab policy applies
     ['P5', `$t = ${T('w1', 'C:/tmp')}`, true, 'deny'],
@@ -562,7 +561,7 @@ test('tabs-guard: --cwd review cases: blocks, captures, heredocs fed to a shell,
     ['G8d', `TAB=$(${T(BW, '"$PWD"')} | jq -r .id)`, false, 'allow'],
     ['G8e', `TAB=$(${N(BW, '.')} | jq -r .id)`, false, 'deny'],
     ['G8f', `TAB="\`${T(BW, '"/tmp"')}\`"`, false, 'deny'],
-    ['G8g', `echo "tab: $(${T(BW, '"$PWD/.claude/worktrees/a"')} | jq -r .id) done"`, false, 'allow'],
+    ['G8g', `echo "tab: $(${T(BW, '"$PWD/.claude/worktrees/a"')} | jq -r .id) done"`, false, 'deny'], // shape
     // legit forms of the skills and docs
     ['F1', T(BW, 'D:/proj/app/.claude/worktrees/a'), false, 'allow'],
     ['F2', T(PW, 'D:\\proj\\app\\.claude\\worktrees\\a'), true, 'allow'],
@@ -572,7 +571,7 @@ test('tabs-guard: --cwd review cases: blocks, captures, heredocs fed to a shell,
     ['F6', T(PW, '$PWD'), true, 'allow'],
     ['F8', T(PW, '"$PWD\\.claude\\worktrees\\a"'), true, 'allow'],
     ['F9', 'MSYS_NO_PATHCONV=1 ' + T(BW, '.'), false, 'allow'],
-    ['F10', 'PANE=$(' + T(BW, '"$PWD"') + " | jq -r '.result.root_pane.pane_id') && herdr pane wait-output \"$PANE\" --regex '[>$#%] ?$' --timeout 15000", false, 'allow'],
+    ['F10', 'PANE=$(' + T(BW, '"$PWD"') + " | jq -r '.result.root_pane.pane_id') && herdr pane wait-output \"$PANE\" --regex '[>$#%] ?$' --timeout 15000", false, 'deny'], // shape
     ['F12', T(BW, '.claude/worktrees/a', ' # start the worker'), false, 'allow'],
     ['F14', 'git commit -m "$(cat <<\'EOF\'\nfix: herdr tab create --cwd, don\'t miss it\nEOF\n)"', false, 'allow'],
     ['F16', T(BW, '"D:/proj/app/.claude/worktrees/\u0422\u0435\u0441\u0442 x"'), false, 'allow'],
@@ -582,13 +581,31 @@ test('tabs-guard: --cwd review cases: blocks, captures, heredocs fed to a shell,
     ['Q3', `${P} --cwd $PWD`, true, 'allow'],
     ['Q5', `${P} --cwd $PWD/.claude/worktrees/x`, true, 'allow'],
     ['Q6', `${B} --cwd .claude/worktrees/x`, false, 'allow'],
-    ['Y1', `{ ${B} --cwd D:/proj/app; } > out.json`, false, 'allow'],
-    ['Y2', `foreach ($d in 1) { ${P} --cwd D:/proj/app/.claude/worktrees/a }`, true, 'allow'],
-    ['Y3', `echo {a,b} && ${B} --cwd .`, false, 'allow'],
+    ['Y1', `{ ${B} --cwd D:/proj/app; } > out.json`, false, 'deny'], // shape
+    ['Y2', `foreach ($d in 1) { ${P} --cwd D:/proj/app/.claude/worktrees/a }`, true, 'deny'], // shape
+    ['Y3', `echo {a,b} && ${B} --cwd .`, false, 'deny'], // shape
+    // the shape rule: one-line command of its own, plain values, a capture, MSYS_NO_PATHCONV=1, a trailing comment
+    ['S1', `${B} --help`, false, 'allow'],
+    ['S2', `MSYS_NO_PATHCONV=1 ${B} --cwd /d/proj/app`, false, 'deny'], // no Git-Bash rewrite: \d\proj\app on drive D:
+    ['S3', `${P} --cwd /proj/app/.claude/worktrees/a`, true, 'allow'], // rooted: the drive of the session's directory
+    ['S4', 'git commit -m "fix: herdr tab create --cwd x"', false, 'allow'],
+    ['S5', 'grep -rn "herdr tab create" docs | head -5', false, 'allow'],
+    ['S6', `${B} --cwd . # note result.root_pane.pane_id`, false, 'allow'],
+    ['S7', `bash -c "echo 'herdr tab create'"`, false, 'deny'],
+    ['S10', `"C:/Program Files/herdr/herdr.exe" tab create --workspace w1 --no-focus --label a-implementer --env GHORC_ROLE=worker --cwd D:/proj/app`, false, 'allow'],
+    ['S11', `${B} --cwd . > out.json`, false, 'deny'],
+    ['S12', 'herdr tab list', false, 'allow'],
+    ['H1', `echo x # <<EOF\n${B} --cwd /tmp\nEOF`, false, 'deny'],
+    ['H5', `echo \\<<EOF\n${B} --cwd /tmp\nEOF`, false, 'deny'],
+    ['P11', `$x = @"\n"\n"@\n${P} --cwd C:/tmp\n# "`, true, 'deny'],
+    ['G6', `eval ${B} --cwd .`, false, 'deny'],
   ];
   const wrong = cases.filter(([, c, ps, want]) => verdict(c, ps) !== want).map(([id, , , want]) => `${id} (want ${want})`);
   assert.deepEqual(wrong, []);
-  // the count check and a tokenizer error deny with the plain-path hint
-  const r = tabs.checkCommand(`cmd /c start "" ${B} --cwd C:/tmp`, { powershell: false, s, list: () => [], root, cwd: root, self: '', session: 'x', workspace: 'w1', envWorkspace: 'w1' });
-  assert.match(r, /cannot read the --cwd of a tab create in this command/);
+  assert.match(tabs.checkCommand(`timeout 5 ${B} --cwd .`, { powershell: false, s, list: () => [], root, cwd: root, self: '', session: 'x', workspace: 'w1', envWorkspace: 'w1' }), /allowed only as a one-line command of its own/);
+  // nesting depth 5000: a command with an hc or herdr word that cannot be parsed is denied, without a stack overflow letting it through
+  const deep = (n) => 'echo "' + '$(echo "'.repeat(n) + 'x' + '")'.repeat(n) + '"; herdr tab list';
+  assert.equal(verdict(deep(5000), false), 'deny');
+  assert.equal(verdict(deep(5), false), 'allow');
+  assert.equal(tabs.checkCommand('echo "' + '$(echo "'.repeat(5000) + '"', { powershell: false, s, list: () => [], root, cwd: root, self: '', session: 'x', workspace: 'w1', envWorkspace: 'w1' }), null); // no hc/herdr word: not judged
 });
