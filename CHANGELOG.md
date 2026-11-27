@@ -1,5 +1,53 @@
 # Changelog
 
+## 0.11.4 - 2026-11-28
+
+### Fixed
+- A multi-line send into a herdr pane could be cut or submitted early, and PowerShell dropped double quotes inside the
+  argument. The tabs guard now denies a lead's `herdr pane run|send-text` whose text has a newline, a double quote or a
+  backtick (the text is decoded with the quoting of bash or PowerShell) and shows the one-line form that points to a
+  file. The lead and handoff skills send one line (`Read <file> and ...`); the READY prompt lost its backticks.
+- A send to a pane that waits on a dialog answered the dialog. A lead's `herdr pane run|send-text|send-keys` to a pane
+  that a fresh `herdr agent list` shows `blocked` is denied (matched by pane id or agent name); `unknown` stays allowed,
+  and an unreadable list allows the send.
+- Git Bash turned a send argument starting with `/` into a path. Every documented `herdr pane run|send-text|send-keys`
+  form for Git Bash now carries `MSYS_NO_PATHCONV=1`, the runner form in the deny text too; the PowerShell forms carry
+  no prefix, because PowerShell converts nothing.
+- A worker whose tab was closed or whose session ended vanished from the inventory without a word. The report now
+  shows `tabs GONE: <name>` once for a worker that left the list without a fresh result line; the lead skill says what
+  `not_found` on `herdr agent wait` means.
+- A lead pane the owner moved to another workspace was judged by the old workspace in its env. The own workspace is now
+  the `workspace_id` of this session's row in `herdr agent list`, with the env as the fallback.
+- `node scripts/backend.cjs` on herdr now also prints `herdr status` and a warning when `server_binary_stale` is yes;
+  a restart of the server is the owner's.
+- A lead started by hand in a herdr pane has no agent name, so it was never a proven lead. The skills and docs now say
+  that herdr proves a lead by its agent name, not the tab label, and that such a lead is started with `GHORC_ROLE=lead`.
+- A `herdr tab create` without `--cwd` started in the herdr server's directory, outside the inventory. The tabs guard
+  now denies it, and a `--cwd` outside the project root (a worktree under the project counts).
+- The skills wait for the shell prompt with `herdr pane wait-output <pane_id> --regex '[>$#%] ?$' --timeout 15000`
+  before `herdr agent start`: single quotes in both shells, and `%` for zsh.
+- One slow `herdr agent list` turned the backend into `none` for that hook run. The herdr verdict is cached for 30 s per
+  session (only the verdict, never the list): a probe that fails within that time keeps herdr with `failed: true` and
+  no list, and the capacity count is unknown, not 0. The blocked-send check always reads a fresh list.
+- An odd exit of `herdr agent list` gave no cause. The reason now carries up to 200 characters of its stderr, and the
+  lead skill says that `failed: true` means asking the owner.
+- The close of a finished herdr worker said `herdr tab list`, then `herdr tab close <tab_id>`. The list row's `tab_id`
+  is now kept, so the FINISHED and duplicate lines print `herdr tab close <tab_id>` with the real id.
+- After a handoff the old lead's tab could stay open and empty after `herdr pane close`. The handoff skill now checks
+  `herdr tab list` and `herdr pane list` and closes the old tab only when no pane of it is left.
+- `docs/with-herdr.md` names the herdr version the live checks ran on (0.9.5) and says that the 0.11.4 fixes were
+  checked with fakes only.
+- The `hc` close forms are not verified against a live hc. The skills and docs mark the `hc` forms UNVERIFIED; the tabs
+  guard records `hc kill` / `hc rm` and the next report shows `tabs CLOSE?: <name>` when the name is still in `hc ls`.
+- When `herdr` is not on PATH, `HERDR_BIN_PATH` (set by herdr in its panes) is tried once.
+
+### Not run against a live herdr
+- The text format of `herdr status` (`key: value` lines, the `server_binary_stale` key).
+- That `herdr pane close` can leave an empty tab, and that `herdr tab close <tab_id>` closes it.
+- The `hc` forms `hc kill`, `hc rm`, `hc ls --json`, `hc wait <n>`, the Enter of `hc send` and `--cwd` without `--on`.
+- That `herdr pane wait-output --regex '[>$#%] ?$'` matches the shell prompt of a new tab in bash, PowerShell and zsh.
+- That `HERDR_BIN_PATH` is set in herdr panes and points to a working binary.
+
 ## 0.11.3 - 2026-11-27
 
 ### Fixed
