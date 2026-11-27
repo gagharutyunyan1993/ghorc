@@ -445,3 +445,21 @@ test('tabs-guard: --cwd forms: the session directory and plain paths pass; varia
   }
   for (const v of ['$env:TEMP', '$HOME', '%TEMP%']) assert.ok(denied(pre(p, head + v, { tool: 'PowerShell' })), `ps ${v}`);
 });
+
+test('tabs-guard: --cwd parser differential: wrapped commands and two tab creates are judged on their own values', () => {
+  const p = project();
+  const tc = (label, cwd) => `herdr tab create --workspace w1 --no-focus --label ${label} --env GHORC_ROLE=worker --cwd ${cwd}`;
+  // wrappers
+  assert.ok(denied(pre(p, `timeout 5 ${tc('a-implementer', '"/tmp/x"')}`)));
+  allowed(pre(p, `timeout 5 ${tc('a-implementer', '"."')}`));
+  assert.ok(denied(pre(p, `bash -c "${tc('a-implementer', "'/tmp/x'")}"`)));
+  allowed(pre(p, `bash -c "${tc('a-implementer', '.')}"`));
+  // two tab creates, one outside: the inside one must not stand in for the other
+  for (const c of [
+    `${tc('a-implementer', '"."')}; bash -c "${tc('b-implementer', "'/tmp/x'")}"`,
+    `${tc('a-implementer', '.')}; ${tc('b-implementer', '/tmp/x')}`,
+    `${tc('a-implementer', '"."')}; ${tc('b-implementer', '"/tmp/x"')}`,
+    `${tc('a-implementer', '"/tmp/x"')} && ${tc('b-implementer', '.')}`,
+  ]) assert.ok(denied(pre(p, c)), c);
+  allowed(pre(p, `${tc('a-implementer', '.')}; ${tc('b-implementer', '.claude/worktrees/b')}`));
+});

@@ -520,6 +520,7 @@ function hcSendTargets(command, opts = {}) {
 }
 
 module.exports = {
+  inlineWrapped,
   BUILTIN_SUBAGENT_DENY,
   HERDR_AGENT_START,
   HC_AGENT_START,
