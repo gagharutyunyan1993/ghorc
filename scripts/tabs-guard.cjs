@@ -14,12 +14,14 @@ if (process.argv.includes('--help')) {
     'tabs-guard.cjs: hook for PreToolUse(Bash|PowerShell), UserPromptSubmit, SessionStart (startup, resume) and Stop; the lead only ' +
       '(no agent_id, not GHORC_ROLE=worker) and only with tabs.enabled (default true). ' +
       'PreToolUse denies `herdr tab create`, `herdr agent start` and `hc run` that break the tab policy: name <pkg>-<kind> (worker) or ' +
-      'capacity.leadNamePrefix + name (lead), a letter first then [a-z0-9-], 32 characters at most; herdr tab create needs --workspace (the own one) and --no-focus; the lead may not create, close or start in another workspace;  GHORC_ROLE on the tab; --model alias, --effort, ' +
+      'capacity.leadNamePrefix + name (lead), a letter first then [a-z0-9-], 32 characters at most; herdr tab create needs --workspace (the own one), --no-focus and --cwd inside the project; the lead may not create, close or start in another workspace (the own workspace is read from this session\'s row in herdr agent list, else HERDR_PANE_ID / HERDR_WORKSPACE_ID);  GHORC_ROLE on the tab; --model alias, --effort, ' +
+      '`herdr pane run|send-text` text with a newline, a double quote or a backtick (judged on the decoded argument); `herdr pane run|send-text|send-keys` to a pane whose row in a fresh herdr agent list is blocked (unknown is allowed); ' +
       '-n equal to the tab name, worker.permissionArgs / handoff.candidatePermissionArgs; no live name twice; at most tabs.maxWorkers agent workers; ' +
       '--outlive-parent for full/runner/train. The reason shows the corrected form. Internal errors and unreadable lists allow the command. ' +
       'tabs.devCommands (regexes; every session, backend hc or herdr): dev servers and watchers are denied outside a <pkg>-runner tab. '+
       'The other events list the project\'s worker tabs (`tabs: N live (name status minutes, ...)`) with a flag line for BLOCKED, FINISHED ' +
-      '(report file has a result line, tab still open), STALLED (idle >= tabs.idleMin, no result), OVERTIME (>= tabs.overtimeMin), OVER_LIMIT and RESULT? (a result line at the first sighting, never blocks Stop). ' +
+      '(report file has a result line, tab still open), STALLED (idle >= tabs.idleMin, no result), OVERTIME (>= tabs.overtimeMin), OVER_LIMIT and RESULT? (a result line at the first sighting, never blocks Stop), ' +
+      'GONE (a worker seen before left the list without a fresh result line; once) and CLOSE? (a name still in hc ls after the lead ran hc kill / hc rm). ' +
       'Stop blocks once per (tab, flag) occurrence (never on stop_hook_active) when a tab turns BLOCKED or FINISHED and tabs.stopBlock is true; it stays silent once HANDOFF.md says SENT for this session and for a candidate lead before ACTIVATE. On herdr a worker turning blocked ' +
       'raises one `herdr notification show` (tabs.notify). Test seams: GHORC_CAPACITY_HC_JSON, GHORC_CAPACITY_HERDR_JSON, GHORC_TABS_NOTIFY_LOG, ' +
       'GHORC_HC_BIN, GHORC_HERDR_BIN; HERDR_PANE_ID (prefix) / HERDR_WORKSPACE_ID is the own workspace; only a project with .claude/ghorc.json is judged.',
@@ -54,7 +56,7 @@ run((input) => {
     if (s.devCommands.length) {
       const seg = tabs.devMatch(command, s.devCommands, ps);
       if (seg) {
-        const kind = tabs.backendKind(process.env, cwd);
+        const kind = tabs.backendKind(process.env, cwd, String(input.session_id || ''));
         if (kind === 'hc' || kind === 'herdr') {
           deny(tabs.devReason(seg, command, { kind, lead: !sub, background: Boolean(input.tool_input && input.tool_input.run_in_background === true), powershell: ps }));
           return;
@@ -63,30 +65,39 @@ run((input) => {
     }
     if (sub || !TAB_WORD.test(command)) return;
     // one list call per run: the backend of the first tab command (backend.detect decides when both are present); the rules of
-    // another backend's commands are skipped, never read a second time
+    // another backend's commands are skipped, never read a second time. The list is always fresh (only the backend verdict is cached).
     let live;
+    const session = String(input.session_id || '');
+    const list = (kind) => {
+      if (live === undefined) live = tabs.readLive(process.env, cwd, kind, session);
+      return live && live.kind === kind ? live.entries : null;
+    };
     const reason = tabs.checkCommand(command, {
       powershell: ps,
       s,
-      workspace: tabs.ownWorkspace(process.env),
+      // the row of this session in the live list first (a moved pane keeps stale ids in its env), else the env
+      workspace: () => tabs.ownWorkspace(process.env, list('herdr'), session),
       root,
+      cwd,
       self: String(process.env.HC_TERMINAL_ID || '').trim(),
-      session: String(input.session_id || ''),
-      list: (kind) => {
-        if (live === undefined) live = tabs.readLive(process.env, cwd, kind);
-        return live && live.kind === kind ? live.entries : null;
-      },
+      session,
+      list,
     });
-    if (reason) deny(reason);
+    if (reason) {
+      deny(reason);
+      return;
+    }
+    // an hc close is checked at the next report: these hc forms are unverified, so a name still listed is reported
+    tabs.recordClose(session || 'unknown', tabs.hcCloseNames(command, ps));
     return;
   }
 
-  const live = tabs.readLive(process.env, cwd);
-  if (!live) return;
   const session = String(input.session_id || 'unknown');
+  const live = tabs.readLive(process.env, cwd, undefined, session);
+  if (!live) return;
   const now = Date.now();
   const prev = tabs.readTabState(session);
-  const r = tabs.evaluate(live, prev, now, { root, s, workspace: tabs.ownWorkspace(process.env), session });
+  const r = tabs.evaluate(live, prev, now, { root, s, workspace: tabs.ownWorkspace(process.env, live.entries, session), session });
   // workers are working but the lead ends its turn with no background wait: nothing will wake it when they finish
   let noWait = null;
   if (event === 'Stop' && r.working.length) {
