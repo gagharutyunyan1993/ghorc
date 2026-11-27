@@ -249,6 +249,7 @@ function readable(command) {
   return String(command)
     .replace(/(--workspace(?:=|\s+))'([^']*[$%][^']*)'/g, '$1__SQ__$2')
     .replace(/\$\{(env:)?HERDR_WORKSPACE_ID\}/gi, '$$$1HERDR_WORKSPACE_ID')
+    .replace(/\$\(pwd\)/g, '$$PWD') // the session's directory; the parentheses would cut the segment
     .replace(/(--(?:workspace|label|pane|tab|name|kind)(?:=|\s+))(["'])([\w:.$%/-]*)\2/g, '$1$3');
 }
 
@@ -408,7 +409,7 @@ function sendCommands(command, powershell) {
 function rawCwds(command, powershell) {
   const out = [];
   try {
-    for (const words of rawSegments(command, powershell)) {
+    for (const words of rawSegments(String(command).replace(/\$\(pwd\)/g, '$$PWD'), powershell)) {
       const c = cliTokens(words) || cliTokens(peelWrappers(words));
       if (!c || c.prog !== 'herdr') continue;
       for (let i = 1; i + 1 < c.tokens.length; i++) {
@@ -420,6 +421,35 @@ function rawCwds(command, powershell) {
     /* unreadable: nothing decoded */
   }
   return out;
+}
+
+// The decoded --cwd value of a tab create: the cmd.cjs word (quotes blanked, cut at an escaped space) matched to a decoded
+// one; with a single tab create in the line its decoded value. null when it cannot be matched.
+function cwdValue(raw, decoded) {
+  if (decoded.includes(raw) && !/["'\\`]/.test(raw)) return raw;
+  const cut = /[\\`]$/.test(raw) ? raw.slice(0, -1) : raw;
+  const longer = decoded.find((r) => cut && r.length > cut.length && r.startsWith(cut) && r[cut.length] === ' ');
+  if (longer) return longer;
+  if (decoded.length === 1) return decoded[0];
+  return null;
+}
+const PWD_REF = /^(?:\$PWD|\$\{PWD\}|\$\(pwd\)|\$env:PWD)(?=$|[\\/])/i;
+// -> a deny line for a --cwd value, or '' when it is inside the project
+function cwdProblem(val, ctx) {
+  const ask = 'pass a plain absolute or relative path inside the project, or $PWD (a worktree under .claude/worktrees counts)';
+  if (val === null || val === '') return `--cwd ${val === null ? '(unreadable)' : '""'} cannot be read by the guard: ${ask}`;
+  let rel = val;
+  let base = /^(?:[A-Za-z]:)?[\\/]/.test(val) ? '' : ctx.cwd || ctx.root;
+  const m = PWD_REF.exec(val);
+  if (m) {
+    rel = val.slice(m[0].length).replace(/^[\\/]+/, '') || '.';
+    base = ctx.cwd || ctx.root;
+    if (rel.split(/[\\/]/).includes('..')) return `--cwd ${val} leaves the session's directory with "..": ${ask}`;
+  }
+  if (/^~/.test(rel) || /[$%<>{}`()*?|;&]/.test(rel)) return `--cwd ${val} is a variable, an expansion or ~, so the guard cannot tell where it points: ${ask}`;
+  const abs = base ? path.resolve(base, rel) : rel;
+  if (!inside(abs, ctx.root)) return `--cwd ${val} is outside the project (${ctx.root}): the guard would neither count nor watch the tab; start it in the project or a worktree under .claude/worktrees`;
+  return '';
 }
 
 // The names an hc close aims at: `hc kill <name>` and `hc rm <name>` (lowercase).
@@ -735,17 +765,14 @@ function checkParsed(p, ctx) {
     if (!cwdOpt) {
       v.push("--cwd is missing: without it the tab starts in the herdr server's directory, outside the project, and the guard neither counts nor watches it; pass --cwd <dir> inside the project (a worktree under .claude/worktrees counts)");
       tail.push('--cwd', '<dir>');
-    } else if (ctx.root && !/^~/.test(cwdOpt.value || '')) {
-      // the value as the shell passes it (decoded by rawSegments): an escaped space (\  in bash, ` in PowerShell) cuts the
-      // cmd.cjs word; a value that cannot be matched to a decoded one is not judged
-      const raw = String(cwdOpt.value || '');
-      const cut = /[\\`]$/.test(raw) ? raw.slice(0, -1) : raw;
-      const longer = (ctx.rawCwds || []).find((r) => cut && r.length > cut.length && r.startsWith(cut) && r[cut.length] === ' ');
-      const val = longer || (cut !== raw || unknownValue(raw) ? '' : raw);
-      if (val && !/[$%<>{}]/.test(val)) {
-        const abs = /^(?:[A-Za-z]:)?[\\/]/.test(val) ? val : path.resolve(ctx.cwd || ctx.root, val);
-        if (!inside(abs, ctx.root)) v.push(`--cwd ${val} is outside the project (${ctx.root}): the guard would neither count nor watch the tab; start it in the project or a worktree under .claude/worktrees`);
-      }
+    } else if (ctx.root) {
+      // judged on the value as the shell passes it (decoded by rawSegments, quotes and escaped spaces resolved); allowed are a
+      // plain path inside the project and the session's own directory ($PWD, ${PWD}, $(pwd), PowerShell $PWD / $env:PWD), alone
+      // or with a relative subpath without "..". Any other variable, expansion, ~ or a value that cannot be decoded is denied:
+      // the guard cannot tell where it points.
+      const val = cwdValue(String(cwdOpt.value || ''), ctx.rawCwds || []);
+      const why = cwdProblem(val, ctx);
+      if (why) v.push(why);
     }
     if (v.length) fixed = [...tk, ...tail];
     if (valid) dupAndLimit(label.value);

@@ -1135,7 +1135,7 @@ test('R3-4: long-lived command tabs need no GHORC_ROLE on herdr tab create; ever
     assert.ok(denied(r), cmd);
     const why = reasonOf(r);
     for (const m of why.matchAll(/Corrected form: (.*)/g)) {
-      const fixed = m[1].split('<pkg>-<kind>').join('a1-implementer').split('lead-<name>').join('lead-next').split('"<task>"').join('"do it"');
+      const fixed = m[1].split('<pkg>-<kind>').join('a1-implementer').split('lead-<name>').join('lead-next').split('"<task>"').join('"do it"').split('<dir>').join('.');
       const again = run1(p, fixed, kind, { env: WS });
       assert.equal(again.out.trim(), '', `${cmd}\n  -> ${fixed}\n  -> ${again.out}`);
       fed++;

@@ -32,7 +32,10 @@
   The SessionStart line is unchanged: the hint did not fit its 299-character budget.
 - A `herdr tab create` without `--cwd` started in the herdr server's directory, outside the inventory. The tabs guard
   now denies it, and a `--cwd` outside the project root (a worktree under the project counts). A space escaped with `\`
-  in bash or a backtick in PowerShell is decoded, so a project path with a space is not taken for an outside one.
+  in bash or a backtick in PowerShell is decoded, so a project path with a space is not taken for an outside one. Only
+  a plain path and the session's directory (`.`, `$PWD`, `${PWD}`, `"$PWD"`, `$(pwd)`, PowerShell `$env:PWD`, alone or with a
+  relative subpath without `..`) pass; any other variable (`$HOME`, `%TEMP%`), expansion (`$(echo /tmp)`), `~` or a value
+  the guard cannot decode is denied with a request for a plain path inside the project.
 - The skills wait for the shell prompt with `herdr pane wait-output <pane_id> --regex '[>$#%] ?$' --timeout 15000`
   before `herdr agent start`: single quotes in both shells, and `%` for zsh.
 - One slow `herdr agent list` turned the backend into `none` for that hook run. The herdr verdict is cached for 30 s per

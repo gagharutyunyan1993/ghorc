@@ -429,3 +429,19 @@ test('texts: R9: the forms in docs/handoff.md, docs/workflow.md and the with-her
   assert.match(read('skills/lead/SKILL.md'), /press Enter once with `MSYS_NO_PATHCONV=1 herdr pane send-keys <pane_id> enter`/);
   assert.match(read('docs/with-herdr.md'), /--no-focus --label n --cwd d --env GHORC_ROLE=worker` \+ `herdr agent start`/);
 });
+
+test('tabs-guard: --cwd forms: the session directory and plain paths pass; variables, expansions and ~ are denied', () => {
+  const p = project();
+  const head = 'herdr tab create --workspace w1 --no-focus --label a-implementer --env GHORC_ROLE=worker --cwd ';
+  const ok = ['.', '$PWD', '${PWD}', '"$PWD"', '$(pwd)', '$PWD/.claude/worktrees/a', '"$PWD/.claude/worktrees/a b"', '${PWD}/sub', '$(pwd)/sub', '.claude/worktrees/a'];
+  for (const v of ok) allowed(pre(p, head + v), v);
+  for (const v of ['$PWD', '$env:PWD', '"$PWD\\sub"', '.']) allowed(pre(p, head + v, { tool: 'PowerShell' }), `ps ${v}`);
+  const bad = ['$HOME/x', '"$HOME/x"', '%TEMP%', '~', '~/x', '$(echo /tmp)', '$PWD/../x', '"$OTHER"', '${HOME}', '`pwd`/x'];
+  for (const v of bad) {
+    const r = pre(p, head + v);
+    assert.ok(denied(r), v);
+    assert.match(reasonOf(r), /--cwd .*(cannot|leaves|outside)/, v);
+    assert.match(reasonOf(r), /plain absolute or relative path inside the project|outside the project/, v);
+  }
+  for (const v of ['$env:TEMP', '$HOME', '%TEMP%']) assert.ok(denied(pre(p, head + v, { tool: 'PowerShell' })), `ps ${v}`);
+});
