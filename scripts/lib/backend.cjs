@@ -6,7 +6,10 @@
 // One module decides, so hooks, scripts and skills never assume a single backend. When both are present the answer is
 // the backend of `backend.prefer` (hc by default); the config is read only then, and only if the caller did not pass
 // `prefer`. Nothing else here reads a project file.
+const fs = require('node:fs');
+const path = require('node:path');
 const { execFileSync } = require('node:child_process');
+const { tmpDir, atomicWrite } = require('./tmp.cjs');
 
 // GHORC_TOOL_TIMEOUT_MS: for tests on a loaded machine (a fake program started twice can exceed 3 s)
 const timeoutMs = () => Number(process.env.GHORC_TOOL_TIMEOUT_MS) || 3000;
@@ -61,14 +64,54 @@ function configuredPrefer(cwd) {
   }
 }
 
+// The verdict cache (30 s per session, `<tmp>/backend-<session>.json`): only the word `herdr` is kept, never the list. A
+// probe that times out or exits oddly within 30 s of a positive answer keeps the backend `herdr` (failed, no list), so the
+// backend does not flip to none for one slow call; the list itself is always read fresh. A stopped server or a missing
+// program is an answer and drops the cache.
+const CACHE_MS = 30 * 1000;
+const cacheFile = (session) => path.join(tmpDir(), `backend-${String(session).replace(/[^A-Za-z0-9_.-]/g, '_').slice(0, 64)}.json`);
+function cachedHerdr(session, env, now) {
+  if (!session) return false;
+  try {
+    const c = JSON.parse(fs.readFileSync(cacheFile(session), 'utf8'));
+    const age = now - c.at;
+    return c.backend === 'herdr' && c.pane === String(env.HERDR_PANE_ID || '') && age >= 0 && age < CACHE_MS;
+  } catch {
+    return false;
+  }
+}
+function saveVerdict(session, env, backendName, now) {
+  if (!session) return;
+  try {
+    if (backendName === 'herdr') {
+      fs.mkdirSync(tmpDir(), { recursive: true });
+      atomicWrite(cacheFile(session), JSON.stringify({ backend: 'herdr', pane: String(env.HERDR_PANE_ID || ''), at: now }));
+    } else fs.rmSync(cacheFile(session), { force: true });
+  } catch {
+    /* the cache is optional */
+  }
+}
+
+// `herdr <args>`; when `herdr` is not on PATH (and GHORC_HERDR_BIN is not set) the program in HERDR_BIN_PATH, which herdr
+// sets in its panes, is tried once. It may be an older binary than the client on PATH, so it is never preferred.
+function runHerdr(env, args, run, timeout) {
+  const r = runTool(herdrSpec(env), args, run, timeout);
+  const alt = String(env.HERDR_BIN_PATH || '').trim();
+  if (!r.missing || !alt || String(env.GHORC_HERDR_BIN || '').trim()) return r;
+  return runTool([alt], args, run, timeout);
+}
+
 // { backend: 'hc' | 'herdr' | 'none', reason, terminal?, raw?, failed? }
 //   hc: terminal is HC_TERMINAL_ID.
-//   herdr: raw is the stdout of `herdr agent list` (the probe itself, so the caller need not ask twice).
+//   herdr: raw is the stdout of `herdr agent list` (the probe itself, so the caller need not ask twice). With failed (a cached
+//          verdict whose probe did not answer) there is no raw: a caller that needs the list treats it as unknown.
 //   none: reason says why; failed is true when herdr was expected (HERDR_ENV=1) but the probe failed in an unknown way
-//         (timeout, odd exit): a caller that counts things treats that as "unknown", not as "zero".
+//         (timeout, odd exit; the reason carries up to 200 characters of stderr): a caller that counts things treats that as
+//         "unknown", not as "zero".
 // Both present (HC_TERMINAL_ID set and HERDR_ENV=1): opts.prefer ('hc' | 'herdr'; else backend.prefer of the project config
 // found from opts.cwd) decides; with 'herdr' the server must answer, otherwise hc stays. One present: that one, always.
-// opts.timeoutMs bounds the herdr probe (default: GHORC_TOOL_TIMEOUT_MS or 3 s).
+// opts.timeoutMs bounds the herdr probe (default: GHORC_TOOL_TIMEOUT_MS or 3 s). opts.session turns on the verdict cache;
+// opts.verdictOnly (with a session) answers from a fresh cache without running herdr, and then has no raw.
 function detect(opts = {}) {
   const env = opts.env || process.env;
   const run = opts.exec || execFileSync;
@@ -81,18 +124,53 @@ function detect(opts = {}) {
     const prefer = opts.prefer === 'herdr' || opts.prefer === 'hc' ? opts.prefer : configuredPrefer(opts.cwd || process.cwd());
     if (prefer !== 'herdr') return hc;
   }
+  const session = String(opts.session || '').trim();
+  const now = Date.now();
+  const cached = cachedHerdr(session, env, now);
+  if (cached && opts.verdictOnly) return { backend: 'herdr', reason: 'HERDR_ENV=1 and the herdr server answered (cached verdict)' };
+  const keep = (reason) => (cached ? { backend: 'herdr', reason: `${reason}; the herdr server answered less than 30 s ago, so the backend stays herdr and its list is unknown`, failed: true } : null);
   try {
-    const r = runTool(herdrSpec(env), ['agent', 'list'], run, opts.timeoutMs || timeoutMs());
-    if (r.missing) return hc || { backend: 'none', reason: 'HERDR_ENV=1 but herdr is not installed' };
+    const r = runHerdr(env, ['agent', 'list'], run, opts.timeoutMs || timeoutMs());
+    if (r.missing) {
+      saveVerdict(session, env, 'none', now);
+      return hc || { backend: 'none', reason: 'HERDR_ENV=1 but herdr is not installed' };
+    }
     const body = `${r.stdout}
 ${r.stderr}`;
-    if (SERVER_DOWN.test(body)) return hc || { backend: 'none', reason: 'HERDR_ENV=1 but the herdr server is not running (server_not_running)' };
-    if (r.status !== 0) return hc || { backend: 'none', reason: `herdr agent list exited with ${r.status}`, failed: true };
+    if (SERVER_DOWN.test(body)) {
+      saveVerdict(session, env, 'none', now);
+      return hc || { backend: 'none', reason: 'HERDR_ENV=1 but the herdr server is not running (server_not_running)' };
+    }
+    if (r.status !== 0) {
+      const err = r.stderr.trim().replace(/\s+/g, ' ').slice(0, 200);
+      const reason = `herdr agent list exited with ${r.status}${err ? `: ${err}` : ''}`;
+      return hc || keep(reason) || { backend: 'none', reason, failed: true };
+    }
+    saveVerdict(session, env, 'herdr', now);
     return { backend: 'herdr', reason: 'HERDR_ENV=1 and the herdr server answers', raw: r.stdout };
   } catch (e) {
-    return hc || { backend: 'none', reason: `herdr agent list: ${e && e.message ? e.message : e}`, failed: true };
+    const reason = `herdr agent list: ${e && e.message ? e.message : e}`;
+    return hc || keep(reason) || { backend: 'none', reason, failed: true };
   }
 }
+
+// `herdr status` for the backend.cjs CLI only (never a hook: one more process per hook run). Lines of the form `key: value`
+// become fields (keys lower case, spaces as _); null when herdr does not answer. The text form is read, not a JSON flag.
+function herdrStatus(env = process.env, run = execFileSync) {
+  try {
+    const r = runHerdr(env, ['status'], run, timeoutMs());
+    if (r.missing || r.status !== 0) return null;
+    const out = {};
+    for (const line of r.stdout.split(/\r?\n/)) {
+      const m = /^\s*([A-Za-z][\w .-]*?)\s*[:=]\s*(.+?)\s*$/.exec(line);
+      if (m) out[m[1].toLowerCase().replace(/[\s.-]+/g, '_')] = m[2];
+    }
+    return out;
+  } catch {
+    return null;
+  }
+}
+const isYes = (v) => /^(?:yes|true|1)$/i.test(String(v == null ? '' : v).trim());
 
 // --- workers --------------------------------------------------------------------------------------------------------
 // hc: `hc ls` (JSON when piped) lists { terminals: [{ address, name?, parent?, state, status?, ... }] }. A worker is a live
@@ -233,7 +311,8 @@ function hcIsLead(env, run, leadPrefix, ms) {
   return !t.parent;
 }
 
-// herdr: the agent of this session in the text of `herdr agent list` has a name (the tab label) that starts with the lead
+// herdr: the agent of this session in the text of `herdr agent list` has an agent name (set by `herdr agent start <name>`,
+// not the tab label; a lead started by hand has none) that starts with the lead
 // prefix as configured (`lead-` does not match `leaderboard-ui`; a prefix without a dash, `lead`, matches `lead1`).
 function herdrIsLead(raw, session, leadPrefix) {
   const prefix = String(leadPrefix == null ? 'lead-' : leadPrefix).toLowerCase();
@@ -251,13 +330,13 @@ function terminalIsLead(opts = {}) {
     const env = opts.env || process.env;
     const run = opts.exec || execFileSync;
     const ms = lookupMs(env);
-    const d = detect({ env, exec: run, prefer: opts.prefer, cwd: opts.cwd, timeoutMs: ms });
+    const d = detect({ env, exec: run, prefer: opts.prefer, cwd: opts.cwd, timeoutMs: ms, session: opts.session });
     if (d.backend === 'hc') return hcIsLead(env, run, opts.leadPrefix, ms) === true;
-    if (d.backend === 'herdr') return herdrIsLead(d.raw, opts.session, opts.leadPrefix) === true;
+    if (d.backend === 'herdr') return !d.failed && herdrIsLead(d.raw, opts.session, opts.leadPrefix) === true;
     return false;
   } catch {
     return false;
   }
 }
 
-module.exports = { detect, terminalIsLead, runTool, binSpec, hcSpec, herdrSpec, workersFromHc, leadsFromHc, hcText, hcParent, hcSendTargets, LIVE_WORKER };
+module.exports = { detect, herdrStatus, isYes, terminalIsLead, runTool, binSpec, hcSpec, herdrSpec, workersFromHc, leadsFromHc, hcText, hcParent, hcSendTargets, LIVE_WORKER };

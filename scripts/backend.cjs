@@ -4,13 +4,16 @@
 //   node scripts/backend.cjs            one JSON line: {"backend":"hc|herdr|none","reason":"...", ...}
 //   node scripts/backend.cjs --name     only the word hc, herdr or none
 // Exit code is 0 for every answer (none is an answer, not an error).
-const { detect } = require('./lib/backend.cjs');
+const { detect, herdrStatus, isYes } = require('./lib/backend.cjs');
 
 if (process.argv.includes('--help')) {
   console.log(
     'backend.cjs: prints the active terminal backend. hc when HC_TERMINAL_ID is set; herdr when HERDR_ENV=1 and ' +
       '`herdr agent list` answers; when both are present the config key backend.prefer (hc by default, or herdr) decides, ' +
       'and a herdr that does not answer leaves hc; none otherwise (no tab commands: use the Agent tool and the /clear fallback). ' +
+      'failed:true means herdr was expected but did not answer (the reason carries its error): ask the owner. ' +
+      'On herdr the answer also carries `herdr status` (client and server versions) and a warning when server_binary_stale is yes. ' +
+      'When herdr is not on PATH, HERDR_BIN_PATH (set by herdr in its panes) is tried. ' +
       '--name prints only the word. Test seams: GHORC_HC_BIN, GHORC_HERDR_BIN (a path or a JSON array [program, ...args]).',
   );
   process.exit(0);
@@ -20,5 +23,15 @@ const d = detect();
 if (process.argv.includes('--name')) console.log(d.backend);
 else {
   const { raw, ...rest } = d; // the herdr agent list text is for the hooks, not for the answer
+  if (d.backend === 'herdr') {
+    // only here, never in a hook: one more process
+    const st = herdrStatus();
+    if (st) {
+      rest.herdr_status = st;
+      if (isYes(st.server_binary_stale)) {
+        rest.warning = 'herdr server_binary_stale: the server runs an older binary than the client; flags and fields of the newer client may fail. Ask the owner to restart the herdr server when no work is running.';
+      }
+    }
+  }
   console.log(JSON.stringify(rest));
 }
