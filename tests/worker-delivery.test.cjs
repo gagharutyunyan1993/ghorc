@@ -23,7 +23,7 @@ test('M1: delivery is a bounded wait for working, then the screen; a submitted m
 });
 
 test('lead skill: one Enter via send-keys when the text sits in the box, never a second send, otherwise the owner', () => {
-  assert.match(delivery, /still in the input box and no dialog is on screen, press Enter once with `herdr pane send-keys <pane_id> enter`/);
+  assert.match(delivery, /still in the input box and no dialog is on screen, press Enter once with `MSYS_NO_PATHCONV=1 herdr pane send-keys <pane_id> enter`/);
   assert.match(delivery, /The text is never sent twice, because a resend can run the task twice/);
   assert.match(delivery, /no `working` after that one Enter: tell the owner/);
   assert.doesNotMatch(lead, /before sending it again/, 'the old resend permission is gone');

@@ -78,8 +78,8 @@ test('tabs-guard: multiline-deny: a herdr pane run|send-text with a newline, a d
 test('tabs-guard: documented-forms-pass: every herdr pane send of the lead and handoff skills is allowed as written', () => {
   const p = project();
   const forms = new Set();
-  for (const f of ['skills/lead/SKILL.md', 'skills/handoff/SKILL.md', 'docs/with-herdr.md', 'docs/hooks.md']) {
-    for (const m of read(f).matchAll(/(?:MSYS_NO_PATHCONV=1 )?herdr pane (?:run|send-text|send-keys) <pane_id> "[^"\n]*"/g)) forms.add(m[0]);
+  for (const f of ['skills/lead/SKILL.md', 'skills/handoff/SKILL.md', 'docs/with-herdr.md', 'docs/hooks.md', 'docs/handoff.md', 'docs/workflow.md']) {
+    for (const m of read(f).matchAll(/(?:MSYS_NO_PATHCONV=1 )?herdr pane (?:run|send-text|send-keys) <pane_id> (?:"[^"\n]*"|enter)/g)) forms.add(m[0]);
   }
   assert.ok(forms.size >= 5, [...forms].join('\n'));
   for (const f of forms) {
@@ -104,7 +104,7 @@ test('tabs-guard: msys-hint: the runner form of a dev command has the prefix in 
 test('tabs-guard: blocked-deny and unknown-allowed: a send to a pane the list shows blocked is denied, by pane id or agent name', () => {
   const p = project();
   const list = hdr([row('a1-implementer', 'blocked'), row('b1-reviewer', 'unknown', { pane_id: 'w1:p3', tab_id: 'w1:t3' })]);
-  for (const c of ['MSYS_NO_PATHCONV=1 herdr pane run w1:p2 "go on"', 'herdr pane send-keys w1:p2 enter', 'herdr pane send-text a1-implementer "2"', 'herdr pane run --pane w1:p2 "go on"']) {
+  for (const c of ['MSYS_NO_PATHCONV=1 herdr pane run w1:p2 "go on"', 'herdr pane send-keys w1:p2 hello enter', 'herdr pane send-text a1-implementer "2"', 'herdr pane run --pane w1:p2 "go on"']) {
     const r = pre(p, c, { list });
     assert.ok(denied(r), c);
     assert.match(reasonOf(r), /is blocked on a dialog \(herdr agent list\)/, c);
@@ -319,4 +319,113 @@ test('texts: tested herdr version, UNVERIFIED hc forms and the not_found answer 
 test('lead-tab-close: empty-tab: after the old lead\'s pane close the handoff closes an empty old tab (X16)', () => {
   const t = read('skills/handoff/SKILL.md');
   assert.match(t, /after it run `herdr tab list` and `herdr pane list`; if the old tab id from `old_lead:` is still listed and no pane of that tab is, close it with `herdr tab close <old_tab_id>`/);
+});
+
+// ---- review round: R1 to R11 ----
+const stop = (p, env) => runScript('tabs-guard.cjs', { hook_event_name: 'Stop', session_id: p.sid, cwd: p.cwd, stop_hook_active: false }, { cwd: p.cwd, env: { CLAUDE_PROJECT_DIR: p.cwd, ...env } });
+
+test('tabs-guard: R1: CLOSE? and GONE survive a Stop that does not block, and show at the next prompt once', () => {
+  const p = project();
+  const hl = hcl([term('a1-implementer', 'idle')]);
+  allowed(pre(p, 'hc kill a1-implementer; hc rm a1-implementer', { kind: 'hc', list: hl }));
+  assert.equal(stop(p, { GHORC_CAPACITY_HC_JSON: hl }).out.trim(), '');
+  assert.match(ctx(mon(p, 'UserPromptSubmit', { GHORC_CAPACITY_HC_JSON: hl })), /tabs CLOSE\?: a1-implementer/);
+  assert.doesNotMatch(ctx(mon(p, 'UserPromptSubmit', { GHORC_CAPACITY_HC_JSON: hl })), /CLOSE\?/);
+  const q = project();
+  mon(q, 'UserPromptSubmit', { GHORC_CAPACITY_HERDR_JSON: hdr([row('b1-implementer', 'working', { cwd: q.cwd })]) });
+  assert.equal(stop(q, { GHORC_CAPACITY_HERDR_JSON: NONE }).out.trim(), '');
+  assert.match(ctx(mon(q, 'UserPromptSubmit', { GHORC_CAPACITY_HERDR_JSON: NONE })), /tabs GONE: b1-implementer/);
+  assert.doesNotMatch(ctx(mon(q, 'UserPromptSubmit', { GHORC_CAPACITY_HERDR_JSON: NONE })), /GONE/);
+});
+
+test('tabs-guard: R2: single keys to a blocked pane stay allowed, text is denied and the deny names the key form', () => {
+  const p = project();
+  const list = hdr([row('a1-implementer', 'blocked')]);
+  for (const c of ['MSYS_NO_PATHCONV=1 herdr pane send-keys w1:p2 2 enter', 'herdr pane send-keys w1:p2 y', 'herdr pane send-keys a1-implementer escape', 'herdr pane send-keys w1:p2 down enter', 'herdr pane send-keys w1:p2 ctrl-c']) {
+    allowed(pre(p, c, { list }), c);
+  }
+  const r = pre(p, 'herdr pane send-keys w1:p2 yes please enter', { list });
+  assert.ok(denied(r));
+  assert.match(reasonOf(r), /send it as single keys: MSYS_NO_PATHCONV=1 herdr pane send-keys w1:p2 <key> enter/);
+  assert.ok(denied(pre(p, 'herdr pane run w1:p2 2', { list })));
+});
+
+test('tabs-guard: R3: a --cwd with an escaped space is decoded (bash backslash, PowerShell backtick)', () => {
+  const base = project();
+  const spaced = path.join(path.dirname(base.cwd), `proj x ${process.pid}-${Date.now()}`);
+  fs.cpSync(base.cwd, spaced, { recursive: true });
+  const p = { cwd: spaced, sid: base.sid };
+  const fwd = spaced.replace(/\\/g, '/');
+  const head = 'herdr tab create --workspace w1 --no-focus --label a-implementer --env GHORC_ROLE=worker --cwd ';
+  allowed(pre(p, head + fwd.replace(/ /g, '\\ ') + '/.claude/worktrees/p2'));
+  allowed(pre(p, head + fwd.replace(/ /g, '` ') + '/.claude/worktrees/p2', { tool: 'PowerShell' }));
+  allowed(pre(p, head + '"' + fwd + '"'));
+  const other = path.dirname(fwd) + '/other\\ dir';
+  const r = pre(p, head + other);
+  assert.ok(denied(r));
+  assert.match(reasonOf(r), /other dir is outside the project/);
+});
+
+test('tabs-guard: R4: a comment after a send is not part of its text', () => {
+  const p = project();
+  allowed(pre(p, 'MSYS_NO_PATHCONV=1 herdr pane run w1:p3 "Read b.md" # it\'s fine\necho done'));
+  assert.ok(denied(pre(p, '# a note\nMSYS_NO_PATHCONV=1 herdr pane run w1:p3 "a \\"b\\""')));
+});
+
+test('tabs-guard: R5: the send checks look through timeout, nice, stdbuf, setsid, env, command and exec', () => {
+  const p = project();
+  const list = hdr([row('a1-implementer', 'blocked')]);
+  for (const w of ['timeout 30', 'timeout -s KILL 5s', 'nice -n 5', 'stdbuf -oL', 'setsid', 'env -u FOO', 'command', 'exec', 'nice timeout 3']) {
+    assert.ok(denied(pre(p, `${w} herdr pane run w1:p3 "a\nb"`)), `${w}: newline`);
+    assert.ok(denied(pre(p, `${w} herdr pane run w1:p2 "go on"`, { list })), `${w}: blocked`);
+    allowed(pre(p, `${w} herdr pane run w1:p3 "go on"`, { list }), `${w}: fine`);
+  }
+});
+
+test('tabs-guard: R6: no GONE for a long-lived tab or for a worker that is still listed', () => {
+  const p = project();
+  mon(p, 'UserPromptSubmit', { GHORC_CAPACITY_HERDR_JSON: hdr([row('t-runner', 'working', { cwd: p.cwd }), row('b1-implementer', 'working', { cwd: p.cwd, pane_id: 'w1:p4' })]) });
+  // the runner closed; the worker moved its cwd out of the project but is still in the list
+  const out = ctx(mon(p, 'UserPromptSubmit', { GHORC_CAPACITY_HERDR_JSON: hdr([row('b1-implementer', 'working', { cwd: '/elsewhere', pane_id: 'w1:p4' })]) }));
+  assert.doesNotMatch(out, /GONE/);
+});
+
+test('backend: R8: a fresh verdict is not rewritten, and old cache files are pruned with the tabs state', () => {
+  const tabs = require('../scripts/lib/tabs.cjs');
+  const session = `rw-${process.pid}-${Date.now()}`;
+  const env = { ...HENV };
+  const file = path.join(TEST_TMP, `backend-${session}.json`);
+  backend.detect({ env, exec: () => NONE, session });
+  const first = JSON.parse(fs.readFileSync(file, 'utf8')).at;
+  const t0 = Date.now();
+  while (Date.now() - t0 < 20); // a later clock
+  backend.detect({ env, exec: () => NONE, session });
+  assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).at, first);
+  const old = path.join(TEST_TMP, 'backend-very-old-session.json');
+  fs.writeFileSync(old, '{}');
+  const past = new Date(Date.now() - 8 * 24 * 3600 * 1000);
+  fs.utimesSync(old, past, past);
+  tabs.writeTabState(`prune-${session}`, { workers: {} });
+  assert.equal(fs.existsSync(old), false);
+  assert.equal(fs.existsSync(file), true);
+});
+
+test('tabs-guard: R11: after a pane move the variable form of --workspace is denied and the row id is shown', () => {
+  const p = project();
+  const list = hdr([row('lead-x', 'working', { pane_id: 'w9:p1', tab_id: 'w9:t1', workspace_id: 'w9', agent_session: { value: p.sid } })]);
+  const env = { HERDR_PANE_ID: 'w1:p1', HERDR_WORKSPACE_ID: 'w1' };
+  const tab = (ws) => `herdr tab create --workspace ${ws} --no-focus --label a-implementer --cwd . --env GHORC_ROLE=worker`;
+  const r = pre(p, tab('"$HERDR_WORKSPACE_ID"'), { list, env });
+  assert.ok(denied(r));
+  assert.match(reasonOf(r), /still expands to w1, but this pane is now in w9/);
+  assert.match(reasonOf(r), /--workspace w9/);
+  allowed(pre(p, tab('"$HERDR_WORKSPACE_ID"'), { env })); // no row: the variable is the own workspace
+  allowed(pre(p, tab('w9'), { list, env }));
+});
+
+test('texts: R9: the forms in docs/handoff.md, docs/workflow.md and the with-herdr table carry the prefix and --cwd', () => {
+  assert.doesNotMatch(read('docs/handoff.md'), /(?<!MSYS_NO_PATHCONV=1 )herdr pane run <pane_id> "/);
+  assert.match(read('docs/workflow.md'), /MSYS_NO_PATHCONV=1 herdr pane send-keys <pane_id> enter/);
+  assert.match(read('skills/lead/SKILL.md'), /press Enter once with `MSYS_NO_PATHCONV=1 herdr pane send-keys <pane_id> enter`/);
+  assert.match(read('docs/with-herdr.md'), /--no-focus --label n --cwd d --env GHORC_ROLE=worker` \+ `herdr agent start`/);
 });
