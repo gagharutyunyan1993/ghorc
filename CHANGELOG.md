@@ -36,6 +36,9 @@
   a plain path and the session's directory (`.`, `$PWD`, `${PWD}`, `"$PWD"`, `$(pwd)`, PowerShell `$env:PWD`, alone or with a
   relative subpath without `..`) pass; any other variable (`$HOME`, `%TEMP%`), expansion (`$(echo /tmp)`), `~` or a value
   the guard cannot decode is denied with a request for a plain path inside the project.
+  The decoded value is read from the same wrapper-inlined text as the rest of the check, a tab create behind `timeout`,
+  `nice`, `env` and the like is checked too, and with two tab creates in one command each `--cwd` is judged on its own
+  value; a quoted value that cannot be paired with its tab create is denied.
 - The skills wait for the shell prompt with `herdr pane wait-output <pane_id> --regex '[>$#%] ?$' --timeout 15000`
   before `herdr agent start`: single quotes in both shells, and `%` for zsh.
 - One slow `herdr agent list` turned the backend into `none` for that hook run. The herdr verdict is cached for 30 s per
