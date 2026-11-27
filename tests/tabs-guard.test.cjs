@@ -83,12 +83,12 @@ function allowed(r, msg) {
 
 // the own workspace and the owner's focus are part of every tab create (rule B)
 const WSF = '--workspace $HERDR_WORKSPACE_ID --no-focus';
-const TAB = (label, role, more = WSF) => `herdr tab create ${label === null ? '' : `--label ${label} `}--cwd /w ${role ? `--env GHORC_ROLE=${role} ` : ''}${more}`.trim();
+const TAB = (label, role, more = WSF) => `herdr tab create ${label === null ? '' : `--label ${label} `}--cwd . ${role ? `--env GHORC_ROLE=${role} ` : ''}${more}`.trim();
 const ARGS = '--model opus --effort medium';
 const PERM = '--permission-mode bypassPermissions';
 const START = (name, args) => `herdr agent start ${name} --kind claude --pane w1:p1 -- ${args}`;
 const ENVW = 'env GHORC_ROLE=worker';
-const HC = (name, role, args, more = '') => `hc run --bg --name ${name} --cwd /w ${more} env ${role ? `GHORC_ROLE=${role} ` : ''}claude ${args} "do it"`;
+const HC = (name, role, args, more = '') => `hc run --bg --name ${name} --cwd . ${more} env ${role ? `GHORC_ROLE=${role} ` : ''}claude ${args} "do it"`;
 
 // ---- herdr tab create ----
 test('herdr tab create: label rules', () => {
@@ -100,10 +100,10 @@ test('herdr tab create: label rules', () => {
   }
   const r = pre(p, TAB('Big-implementer', 'worker'));
   assert.match(reasonOf(r), /--label "Big-implementer" is not allowed/);
-  assert.match(reasonOf(r), /Corrected form: herdr tab create --label big-implementer --cwd \/w --env GHORC_ROLE=worker/);
+  assert.match(reasonOf(r), /Corrected form: herdr tab create --label big-implementer --cwd \. --env GHORC_ROLE=worker/);
   allowed(pre(p, TAB('a1-implementer', 'worker')));
   allowed(pre(p, TAB('a1-reviewer-critical', 'worker')));
-  allowed(pre(p, `herdr tab create --label=a1-scout --env=GHORC_ROLE=worker --workspace=$HERDR_WORKSPACE_ID --no-focus`));
+  allowed(pre(p, `herdr tab create --label=a1-scout --cwd=. --env=GHORC_ROLE=worker --workspace=$HERDR_WORKSPACE_ID --no-focus`));
 });
 
 test('herdr tab create: the role env must match the label', () => {
@@ -216,7 +216,7 @@ test('hc run: role env, model, effort, name, permission args', () => {
   const noRole = pre(p, HC('a-implementer', null, good));
   assert.ok(denied(noRole));
   assert.match(reasonOf(noRole), /GHORC_ROLE=worker is missing in front of claude/);
-  assert.match(reasonOf(noRole), /Corrected form: hc run --bg --name a-implementer --cwd \/w env GHORC_ROLE=worker claude --model opus/);
+  assert.match(reasonOf(noRole), /Corrected form: hc run --bg --name a-implementer --cwd \. env GHORC_ROLE=worker claude --model opus/);
   assert.ok(denied(pre(p, HC('a-implementer', 'lead', good))));
   assert.ok(denied(pre(p, HC('lead-next', 'worker', good))));
   allowed(pre(p, HC('lead-next', 'lead', `${ARGS} -n lead-next ${PERM}`)));
@@ -224,8 +224,8 @@ test('hc run: role env, model, effort, name, permission args', () => {
   assert.ok(denied(full));
   assert.match(reasonOf(full), /--model claude-opus-5-5 is not an alias: use opus/);
   assert.match(reasonOf(full), /-n a-implementer is missing/);
-  assert.ok(denied(pre(p, 'hc run --bg --cwd /w env GHORC_ROLE=worker claude --model opus --effort medium')));
-  assert.match(reasonOf(pre(p, 'hc run --bg --cwd /w env GHORC_ROLE=worker claude --model opus --effort medium')), /--name is missing/);
+  assert.ok(denied(pre(p, 'hc run --bg --cwd . env GHORC_ROLE=worker claude --model opus --effort medium')));
+  assert.match(reasonOf(pre(p, 'hc run --bg --cwd . env GHORC_ROLE=worker claude --model opus --effort medium')), /--name is missing/);
   assert.ok(denied(pre(p, HC('BAD', 'worker', good))));
   // Windows form: the quoted env.exe path, claude.exe
   allowed(pre(p, String.raw`hc run --bg --name a-implementer --cwd "D:\my proj" "C:\Program Files\Git\usr\bin\env.exe" GHORC_ROLE=worker claude.exe ${good} "task"`));
@@ -276,9 +276,9 @@ test('PowerShell form', () => {
   assert.ok(denied(r));
   assert.match(reasonOf(r), /--model claude-opus-5-5 is not an alias/);
   assert.ok(denied(ps('herdr tab create --label Bad_Label --env GHORC_ROLE=worker ' + WSF)));
-  allowed(ps('herdr tab create --label a1-implementer --env GHORC_ROLE=worker --workspace $env:HERDR_WORKSPACE_ID --no-focus'));
+  allowed(ps('herdr tab create --label a1-implementer --cwd . --env GHORC_ROLE=worker --workspace $env:HERDR_WORKSPACE_ID --no-focus'));
   assert.ok(denied(ps(String.raw`Start-Process hc -ArgumentList "run --bg --name a-implementer claude --model opus --effort medium"`)));
-  allowed(ps('herdr tab create --label a1-implementer --env GHORC_ROLE=worker --workspace $env:HERDR_WORKSPACE_ID --no-focus; herdr tab list'));
+  allowed(ps('herdr tab create --label a1-implementer --cwd . --env GHORC_ROLE=worker --workspace $env:HERDR_WORKSPACE_ID --no-focus; herdr tab list'));
 });
 
 test('commands that are not tab commands and quoted values pass', () => {
@@ -287,8 +287,8 @@ test('commands that are not tab commands and quoted values pass', () => {
     allowed(pre(p, c), c);
   }
   // an unreadable value (quoted, a variable) is not judged
-  allowed(pre(p, 'herdr tab create --label "a1-implementer" --env GHORC_ROLE=worker --workspace "$HERDR_WORKSPACE_ID" --no-focus'));
-  allowed(pre(p, 'herdr tab create --label $name --env GHORC_ROLE=worker --workspace $env:HERDR_WORKSPACE_ID --no-focus', { tool: 'PowerShell' }));
+  allowed(pre(p, 'herdr tab create --label "a1-implementer" --cwd . --env GHORC_ROLE=worker --workspace "$HERDR_WORKSPACE_ID" --no-focus'));
+  allowed(pre(p, 'herdr tab create --label $name --cwd . --env GHORC_ROLE=worker --workspace $env:HERDR_WORKSPACE_ID --no-focus', { tool: 'PowerShell' }));
 });
 
 test('fail open: unreadable lists skip the list rules only; garbage config and flags allow', () => {
@@ -351,7 +351,7 @@ test('inventory: one blocked and one finished worker give both flags, the line f
   report(p, 'b1-implementer', 'DONE b1-implementer');
   const list = hdr([
     agent('a1-implementer', 'blocked', p.cwd, { pane_id: 'w4:p2' }),
-    agent('b1-implementer', 'idle', p.cwd),
+    agent('b1-implementer', 'idle', p.cwd, { tab_id: 'w4:t2' }),
     agent('lead-main', 'working', p.cwd),
     agent('foreign-implementer', 'working', '/other/project'),
     agent('Weird Name', 'working', p.cwd),
@@ -362,7 +362,7 @@ test('inventory: one blocked and one finished worker give both flags, the line f
   const lines = ctx(r).split('\n');
   assert.equal(lines[0], 'tabs: 2 live (a1-implementer blocked 4m, b1-implementer idle 4m)');
   assert.match(lines[1], /^tabs BLOCKED: a1-implementer waits on a dialog\. Read its screen \(herdr pane read w4:p2 --source recent --lines 40\) and tell the owner; never answer a permission prompt yourself\.$/);
-  assert.match(lines[2], /^tabs FINISHED: b1-implementer wrote "DONE b1-implementer" but its tab is still open\. Accept the report and close the tab now: herdr tab list, then herdr tab close <tab_id>\.$/);
+  assert.match(lines[2], /^tabs FINISHED: b1-implementer wrote "DONE b1-implementer" but its tab is still open\. Accept the report and close the tab now: herdr tab close w4:t2\.$/);
   assert.match(lines[3], /^tabs BADNAME: "Weird Name" \(working\) breaks the tab naming policy/);
   assert.equal(lines.length, 4);
   // SessionStart reports the same
@@ -501,7 +501,8 @@ test('state: runtime and idle time come from earlier runs (fake clock), and a go
   assert.equal(ctx(at(T + 12 * 60000, hdr([agent('a1-implementer', 'working', p.cwd)]))), 'tabs: 1 live (a1-implementer working 12m)');
   assert.equal(ctx(at(T + 13 * 60000, idle)), 'tabs: 1 live (a1-implementer idle 13m)');
   // gone and back: a new worker
-  assert.equal(at(T + 14 * 60000, NONE).out, '');
+  assert.match(ctx(at(T + 14 * 60000, NONE)), /^tabs GONE: a1-implementer left herdr agent list without a result line/);
+  assert.equal(at(T + 15 * 60000, NONE).out, '', 'GONE is shown once');
   assert.equal(ctx(at(T + 20 * 60000, idle)), 'tabs: 1 live (a1-implementer idle 0m)');
 });
 
@@ -697,7 +698,7 @@ test('a report ending BLOCKED <name>: is brought to the owner, not closed now', 
   report(p, 'b1-reviewer', 'VERDICT BLOCKED');
   seedOld(p, { 'a1-implementer': 'idle', 'b1-reviewer': 'idle' });
   const text = ctx(mon(p, 'UserPromptSubmit', { GHORC_CAPACITY_HERDR_JSON: hdr([agent('a1-implementer', 'idle', p.cwd), agent('b1-reviewer', 'idle', p.cwd)]) }));
-  assert.match(text, /tabs FINISHED: a1-implementer reported "BLOCKED a1-implementer: needs a decision on the schema": BLOCKED by the worker\. Bring it to the owner; close the tab \(herdr tab list, then herdr tab close <tab_id>\) after the owner decides\./);
+  assert.match(text, /tabs FINISHED: a1-implementer reported "BLOCKED a1-implementer: needs a decision on the schema": BLOCKED by the worker\. Bring it to the owner; close the tab \(herdr tab close <tab_id>\) after the owner decides\./);
   assert.match(text, /tabs FINISHED: b1-reviewer reported "VERDICT BLOCKED": BLOCKED by the worker/);
   assert.equal(/close the tab now/.test(text), false);
 });
@@ -797,7 +798,7 @@ test('A: the lead gets the runner form of its backend', () => {
   const p = project();
   const h = reasonOf(run1(p, 'npm run dev', 'herdr'));
   assert.match(h, /"npm run dev" is a long-running process \(matches tabs\.devCommands\)/);
-  assert.ok(h.includes('herdr tab create --workspace "$HERDR_WORKSPACE_ID" --no-focus --label <pkg>-runner --cwd <dir>, then herdr pane run <pane_id> "npm run dev"'), h);
+  assert.ok(h.includes('herdr tab create --workspace "$HERDR_WORKSPACE_ID" --no-focus --label <pkg>-runner --cwd <dir>, then MSYS_NO_PATHCONV=1 herdr pane run <pane_id> "npm run dev"'), h);
   const c = reasonOf(run1(p, 'npm run dev', 'hc'));
   assert.ok(c.includes('hc run --bg --outlive-parent --name <pkg>-runner --cwd <dir> npm run dev'), c);
   const ps = reasonOf(run1(p, 'npm run dev', 'herdr', { tool: 'PowerShell' }));
@@ -849,14 +850,14 @@ test('A: the payload of a tab launch is allowed, a dev command in a non-runner h
     allowed(run1(p, 'herdr pane run w1:p1 "npm run dev"', kind), kind);
     allowed(run1(p, 'herdr pane run w1:p1 "docker compose up"', kind), kind);
   }
-  allowed(run1(p, 'hc run --bg --outlive-parent --name a-runner --cwd /w npm run dev', 'hc'));
-  allowed(run1(p, 'hc run --bg --outlive-parent --name a-runner --cwd /w docker compose up', 'hc'));
-  const r = run1(p, 'hc run --bg --name a-implementer --cwd /w npm run dev', 'hc');
+  allowed(run1(p, 'hc run --bg --outlive-parent --name a-runner --cwd . npm run dev', 'hc'));
+  allowed(run1(p, 'hc run --bg --outlive-parent --name a-runner --cwd . docker compose up', 'hc'));
+  const r = run1(p, 'hc run --bg --name a-implementer --cwd . npm run dev', 'hc');
   assert.ok(denied(r));
   assert.match(reasonOf(r), /"npm run dev" is a long-running process \(tabs\.devCommands\): it runs only in a runner tab/);
-  assert.ok(denied(run1(p, 'hc run --bg --name a-full --outlive-parent --cwd /w npm start', 'hc')));
+  assert.ok(denied(run1(p, 'hc run --bg --name a-full --outlive-parent --cwd . npm start', 'hc')));
   // the runner without --outlive-parent keeps its own rule
-  assert.match(reasonOf(run1(p, 'hc run --bg --name a-runner --cwd /w npm run dev', 'hc')), /start it with --outlive-parent/);
+  assert.match(reasonOf(run1(p, 'hc run --bg --name a-runner --cwd . npm run dev', 'hc')), /start it with --outlive-parent/);
 });
 
 test('A: devCommands is validated', () => {
@@ -876,7 +877,7 @@ const GOODARGS = `${ARGS} -n a-implementer ${PERM}`;
 
 test('B: herdr tab create needs --workspace of the own workspace and --no-focus', () => {
   const p = project();
-  const base = 'herdr tab create --label a-implementer --cwd /w --env GHORC_ROLE=worker';
+  const base = 'herdr tab create --label a-implementer --cwd . --env GHORC_ROLE=worker';
   const noWs = hpre(p, `${base} --no-focus`);
   assert.ok(denied(noWs));
   assert.match(reasonOf(noWs), /--workspace is missing: without it herdr creates the tab in the UI-focused workspace/);
@@ -950,7 +951,7 @@ test('B (round 3): the own workspace comes from the prefix of HERDR_PANE_ID; a d
   assert.equal(tabs.ownWorkspace({ HERDR_WORKSPACE_ID: 'W2' }), 'w2');
   assert.equal(tabs.ownWorkspace({}), '');
   const p = project();
-  const base = 'herdr tab create --label a-implementer --cwd /w --env GHORC_ROLE=worker --no-focus';
+  const base = 'herdr tab create --label a-implementer --cwd . --env GHORC_ROLE=worker --no-focus';
   // the pane id decides
   allowed(hpre(p, `${base} --workspace w4`, { HERDR_WORKSPACE_ID: '', HERDR_PANE_ID: 'w4:p1' }));
   assert.ok(denied(hpre(p, `${base} --workspace w2`, { HERDR_WORKSPACE_ID: '', HERDR_PANE_ID: 'w4:p1' })));
@@ -963,7 +964,7 @@ test('B (round 3): the own workspace comes from the prefix of HERDR_PANE_ID; a d
 
 test('B (round 3): only the exact variable counts as a reference; single quotes and typos are denied', () => {
   const p = project();
-  const base = 'herdr tab create --label a-implementer --cwd /w --env GHORC_ROLE=worker --no-focus';
+  const base = 'herdr tab create --label a-implementer --cwd . --env GHORC_ROLE=worker --no-focus';
   for (const ws of ["'$HERDR_WORKSPACE_ID'", "'$env:HERDR_WORKSPACE_ID'", '"$HERDR_WORKSPACE"', '$WS', '"$HERDR_WORKSPACE_ID/x"', '%HERDR_WORKSPACE%']) {
     for (const own of ['w1', '']) {
       const r = hpre(p, `${base} --workspace ${ws}`, { HERDR_WORKSPACE_ID: own });
@@ -993,11 +994,11 @@ test('B: worktree workspaces, pane move and another session or machine are the o
     ['herdr worktree create --branch feat-x', /herdr worktree create is the owner's: a worktree workspace is a separate workspace/],
     ['herdr worktree remove w3', /herdr worktree remove is the owner's/],
     ['herdr pane move w1:p2 --workspace w1', /herdr pane move is the owner's/],
-    [`herdr --session other tab create --label a-implementer --cwd /w --env GHORC_ROLE=worker ${WSF}`, /--session aims the command at another herdr session, machine or host/],
+    [`herdr --session other tab create --label a-implementer --cwd . --env GHORC_ROLE=worker ${WSF}`, /--session aims the command at another herdr session, machine or host/],
     [`herdr --machine box agent start a-implementer --kind claude --pane w1:p1 -- ${ARGS} -n a-implementer ${PERM}`, /--machine aims the command/],
     ['herdr --remote=me@host tab close w1:t2', /--remote aims the command/],
     // after the verb too: herdr routes `herdr tab ... --session x` to session x
-    [`herdr tab create --label a-implementer --cwd /w --env GHORC_ROLE=worker ${WSF} --session other`, /--session aims the command/],
+    [`herdr tab create --label a-implementer --cwd . --env GHORC_ROLE=worker ${WSF} --session other`, /--session aims the command/],
     ['herdr tab close w1:t2 --session=other', /--session aims the command/],
     [`herdr agent start a-implementer --kind claude --pane w1:p1 --session other -- ${ARGS} -n a-implementer ${PERM}`, /--session aims the command/],
   ]) {
@@ -1106,13 +1107,13 @@ test('R3-4: long-lived command tabs need no GHORC_ROLE on herdr tab create; ever
   assert.ok(denied(pre(p, TAB('lead-next', null))));
   // the runner form of the dev reason passes as printed
   const reason = reasonOf(run1(p, 'npm run dev', 'herdr'));
-  const form = /(herdr tab create [^,]*), then/.exec(reason)[1].replace('<pkg>', 'a').replace('<dir>', '/w');
+  const form = /(herdr tab create [^,]*), then/.exec(reason)[1].replace('<pkg>', 'a').replace('<dir>', '.');
   allowed(run1(p, form, 'herdr'), form);
 
   // feed the corrected forms back
   const bad = [
-    ['herdr', 'herdr tab create --cwd /w'],
-    ['herdr', 'herdr tab create --label Big-Name --cwd /w'],
+    ['herdr', 'herdr tab create --cwd .'],
+    ['herdr', 'herdr tab create --label Big-Name --cwd .'],
     ['herdr', 'herdr tab create --label a-implementer'],
     ['herdr', 'herdr tab create --label lead-next --workspace w1'],
     ['herdr', 'herdr tab create --label a-implementer --env GHORC_ROLE=worker --workspace w2 --no-focus'],
@@ -1121,7 +1122,7 @@ test('R3-4: long-lived command tabs need no GHORC_ROLE on herdr tab create; ever
     ['herdr', 'herdr agent start x-implementer --kind claude --pane w1:p1 -- --model claude-opus-5-5 --effort medium'],
     ['herdr', 'herdr agent start x-implementer --kind claude --pane w1:p1'],
     ['herdr', 'herdr agent start lead-next --kind claude --pane w1:p1 -- --model opus --effort max -n other'],
-    ['hc', 'hc run --bg --cwd /w claude --model opus --effort medium "do it"'],
+    ['hc', 'hc run --bg --cwd . claude --model opus --effort medium "do it"'],
     ['hc', HC('a-implementer', null, '--model claude-opus-5-5 --effort medium')],
     ['hc', HC('a-implementer', 'lead', `${ARGS} -n a-implementer ${PERM}`)],
     ['hc', HC('a-full', 'worker', `${ARGS} -n a-full ${PERM}`)],
@@ -1134,7 +1135,7 @@ test('R3-4: long-lived command tabs need no GHORC_ROLE on herdr tab create; ever
     assert.ok(denied(r), cmd);
     const why = reasonOf(r);
     for (const m of why.matchAll(/Corrected form: (.*)/g)) {
-      const fixed = m[1].split('<pkg>-<kind>').join('a1-implementer').split('lead-<name>').join('lead-next').split('"<task>"').join('"do it"');
+      const fixed = m[1].split('<pkg>-<kind>').join('a1-implementer').split('lead-<name>').join('lead-next').split('"<task>"').join('"do it"').split('<dir>').join('.');
       const again = run1(p, fixed, kind, { env: WS });
       assert.equal(again.out.trim(), '', `${cmd}\n  -> ${fixed}\n  -> ${again.out}`);
       fed++;

@@ -168,7 +168,12 @@ function liveWorkers(session, leadPrefix, log = () => {}, opts = {}) {
       return n;
     }
     if (env.GHORC_CAPACITY_HERDR_JSON !== undefined) return herdrWorkers(session, leadPrefix, log, () => env.GHORC_CAPACITY_HERDR_JSON);
-    const d = backend.detect({ env, exec: opts.exec });
+    const d = backend.detect({ env, exec: opts.exec, session });
+    if (d.failed) {
+      // also a cached herdr verdict whose list did not answer: unknown, never 0
+      log(d.reason);
+      return null;
+    }
     if (d.backend === 'hc') {
       const raw = backend.hcText(env, opts.exec);
       if (raw === null) return 0; // hc vanished from PATH: nothing to count
@@ -177,10 +182,6 @@ function liveWorkers(session, leadPrefix, log = () => {}, opts = {}) {
       return n;
     }
     if (d.backend === 'herdr') return herdrWorkers(session, leadPrefix, log, () => d.raw);
-    if (d.failed) {
-      log(d.reason);
-      return null;
-    }
     return 0;
   } catch (e) {
     log(`workers: ${e && e.message ? e.message : e}`);

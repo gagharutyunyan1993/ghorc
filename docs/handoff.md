@@ -67,7 +67,7 @@ messages written to STATE before the candidate starts. STATE.md is written first
 `in_flight`, `unanswered_owner_messages` (verbatim, with time), `head` (git HEAD) and `seq` (+1 on every write), and
 the `handoff_id` copied into it.
 
-**Sequence** (prompts go through `herdr pane run <pane_id> "<text>"`; pane id from `herdr agent get lead-next`; never use `--wait`):
+**Sequence** (prompts go through `MSYS_NO_PATHCONV=1 herdr pane run <pane_id> "<text>"`, from PowerShell without the prefix, one line without `"` or backticks; pane id from `herdr agent get lead-next`; never use `--wait`):
 
 1. Fill `handoff.handoffPath` from `templates/HANDOFF.md` (at most 3072 bytes, plus an optional acceptance block of at most 1600 bytes / 15 lines written by the old lead so that the candidate need not load the skill), `status: DRAFT`. With several leads each lives in its own worktree and HANDOFF/STATE are at the root of the session's worktree.
    First push the branches of the packages in STATE `in_flight` (`git push origin <branch>`, never `main` or a foreign
@@ -79,7 +79,7 @@ the `handoff_id` copied into it.
 ```
 herdr tab create --workspace "$HERDR_WORKSPACE_ID" --no-focus --label lead-next --cwd <project root> --env GHORC_ROLE=lead
 herdr agent start lead-next --kind claude --pane <pane_id> -- -n lead-next --model opus --effort medium <permArgs>
-herdr pane run <pane_id> "Read HANDOFF.md, verify it against git, answer READY handoff=<id>; wait for ACTIVATE."
+MSYS_NO_PATHCONV=1 herdr pane run <pane_id> "Read HANDOFF.md, verify it against git, answer READY handoff=<id>; wait for ACTIVATE."
 herdr agent wait lead-next --until idle --until done --until blocked --timeout 60000
 herdr agent read lead-next
 ```
@@ -97,7 +97,7 @@ herdr agent read lead-next
    and discrepancies. With discrepancies the old lead fixes HANDOFF and asks again in the same tab. The old lead polls
    `herdr agent get lead-next` every 60 s up to `handoff.readyTimeoutMin` (default 10) minutes and checks `working` after EVERY send to the candidate (first prompt, READY repeat, ACTIVATE). A wait timeout is a check-in, not a refusal; a comma list in `--until` does not work.
 4. **ACTIVATE and STOP:** on an accepted READY the old lead writes `status: SENT` (STATE `seq` + 1), sends
-   `herdr pane run <pane_id> "ACTIVATE <handoff_id>"` (text plus Enter in one call) as its last action; it is always the
+   `MSYS_NO_PATHCONV=1 herdr pane run <pane_id> "ACTIVATE <handoff_id>"` (text plus Enter in one call) as its last action; it is always the
    old lead, never the owner. Delivery is confirmed by status `working` or the line "running UserPromptSubmit hooks" in
    `herdr agent read`, not by the text in the input field (a `❯ <text>` line can be a grey prompt suggestion); do not
    press `esc esc`. Then it prints `HANDOFF SENT - STOP` and does nothing more; the Stop hooks stay silent once HANDOFF says
