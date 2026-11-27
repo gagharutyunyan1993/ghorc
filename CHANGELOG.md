@@ -7,28 +7,38 @@
   argument. The tabs guard now denies a lead's `herdr pane run|send-text` whose text has a newline, a double quote or a
   backtick (the text is decoded with the quoting of bash or PowerShell) and shows the one-line form that points to a
   file. The lead and handoff skills send one line (`Read <file> and ...`); the READY prompt lost its backticks.
-- A send to a pane that waits on a dialog answered the dialog. A lead's `herdr pane run|send-text|send-keys` to a pane
-  that a fresh `herdr agent list` shows `blocked` is denied (matched by pane id or agent name); `unknown` stays allowed,
-  and an unreadable list allows the send.
+- A send to a pane that waits on a dialog answered the dialog. A lead's text send (`herdr pane run|send-text`, or
+  `send-keys` of more than single keys) to a pane that a fresh `herdr agent list` shows `blocked` is denied (matched by
+  pane id or agent name). Single keys (a digit, y/n, enter, escape, an arrow) stay allowed, because that is how the lead
+  gives an answer the owner told it; the deny shows that form. `unknown` stays allowed, and an unreadable list allows the
+  send. The send checks look through `timeout`, `nice`, `stdbuf`, `setsid`, `env`, `command` and `exec`, and a `#`
+  comment after a send is no longer read as part of its text.
 - Git Bash turned a send argument starting with `/` into a path. Every documented `herdr pane run|send-text|send-keys`
-  form for Git Bash now carries `MSYS_NO_PATHCONV=1`, the runner form in the deny text too; the PowerShell forms carry
+  form for Git Bash (skills, `docs/handoff.md`, `docs/workflow.md`, the Enter of the delivery check) now carries
+  `MSYS_NO_PATHCONV=1`, and the `docs/with-herdr.md` table shows `--label` and `--cwd`, the runner form in the deny text too; the PowerShell forms carry
   no prefix, because PowerShell converts nothing.
 - A worker whose tab was closed or whose session ended vanished from the inventory without a word. The report now
-  shows `tabs GONE: <name>` once for a worker that left the list without a fresh result line; the lead skill says what
-  `not_found` on `herdr agent wait` means.
+  shows `tabs GONE: <name>` once for a worker that left the whole list without a fresh result line (never for a
+  long-lived tab such as a runner); the lead skill says what `not_found` on `herdr agent wait` means. GONE and CLOSE? are
+  kept until a report reaches the lead, so a Stop that does not block no longer swallows them.
 - A lead pane the owner moved to another workspace was judged by the old workspace in its env. The own workspace is now
-  the `workspace_id` of this session's row in `herdr agent list`, with the env as the fallback.
+  the `workspace_id` of this session's row in `herdr agent list`, with the env as the fallback. When that row is in
+  another workspace than `HERDR_WORKSPACE_ID`, `--workspace "$HERDR_WORKSPACE_ID"` is denied (the variable still holds
+  the old id) and the deny shows the row's id.
 - `node scripts/backend.cjs` on herdr now also prints `herdr status` and a warning when `server_binary_stale` is yes;
   a restart of the server is the owner's.
 - A lead started by hand in a herdr pane has no agent name, so it was never a proven lead. The skills and docs now say
   that herdr proves a lead by its agent name, not the tab label, and that such a lead is started with `GHORC_ROLE=lead`.
+  The SessionStart line is unchanged: the hint did not fit its 299-character budget.
 - A `herdr tab create` without `--cwd` started in the herdr server's directory, outside the inventory. The tabs guard
-  now denies it, and a `--cwd` outside the project root (a worktree under the project counts).
+  now denies it, and a `--cwd` outside the project root (a worktree under the project counts). A space escaped with `\`
+  in bash or a backtick in PowerShell is decoded, so a project path with a space is not taken for an outside one.
 - The skills wait for the shell prompt with `herdr pane wait-output <pane_id> --regex '[>$#%] ?$' --timeout 15000`
   before `herdr agent start`: single quotes in both shells, and `%` for zsh.
 - One slow `herdr agent list` turned the backend into `none` for that hook run. The herdr verdict is cached for 30 s per
   session (only the verdict, never the list): a probe that fails within that time keeps herdr with `failed: true` and
-  no list, and the capacity count is unknown, not 0. The blocked-send check always reads a fresh list.
+  no list, and the capacity count is unknown, not 0. The blocked-send check always reads a fresh list. A verdict younger
+  than 10 s is not rewritten, and cache files older than 7 days are removed with the old tabs state files.
 - An odd exit of `herdr agent list` gave no cause. The reason now carries up to 200 characters of its stderr, and the
   lead skill says that `failed: true` means asking the owner.
 - The close of a finished herdr worker said `herdr tab list`, then `herdr tab close <tab_id>`. The list row's `tab_id`
@@ -42,7 +52,8 @@
 - When `herdr` is not on PATH, `HERDR_BIN_PATH` (set by herdr in its panes) is tried once.
 
 ### Not run against a live herdr
-- The text format of `herdr status` (`key: value` lines, the `server_binary_stale` key).
+- The text format of `herdr status` (`key: value` lines, the `server_binary_stale` key): UNVERIFIED; if it prints
+  another format, no field is read and the stale warning does not appear.
 - That `herdr pane close` can leave an empty tab, and that `herdr tab close <tab_id>` closes it.
 - The `hc` forms `hc kill`, `hc rm`, `hc ls --json`, `hc wait <n>`, the Enter of `hc send` and `--cwd` without `--on`.
 - That `herdr pane wait-output --regex '[>$#%] ?$'` matches the shell prompt of a new tab in bash, PowerShell and zsh.

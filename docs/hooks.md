@@ -302,7 +302,8 @@ numbers silences it for every session.
   unknown and the hook silent (logged). If both variables are set, `hc` wins. Only the backend verdict is cached (30 s
   per session, `<tmp>/ghorc-<user>/backend-<session>.json`): a `herdr agent list` that times out or exits oddly within
   30 s of a good answer keeps the backend `herdr` with an unknown count instead of flipping to `none`; the list itself is
-  always read fresh, and a stopped server or a missing herdr drops the cache. The reason of a failed probe carries up to
+  always read fresh, and a stopped server or a missing herdr drops the cache. A verdict younger than 10 s is not rewritten, and
+  cache files older than 7 days are removed with the old tabs state files. The reason of a failed probe carries up to
   200 characters of herdr's stderr. When `herdr` is not on PATH, `HERDR_BIN_PATH` (set by herdr in its panes) is tried.
 - The worker count is machine-wide on purpose: the limit protects the machine, not one project. Workers of other
   projects and other leads whose name does not start with `leadNamePrefix` count as workers while they are `working`
@@ -364,8 +365,10 @@ that binds every session (lead, subagent, worker) is the dev-command rule below.
   An `hc run` of another program gets the name, duplicate, limit and `--outlive-parent` checks only.
 - **Workspace (herdr).** The lead's own workspace is the `workspace_id` of this session's row in `herdr agent list` (matched by
   session id: a pane the owner moved gets a new id while the process keeps the old ones in its env); without that row it is the prefix of `HERDR_PANE_ID` (`w4:p1` is in `w4`); `HERDR_WORKSPACE_ID` alone is taken as
-  it is, and when both are set and disagree, or neither is, the workspace is unknown and only presence checks apply (the id forms
-  `w1` and `w1:p1` are herdr's documented public ids; `herdr api schema` lists `workspace_id` in every agent entry). `herdr tab create` needs `--workspace`, `--no-focus` and `--cwd` inside the project root (a worktree under `.claude/worktrees` counts; a relative path is read from the session's cwd): a tab without it starts in the herdr server's directory, and the inventory neither counts nor watches it. With the own workspace known
+  it is, and when both are set and disagree, or neither is, the workspace is unknown and only presence checks apply. When the row
+  names another workspace than `HERDR_WORKSPACE_ID` (the pane was moved), `--workspace "$HERDR_WORKSPACE_ID"` is denied, because the
+  variable still holds the old id, and the deny shows the row's id (the id forms
+  `w1` and `w1:p1` are herdr's documented public ids; `herdr api schema` lists `workspace_id` in every agent entry). `herdr tab create` needs `--workspace`, `--no-focus` and `--cwd` inside the project root (a worktree under `.claude/worktrees` counts; a relative path is read from the session's cwd; a space escaped with `\` in bash or a backtick in PowerShell is decoded): a tab without it starts in the herdr server's directory, and the inventory neither counts nor watches it. With the own workspace known
   the value is its id or a reference, and only the exact variable names count (`$HERDR_WORKSPACE_ID`, `${HERDR_WORKSPACE_ID}`,
   `$env:HERDR_WORKSPACE_ID`, `%HERDR_WORKSPACE_ID%`, quoted or not); a single-quoted reference (the shell does not expand it) or another
   variable name is denied, known workspace or not. Without `--workspace` herdr uses the UI-focused workspace, which can belong to another
@@ -379,8 +382,11 @@ that binds every session (lead, subagent, worker) is the dev-command rule below.
   - are not judged for their workspace: the owner may ask for them. Two send rules hold for the lead: a `herdr pane run|send-text`
   whose text (the argument after the pane, decoded with the quoting of bash or PowerShell) has a newline, a double quote or a
   backtick is denied, because the text may be cut or submitted early and PowerShell drops quotes in an argument (send one line
-  that points to a file); and `herdr pane run|send-text|send-keys` to a pane whose row in a fresh `herdr agent list` (matched
-  by pane id or agent name) is `blocked` is denied, because the text or the key would answer its dialog. `unknown` is not
+  that points to a file); and a text send (`herdr pane run|send-text`, or `send-keys` of anything but single keys) to a pane whose
+  row in a fresh `herdr agent list` (matched by pane id or agent name) is `blocked` is denied, because the text would answer its
+  dialog. Single keys (a character, `enter`, `escape`, `tab`, an arrow, `ctrl-x`, `f1`) stay allowed: that is how the lead gives an
+  answer the owner told it. The send checks look through `timeout`, `nice`, `stdbuf`, `setsid`, `env`, `command` and `exec`, and a
+  `#` comment ends the words. `unknown` is not
   denied (a session that just started may show it). The list is read for the check, never taken from a cache; an unreadable
   list allows the send. Inventory, duplicate-name and limit checks count only agents of the own workspace
   (their `workspace_id`, else the pane id prefix; when the own workspace is known), besides the cwd filter; on hc only terminals whose parent is this terminal or whose cwd is in the project.
@@ -423,9 +429,11 @@ inside the project (directories compare in one form: separators, case, a Windows
 - `UNKNOWN`: a status that is none of `working`, `idle`, `done`, `blocked`: `tabs UNKNOWN: <name> reports status "<x>": read its screen`, so a renamed
   status cannot hide a dialog (no Stop block).
 - `GONE`: a worker seen by an earlier run left the list without a fresh result line (its tab was closed or its session
-  ended): read its report file if there is one, then re-brief or drop the package. Shown once (the name is then forgotten).
+  ended): read its report file if there is one, then re-brief or drop the package. Only a name gone from the whole list counts,
+  never a long-lived tab (runner, full, train). Kept until a report reaches the lead (a prompt, a session start or a blocking Stop;
+  a Stop that does not block shows nothing), then forgotten.
 - `CLOSE?` (hc): the lead ran `hc kill <name>` or `hc rm <name>` (recorded by the PreToolUse check) and the next report still
-  finds the name live in `hc ls`. These hc forms are not verified against a live hc, so the close is checked once and reported.
+  finds the name live in `hc ls`. These hc forms are not verified against a live hc, so the close is checked and reported once a report reaches the lead (within 1 h).
 - `BADNAME`: a live agent of this workspace (herdr) or a claude-code terminal of this terminal or project (hc) whose name breaks the policy
   (too long, uppercase, no `<pkg>-<kind>`): the guard neither counts nor watches it, so the line says so (this session's own tab is never listed).
 Stop blocks once per occurrence (never with `stop_hook_active`) when a tab turns `BLOCKED` or `FINISHED` and `tabs.stopBlock` is true, with the same

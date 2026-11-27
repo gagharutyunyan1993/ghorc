@@ -15,7 +15,7 @@ close the lead checks that the name is gone from `hc ls`, and the tabs guard rep
 
 | | `hc` | `herdr` |
 |---|---|---|
-| worker with a role | `hc run --bg --name n --cwd d "<path>\env.exe" GHORC_ROLE=worker claude.exe -n n --model <alias> --effort <e> <permissionArgs> "<task>"` | `herdr tab create --workspace "$HERDR_WORKSPACE_ID" --no-focus --env GHORC_ROLE=worker` + `herdr agent start` |
+| worker with a role | `hc run --bg --name n --cwd d "<path>\env.exe" GHORC_ROLE=worker claude.exe -n n --model <alias> --effort <e> <permissionArgs> "<task>"` | `herdr tab create --workspace "$HERDR_WORKSPACE_ID" --no-focus --label n --cwd d --env GHORC_ROLE=worker` + `herdr agent start` |
 | wait / read / send / close | `hc wait n` / `hc read n` / `hc send n "..."` / `hc kill n; hc rm n` | `herdr agent wait --until idle --until done --until blocked --timeout <ms>` / `read` / `herdr pane run`, then the delivery check / close tab |
 
 **Without herdr** everything except the handoff tab works through the Agent tool: roles, hooks, status line,
@@ -40,7 +40,8 @@ The tabs guard (`docs/hooks.md`) denies a start that misses the name rule, `-n <
 the permission arguments, and a `herdr tab create` without `--cwd` inside the project, and shows the corrected form.
 The task goes in as one line that points to a file: `MSYS_NO_PATHCONV=1 herdr pane run <pane_id> "Read <brief file> and do
 the task in it."` (from PowerShell without the prefix). The guard denies a `herdr pane run|send-text` whose text has a
-newline, a double quote or a backtick, and any send to a pane that `herdr agent list` shows `blocked`.
+newline, a double quote or a backtick, and any text send to a pane that `herdr agent list` shows `blocked` (single keys
+such as `send-keys <pane_id> 2 enter` stay allowed, for an answer the owner gives).
 
 `herdr agent start` types the `claude` command into an existing pane's shell, so `GHORC_ROLE=worker herdr agent start`
 (or `$env:GHORC_ROLE='worker'; herdr agent start`) sets the variable on the herdr CLI only and the session never sees
