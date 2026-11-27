@@ -287,9 +287,9 @@ test('commands that are not tab commands and quoted values pass', () => {
   for (const c of ['hc ls', 'hc send t5 "run claude"', 'herdr agent list', 'herdr tab list', 'herdr pane read w1:p1', 'git status', 'echo hc run claude', 'hc kill a-implementer; hc rm a-implementer', 'herdr tab close w1:t2']) {
     allowed(pre(p, c), c);
   }
-  // an unreadable value (quoted, a variable) is not judged
+  // a quoted value passes; a variable other than $PWD after --cwd and the workspace id after --workspace is the shape deny
   allowed(pre(p, 'herdr tab create --label "a1-implementer" --cwd . --env GHORC_ROLE=worker --workspace "$HERDR_WORKSPACE_ID" --no-focus'));
-  allowed(pre(p, 'herdr tab create --label $name --cwd . --env GHORC_ROLE=worker --workspace $env:HERDR_WORKSPACE_ID --no-focus', { tool: 'PowerShell' }));
+  assert.match(reasonOf(pre(p, 'herdr tab create --label $name --cwd . --env GHORC_ROLE=worker --workspace $env:HERDR_WORKSPACE_ID --no-focus', { tool: 'PowerShell' })), /the only variables are \$PWD after --cwd/);
 });
 
 test('fail open: unreadable lists skip the list rules only; garbage config and flags allow', () => {

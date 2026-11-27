@@ -516,36 +516,115 @@ function sendCommands(command, powershell) {
 
 // A herdr tab create is allowed only in one shape: a one-line command of its own, `herdr tab create <plain flags>`, with an
 // optional MSYS_NO_PATHCONV=1 in front (bash), an optional capture ($t = ... in PowerShell; VAR=$(...) or VAR="$(...)" in bash,
-// with an optional `| jq ...` / `| ConvertFrom-Json` inside) and an optional trailing # comment. Any other command where herdr
-// is a command word with tab create after it is denied with that form; text inside a quoted argument of another program (a
-// commit message) is not a command, unless a shell or eval-like program in the same command could run it.
+// with an optional `| jq ...` / `| ConvertFrom-Json` inside) and an optional trailing # comment. Fail-closed: a command whose
+// text has herdr as a word and tab next to create must be that shape, unless the words sit only in the arguments of a text
+// program (git commit/tag/log, gh, echo, grep and the like: a commit message, a search).
 const TAB_FORM = 'herdr tab create --workspace "$HERDR_WORKSPACE_ID" --no-focus --label <name> --cwd <dir> --env GHORC_ROLE=worker (PowerShell: --workspace $env:HERDR_WORKSPACE_ID)';
-const TAB_SHAPE = `herdr tab create is allowed only as a one-line command of its own: ${TAB_FORM}; optional: MSYS_NO_PATHCONV=1 in front (bash), a capture ($t = ... in PowerShell, VAR=$(...) or VAR="$(...)" in bash, with | jq ... or | ConvertFrom-Json inside) and a trailing # comment. No ;, &&, |, newline, redirect, block, loop, wrapper (sh -c, Start-Process, xargs, eval, heredoc) or cd around it; values are plain words or quoted text without $( ) or backticks`;
+const TAB_SHAPE = `herdr tab create is allowed only as a one-line command of its own: ${TAB_FORM}; optional: MSYS_NO_PATHCONV=1 in front (bash), a capture ($t = ... in PowerShell, VAR=$(...) or VAR="$(...)" in bash, with | jq ... or | ConvertFrom-Json inside) and a trailing # comment. No ;, &&, |, newline, redirect, block, loop, wrapper (sh -c, Start-Process, xargs, eval, heredoc) or cd around it; values are plain words or quoted text, and the only variables are $PWD after --cwd and $HERDR_WORKSPACE_ID after --workspace`;
 const MENTION = /\bherdr(?:\.exe)?\b[\s\S]*?\btab\s+create\b/i;
 const HERDR_WORD = /^(?:.*[`({\\/])?herdr(?:\.exe)?$/i;
-const SHELLISH = new Set(['bash', 'sh', 'zsh', 'dash', 'ksh', 'fish', 'pwsh', 'powershell', 'cmd', 'eval', 'iex', 'invoke-expression', 'invoke-command', 'icm', 'start-job', 'sajb', 'start-process', 'saps', 'start', 'env', 'sudo', 'su', 'doas', 'runas', 'wsl', 'ssh', 'xargs', 'timeout', 'nice', 'nohup', 'time', 'exec', 'command', 'watch', 'script', 'flock', 'setsid', 'stdbuf', 'parallel']);
-const progName = (words) => {
-  const w = words.find((x) => !/^[A-Za-z_][A-Za-z0-9_]*=/.test(x));
-  return w === undefined ? '' : String(w).replace(/^.*[\\/]/, '').replace(/\.exe$/i, '').toLowerCase();
-};
-// Does the command run a herdr tab create anywhere? bash: heredoc bodies are data unless fed to a shell, a substitution inside
-// double quotes is its own command; encoded PowerShell is read too. A quote that does not close next to a mention counts.
-function usesTabCreate(command, ps) {
+// herdr as a word: not part of a longer name (herdr-fixes.test.cjs) or a directory (.../herdr/x); a path to it counts
+const HERDR_RAW = /(?<![\w.-])herdr(?:\.exe)?(?![\w.\\/-])/i;
+const TAB_NEXT_CREATE = /\btab['"\s,@()]*create\b/i;
+const failClosed = (t) => HERDR_RAW.test(t) && TAB_NEXT_CREATE.test(t);
+const TEXT_PROGS = new Set(['gh', 'glab', 'echo', 'printf', 'write-output', 'write-host', 'grep', 'egrep', 'fgrep', 'rg', 'select-string', 'sls', 'findstr']);
+// A segment of a text program: its arguments are text, not commands (git only for commit, tag, log, grep, show and notes).
+function isTextSegment(words) {
+  let w = peelWrappers(words);
+  while (w.length && /^(?:time|nohup)$/i.test(w[0])) w = w.slice(1);
+  if (!w.length) return false;
+  const prog = String(w[0]).replace(/^.*[\\/]/, '').replace(/\.exe$/i, '').toLowerCase();
+  if (prog !== 'git') return TEXT_PROGS.has(prog);
+  const k = w[1] === '-C' ? 3 : 1;
+  return /^(?:commit|tag|log|grep|show|notes)$/.test(w[k] || '');
+}
+// PowerShell: the bodies of $( ) subexpressions, also inside "..." and @"..."@ (they run there too), nested ones included.
+function psCloseParen(s, k, d) {
+  tooDeep(d);
+  let depth = 1;
+  for (let i = k; i < s.length; i++) {
+    const c = s[i];
+    if (c === '`') i++;
+    else if (c === "'") {
+      for (i++; i < s.length && s[i] !== "'"; i++);
+      if (i >= s.length) return -1;
+    } else if (c === '"') {
+      for (i++; i < s.length; i++) {
+        if (s[i] === '`' || (s[i] === '"' && s[i + 1] === '"')) i++;
+        else if (s[i] === '"') break;
+        else if (s[i] === '$' && s[i + 1] === '(') {
+          const e = psCloseParen(s, i + 2, d + 1);
+          if (e < 0) return -1;
+          i = e;
+        }
+      }
+      if (i >= s.length) return -1;
+    } else if (c === '(') tooDeep(++depth);
+    else if (c === ')' && --depth === 0) return i;
+  }
+  return -1;
+}
+function psSubs(s, d = 0) {
+  tooDeep(d);
+  const out = [];
+  // -> the index after the subexpression at i, or -1 when it does not close
+  const sub = (i) => {
+    const e = psCloseParen(s, i + 2, d + 1);
+    if (e < 0) return -1;
+    const body = s.slice(i + 2, e);
+    out.push(body, ...psSubs(body, d + 1));
+    return e;
+  };
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    const here = s[i - 1] === '@' && /^[ \t]*\r?\n/.test(s.slice(i + 1));
+    if (c === '`') i++;
+    else if (c === "'") {
+      const e = here ? s.indexOf("\n'@", i) : s.indexOf("'", i + 1);
+      if (e < 0) break;
+      i = here ? e + 2 : e;
+    } else if (c === '"') {
+      const end = here ? s.indexOf('\n"@', i) : -1;
+      let j = i + 1;
+      for (; j < s.length; j++) {
+        if (here ? j === end : s[j] === '"' && s[j + 1] !== '"') break;
+        if (s[j] === '`' || (!here && s[j] === '"')) j++;
+        else if (s[j] === '$' && s[j + 1] === '(') {
+          const e = sub(j);
+          if (e < 0) return out;
+          j = e;
+        }
+      }
+      i = here ? j + 2 : j;
+    } else if (c === '$' && s[i + 1] === '(') {
+      const e = sub(i);
+      if (e < 0) return out;
+      i = e;
+    }
+  }
+  return out;
+}
+// The texts the shell runs: bash with heredoc bodies dropped (they are data unless fed to a shell: those are added) and with a
+// substitution inside double quotes taken out of them; PowerShell with its subexpressions; encoded PowerShell.
+function commandTexts(command, ps) {
   const raw = String(command);
-  const texts = (ps ? [raw] : [splitSubs(stripHeredocs(raw)), ...stdinScripts(raw)]).map((t) => ({ t, ps }));
+  const texts = (ps ? [raw, ...psSubs(raw)] : [splitSubs(stripHeredocs(raw)), ...stdinScripts(raw)]).map((t) => ({ t, ps }));
   for (const t of encodedScripts(raw)) texts.push({ t, ps: true });
-  let inWord = false;
-  let shellish = false;
-  for (const { t, ps: p } of texts) {
+  return texts;
+}
+// Does the command run a herdr tab create? herdr as a command word with tab create after it, or the fail-closed words outside
+// the arguments of a text program. A quote that does not close next to a mention counts.
+function usesTabCreate(command, ps) {
+  const residual = [];
+  for (const { t, ps: p } of commandTexts(command, ps)) {
     const segs = rawSegments(t, p);
     if (segs.unclosed && MENTION.test(t)) return true;
     for (const words of segs) {
       for (let j = 0; j < words.length; j++) if (HERDR_WORD.test(words[j]) && /\btab\s+create\b/i.test(words.slice(j + 1).join(' '))) return true;
-      if (words.some((x) => MENTION.test(x))) inWord = true;
-      if (SHELLISH.has(progName(words))) shellish = true;
+      if (!isTextSegment(words)) residual.push(words.join(' '));
     }
   }
-  return inWord && shellish;
+  return failClosed(String(command)) && failClosed(residual.join('\n'));
 }
 // Unquoted characters that make a command more than one plain command: -> { specials: [{ i, c }], comment } or null (a quote
 // does not close). bash: \ escapes, '...' literal, "..." with \ escapes; PowerShell: ` escapes, '...' with '', "..." with ` and "".
@@ -575,7 +654,33 @@ function scanLine(s, ps) {
   }
   return { specials, comment: -1 };
 }
-const PIPE_TAIL = { sh: /^jq(?:\s+(?:-[A-Za-z]+|'[^']*'|"[^"$`\\]*"|[\w.[\]-]+))*$/, ps: /^ConvertFrom-Json$/i };
+// Every word of the canonical line with a $ outside single quotes (or a PowerShell @ splat) must be $PWD after --cwd or
+// $HERDR_WORKSPACE_ID after --workspace.
+const RAW_TOKEN = /(?:[^\s"']+|"(?:[^"\\`]|[\\`][\s\S])*"|'[^']*')+/g;
+function plainVariables(body, ps) {
+  const toks = body.match(RAW_TOKEN) || [];
+  const pwd = ps ? /^"?\$PWD(?:[\\/][^"$`]*)?"?$/i : /^"?\$PWD(?:[\\/][^"$`]*)?"?$/;
+  const ws = ps ? /^"?\$(?:env:)?HERDR_WORKSPACE_ID"?$/i : /^"?\$(?:env:)?HERDR_WORKSPACE_ID"?$/;
+  const unquoted = (t) => {
+    let out = '';
+    let dq = false;
+    for (let i = 0; i < t.length; i++) {
+      if (t[i] === '"') dq = !dq;
+      if (!dq && t[i] === "'") {
+        const e = t.indexOf("'", i + 1);
+        i = e < 0 ? t.length : e;
+      } else out += t[i];
+    }
+    return out;
+  };
+  return toks.every((t, k) => {
+    if (!unquoted(t).includes('$') && !(ps && t.startsWith('@'))) return true;
+    const m = /^(--cwd|--workspace)=(.*)$/.exec(t);
+    const [opt, val] = m ? [m[1], m[2]] : [toks[k - 1], t];
+    return (opt === '--cwd' && pwd.test(val)) || (opt === '--workspace' && ws.test(val));
+  });
+}
+const PIPE_TAIL = { sh: /^jq(?:\s+(?:'[^']*'|"[^"$`\\]*"|[\w.[\]-]+))*$/, ps: /^ConvertFrom-Json$/i };
 // -> { words, msys } of the canonical form, or null
 function canonicalTabCreate(command, ps) {
   let s = String(command).trim();
@@ -599,7 +704,7 @@ function canonicalTabCreate(command, ps) {
     body = body.slice(0, at).trim();
     sc = scanLine(body, ps);
   }
-  if (!sc || sc.specials.length) return null;
+  if (!sc || sc.specials.length || !plainVariables(body, ps)) return null;
   const segs = rawSegments(body, ps);
   if (segs.unclosed || segs.length !== 1) return null;
   let w = segs[0];

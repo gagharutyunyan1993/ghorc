@@ -562,6 +562,35 @@ test('tabs-guard: --cwd review cases: only the one-line shape passes, .. is norm
     ['G8e', `TAB=$(${N(BW, '.')} | jq -r .id)`, false, 'deny'],
     ['G8f', `TAB="\`${T(BW, '"/tmp"')}\`"`, false, 'deny'],
     ['G8g', `echo "tab: $(${T(BW, '"$PWD/.claude/worktrees/a"')} | jq -r .id) done"`, false, 'deny'], // shape
+    // round 2: PowerShell subexpressions, Start-Process lists, variables on the line, fail-closed words outside text programs
+    ['R2-S1', `Write-Output "$(${P} --cwd C:/tmp)"`, true, 'deny'],
+    ['R2-S2', `$t = "$(${P} --cwd C:/tmp)"`, true, 'deny'],
+    ['R2-S3', `$m = @"\nCreated: $(${P} --cwd C:/tmp)\n"@`, true, 'deny'],
+    ['R2-T1', "Start-Process herdr -ArgumentList 'tab','create','--workspace','w1','--cwd','C:/tmp'", true, 'deny'],
+    ['R2-T2', "Start-Process herdr -ArgumentList @('tab','create','--cwd','C:/tmp')", true, 'deny'],
+    ['R2-T4', `${B} --cwd . $EXTRA`, false, 'deny'],
+    ['R2-T4b', `${B} --cwd . "$EXTRA"`, false, 'deny'],
+    ['R2-T5', `${P} --cwd . $extra`, true, 'deny'],
+    ['R2-T6', `${P} --cwd . @extra`, true, 'deny'],
+    ['R2-S5', `& ([scriptblock]::Create('${B} --cwd C:/tmp'))`, true, 'deny'],
+    ['R2-S6', `node -e "require('child_process').execSync('${B} --cwd /tmp')"`, false, 'deny'],
+    ['R2-S7', `git -c alias.t='!${B} --cwd /tmp' t`, false, 'deny'],
+    ['R2-X5', 'h=herdr; $h tab create --workspace w1 --cwd /tmp', false, 'deny'],
+    ['R2-N3', `grep -rln "herdr tab create" docs | xargs sed -i 's/a/b/'`, false, 'allow'],
+    ['R2-N4', 'time git commit -m "herdr tab create: shape rule"', false, 'allow'],
+    ['R2-N5', 'git commit -m "herdr tab create" && npm test', false, 'allow'],
+    ['R2-N6', "git commit -F - <<'EOF'\nfix: herdr tab create\nEOF", false, 'allow'],
+    ['R2-N7', 'git log --grep "herdr tab create" | head', false, 'allow'],
+    ['R2-N8', "git commit -m 'herdr tab create: it''s fixed'", true, 'allow'],
+    ['R2-N13', 'rg "herdr tab create" skills/ && env NODE_ENV=test node -e "1"', false, 'allow'],
+    ['R2-N14', 'herdr tab close w1:t2 && herdr agent list', false, 'allow'],
+    ['R2-N15', 'gh pr create --title "herdr: tab create shape" --body "x"', false, 'allow'],
+    ['R2-N16', 'node --test --test-name-pattern "tab create" tests/herdr-fixes.test.cjs', false, 'allow'],
+    ['R2-N18', `${P} --cwd $PWD`, true, 'allow'],
+    ['R2-N19', `${B} --cwd "$PWD/.claude/worktrees/a b"`, false, 'allow'],
+    ['R2-N20', 'herdr tab create --workspace "$HERDR_WORKSPACE_ID" --no-focus --label a-implementer --cwd=. --env GHORC_ROLE=worker', false, 'allow'],
+    ['R2-N21', `$t = ${P} --cwd $PWD | ConvertFrom-Json`, true, 'allow'],
+    ['R2-N22', `TAB=$(${B} --cwd "$PWD" | jq -r .result.tab_id)`, false, 'allow'],
     // legit forms of the skills and docs
     ['F1', T(BW, 'D:/proj/app/.claude/worktrees/a'), false, 'allow'],
     ['F2', T(PW, 'D:\\proj\\app\\.claude\\worktrees\\a'), true, 'allow'],
@@ -603,6 +632,10 @@ test('tabs-guard: --cwd review cases: only the one-line shape passes, .. is norm
   const wrong = cases.filter(([, c, ps, want]) => verdict(c, ps) !== want).map(([id, , , want]) => `${id} (want ${want})`);
   assert.deepEqual(wrong, []);
   assert.match(tabs.checkCommand(`timeout 5 ${B} --cwd .`, { powershell: false, s, list: () => [], root, cwd: root, self: '', session: 'x', workspace: 'w1', envWorkspace: 'w1' }), /allowed only as a one-line command of its own/);
+  // the jq tail of a capture is matched in linear time: 40 flags well under 100 ms
+  const t0 = process.hrtime.bigint();
+  assert.equal(verdict(`TAB=$(${B} --cwd "$PWD" | jq${' -a'.repeat(40)} /)`, false), 'deny');
+  assert.ok(Number(process.hrtime.bigint() - t0) / 1e6 < 100, 'jq tail too slow');
   // nesting depth 5000: a command with an hc or herdr word that cannot be parsed is denied, without a stack overflow letting it through
   const deep = (n) => 'echo "' + '$(echo "'.repeat(n) + 'x' + '")'.repeat(n) + '"; herdr tab list';
   assert.equal(verdict(deep(5000), false), 'deny');

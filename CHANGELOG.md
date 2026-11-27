@@ -40,13 +40,18 @@
   optionally `MSYS_NO_PATHCONV=1` in front, a capture (`$t = herdr tab create ...` in PowerShell, `TAB=$(herdr tab create ...)`
   or `TAB="$(... | jq ...)"` in bash) and a trailing `#` comment. Any other command where herdr is a command word with
   `tab create` after it (chained with `;`, `&&` or `|`, several lines, a redirect, a block or loop, `sh -c`, `Start-Process`,
-  `xargs`, `eval`, a heredoc, a `cd` before it) is denied with the documented form. The quoted text of another program's
-  argument (a commit message that mentions `herdr tab create`) is not a command. In the allowed shape the `--cwd` is judged
+  `xargs`, `eval`, a heredoc, a `cd` before it, a PowerShell `"$(...)"` subexpression, a `Start-Process` argument list) is
+  denied with the documented form; on that line the only variables are `$PWD` after `--cwd` and `$HERDR_WORKSPACE_ID` after
+  `--workspace`. Fail-closed: a command whose text has herdr as a word and `tab` next to `create` must be that form, unless
+  the words are only in the arguments of a text program (`git commit -m/-F`, `git log --grep`, `gh pr create --title`, `echo`,
+  `grep`, `rg`), so commit messages and searches that mention it pass. In the allowed shape the `--cwd` is judged
   as before; an absolute value is normalized first (`D:/proj/..` and `<root>/.claude/worktrees/../..` were taken as inside),
   Git Bash's `/d/x` is read as `d:/x` only without `MSYS_NO_PATHCONV=1`, and in PowerShell a rooted path without a drive is on
   the drive of the session's directory. PowerShell `$env:PWD` is denied (it is the client's inherited environment, not the
   session's directory), and bash `$pwd` is not `$PWD`. A captured tab create gets the whole tab policy. A command with an `hc`
   or `herdr` word that the guard cannot parse (an internal error, nesting deeper than 32) is denied instead of allowed.
+  Known limit: obfuscation (a variable or alias holding the binary, functions, split quotes, scriptblocks, `node -e`) is out
+  of scope; the guard is a policy check on the lead, not a sandbox.
 - The skills wait for the shell prompt with `herdr pane wait-output <pane_id> --regex '[>$#%] ?$' --timeout 15000`
   before `herdr agent start`: single quotes in both shells, and `%` for zsh.
 - One slow `herdr agent list` turned the backend into `none` for that hook run. The herdr verdict is cached for 30 s per

@@ -374,8 +374,10 @@ that binds every session (lead, subagent, worker) is the dev-command rule below.
   command of its own, `herdr tab create` (any path to herdr) with plain flags and values, optionally `MSYS_NO_PATHCONV=1` in front (bash), a capture
   (`$t = ...` in PowerShell, `VAR=$(...)` or `VAR="$(...)"` in bash, with `| jq ...` or `| ConvertFrom-Json` inside) and a trailing `#` comment;
   any other command where herdr is a command word with `tab create` after it (`;`, `&&`, `|`, a newline, a redirect, a block, a loop, a wrapper such
-  as `sh -c`, `Start-Process`, `xargs` or `eval`, a heredoc, a `cd`) is denied with that form. The text of a quoted argument of another program (a
-  commit message) is not a command, unless a shell or eval-like program in the same command could run it. A command with an `hc` or `herdr` word that
+  as `sh -c`, `Start-Process`, `xargs` or `eval`, a heredoc, a `cd`) is denied with that form, and so is a PowerShell `"$(...)"` subexpression or a `Start-Process` argument list; on the line the only variables are
+  `$PWD` after `--cwd` and `$HERDR_WORKSPACE_ID` after `--workspace`. Fail-closed: a command whose text has herdr as a word and `tab` next to
+  `create` must be that form, unless the words are only in the arguments of a text program (`git commit`/`tag`/`log`, `gh`, `echo`, `grep`, `rg`):
+  a commit message or a search is not a command. A command with an `hc` or `herdr` word that
   the guard cannot parse is denied: a tab without it starts in the herdr server's directory, and the inventory neither counts nor watches it. With the own workspace known
   the value is its id or a reference, and only the exact variable names count (`$HERDR_WORKSPACE_ID`, `${HERDR_WORKSPACE_ID}`,
   `$env:HERDR_WORKSPACE_ID`, `%HERDR_WORKSPACE_ID%`, quoted or not); a single-quoted reference (the shell does not expand it) or another
