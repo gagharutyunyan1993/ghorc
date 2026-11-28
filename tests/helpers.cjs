@@ -15,7 +15,7 @@ function runScript(name, input, opts = {}) {
     input: typeof input === 'string' ? input : JSON.stringify(input),
     encoding: 'utf8',
     // the herdr ids of a test run inside a herdr pane must not reach the hooks (own workspace, HERDR_BIN_PATH fallback)
-    env: { ...process.env, CLAUDE_PROJECT_DIR: '', GHORC_ROLE: '', HC_TERMINAL_ID: '', HERDR_ENV: '', HERDR_PANE_ID: '', HERDR_WORKSPACE_ID: '', HERDR_TAB_ID: '', HERDR_BIN_PATH: '', GHORC_TMP: TEST_TMP, GHORC_WATCHDOG_ROOT: TEST_ROOT, GHORC_NO_AUTOSTART: '1', GHORC_HOOK_GIT_TIMEOUT_MS: '15000', ...(opts.env || {}) }, // root.cjs gives git 1000 ms: too little under load
+    env: { ...process.env, CLAUDE_PROJECT_DIR: '', GHORC_ROLE: '', HC_TERMINAL_ID: '', HERDR_ENV: '', HERDR_PANE_ID: '', HERDR_WORKSPACE_ID: '', HERDR_TAB_ID: '', HERDR_BIN_PATH: '', GHORC_TMP: TEST_TMP, GHORC_WATCHDOG_ROOT: TEST_ROOT, GHORC_NO_AUTOSTART: '1', GHORC_HOOK_GIT_TIMEOUT_MS: '15000', GHORC_TOOL_TIMEOUT_MS: '30000', ...(opts.env || {}) }, // root.cjs gives git 1000 ms, backend.cjs and the tabs guard give a fake hc or herdr 3 s or 2.5 s: too little under load
     cwd: opts.cwd,
   });
   return { code: r.status, out: r.stdout, err: r.stderr };

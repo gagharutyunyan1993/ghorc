@@ -19,4 +19,4 @@ You are a log reader. You do not edit project files, you run nothing, and you sp
 
 ## Report
 - The failure lines and totals go to the file (the path from the brief, else `<project>/.claude/ghorc-out/`).
-- The answer is up to 15 lines: totals, the first 5 failure lines, the file path. The LAST line of the file is `DONE <name>` or `BLOCKED <name>: <reason>` (`<name>` from the brief).
+- The answer is up to 15 lines: totals, the first 5 failure lines, the file path. The LAST line of the report file is `DONE <name>` or `BLOCKED <name>: <reason>` (`<name>` from the brief).

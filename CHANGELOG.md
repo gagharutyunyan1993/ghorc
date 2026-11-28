@@ -1,5 +1,62 @@
 # Changelog
 
+## 0.11.5 - 2026-11-28
+
+### Added
+- A worker that finished without writing its report file left the lead with no signal. The tabs guard now raises
+  `NORESULT` for a worker that was given its task, is now idle or done and has no fresh result line in its report
+  file: the line names the worker and the absolute report path and says to read the screen, ask the same worker once to
+  write the file and not go on without it. It blocks the lead's Stop once, like `FINISHED`, and goes away when a fresh
+  result line appears or the worker works again. "Given its task" is a tab the guard saw `working`, or a task send it
+  recorded (`hc run ... claude ... "<task>"` when the claude arguments hold a prompt, not just a quoted option value
+  such as `--allowedTools "Bash(git:*)"`; `hc send`; `herdr pane run|send-text` and `herdr agent prompt` to a pane of the
+  lead's own workspace and project; a text that is only a session command such as `/exit` or `/clear` is not a task).
+  The flag waits 60 seconds after a recorded send, or less when the guard sees the worker `working` after it; it never
+  fires for a worker that was only started, a long-lived tab or a tab `RESULT?` asks about (a first sighting with a
+  result line and no recorded send), and on a state it cannot read it stays off until the next send or `working`
+  sighting. When the report has a stale result line, the text names its time and the send it predates. A send is
+  recorded when the lead issues it, also if another hook or the owner then refuses it (one extra `NORESULT` round,
+  never a missed one). Same rule on herdr and hc.
+
+### Fixed
+- An option of the `env` wrapper (`-i`, `-u NAME`, `--ignore-environment`, ...), a second `env`, a quoted word after
+  `env`, or a wrapper or shell in front of claude (`nohup`, `timeout`, `bash -c`, ...) no longer hides a `claude`
+  start of `hc run` from the start checks: the options and the second `env` are read, the rest (an env option the
+  guard cannot model such as `-S`, `-C`, `-iu`; a quoted word after `env`; a claude program word behind a program
+  that runs another program, even after a quoted word; as the program of a shell command string; or as a
+  substitution or variable program that says claude) is denied with a reason. A claude word that is only an argument
+  (`grep claude src`, `node claude`, `bash -c "grep claude x.txt"`) is allowed. `chrt`, `ionice` and `nice` in front
+  of `hc` are skipped, a quoted `env -S` string in front of `hc` is denied, `claude.ps1` counts as claude,
+  `env -Shc run ...` is no longer dropped by the prefilter, and the herdr send checks, the subagent deny and the
+  heavy-command matching see through the same env options, `env --` included. Not judged: a variable program
+  whose text does not say claude, and a claude word a shell string builds up.
+- The tabs guard's `herdr agent list` reads (2.5 s) now honour `GHORC_TOOL_TIMEOUT_MS` like the other tool reads
+  (unset or invalid: 2.5 s as before); two tests (`review1` worktree root, `herdr-fixes` fresh list) no longer depend on
+  machine load.
+- A second task sent to a tab whose first task already ended in `DONE` was answered by the old line, so the guard showed
+  `FINISHED` for a round with no result. A result line is now fresh when its report was written at or after the last recorded
+  task send to that worker (the tab's first sighting only when no send is recorded, so a report written after the send
+  is fresh however late the guard first saw the tab); `FINISHED`, `NORESULT`, `STALLED`
+  and `GONE` use that one rule (`RESULT?` is shown only when no send is recorded). `tabs GONE` names the report by its absolute path, as `NORESULT` does.
+- `STALLED` was silenced by any result line in the report file, also a stale one from an earlier round or an earlier
+  worker of the same name. It is now judged on the fresh result line (as `FINISHED` is), and not raised for a worker
+  that has `NORESULT`.
+- Result delivery texts: briefs give the worker the absolute report path in the lead's project root; a wait that
+  returns without a fresh result line means "not delivered" (lead rule "Missing result", flag `NORESULT`); the wait is
+  no longer said to read the report file; a result line left by an earlier round is stale, and so is the result of a worker that was sent a text after it (a text sent to a worker after its result starts a new round), a package gets one
+  re-brief and then BLOCKED to the owner, and an `hc send` line is a notice, never the result; the demo example and
+  `docs/workflow.md` follow the same rules (`skills/lead`, `skills/brief`, `agents/`, `docs/workflow.md`,
+  `docs/troubleshooting.md`, `examples/demo/`).
+
+### Not run against a live herdr
+- `NORESULT` and the result freshness rule ran only against fake `herdr` and `hc` backends: that a live
+  `herdr agent list` shows a worker that ended its turn as `idle` or `done`, and that the 60 seconds after a send are
+  enough for a real worker to be seen `working`.
+- That the guard records the lead's real task sends in the forms listed above (`herdr agent prompt`,
+  `herdr pane run|send-text`, `hc send`, the prompt of `hc run ... claude`).
+- The start checks ran on command text only: no `hc run` with an `env` option, a runner program or a mid-line `&` was
+  started in a real tab.
+
 ## 0.11.4 - 2026-11-28
 
 ### Fixed

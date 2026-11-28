@@ -500,7 +500,11 @@ test('state: runtime and idle time come from earlier runs (fake clock), and a go
   assert.match(ctx(at(T + 11 * 60000, idle)), /tabs STALLED: a1-implementer has been idle 11m/);
   // it works for a while: the idle clock restarts
   assert.equal(ctx(at(T + 12 * 60000, hdr([agent('a1-implementer', 'working', p.cwd)]))), 'tabs: 1 live (a1-implementer working 12m)');
-  assert.equal(ctx(at(T + 13 * 60000, idle)), 'tabs: 1 live (a1-implementer idle 13m)');
+  // it was seen working and is idle again with no result line: NORESULT (tests/noresult-flag.test.cjs)
+  const back = ctx(at(T + 13 * 60000, idle)).split('\n');
+  assert.equal(back[0], 'tabs: 1 live (a1-implementer idle 13m)');
+  assert.match(back[1], /^tabs NORESULT: a1-implementer is idle and has no fresh result line/);
+  assert.equal(back.length, 2);
   // gone and back: a new worker
   assert.match(ctx(at(T + 14 * 60000, NONE)), /^tabs GONE: a1-implementer left herdr agent list without a result line/);
   assert.equal(at(T + 15 * 60000, NONE).out, '', 'GONE is shown once');
@@ -600,7 +604,8 @@ test('P1-1: a result line older than the first sighting is not a result, whateve
   const env = { GHORC_CAPACITY_HERDR_JSON: hdr([agent('a1-reviewer', 'idle', p.cwd), agent('b1-implementer', 'done', p.cwd)]) };
   const text = ctx(mon(p, 'UserPromptSubmit', env));
   assert.equal(text.includes('FINISHED'), false, text);
-  assert.equal(text.includes('STALLED'), false, 'a tab with a result line is never stalled without one');
+  assert.match(text, /tabs STALLED: a1-reviewer has been idle 12m/, 'a stale result line does not silence STALLED');
+  assert.equal(text.includes('b1-implementer has been idle'), false, 'b1 has been idle for 2 minutes only');
   assert.equal(mon(p, 'Stop', env).out.trim(), '', 'a stale report does not block Stop');
   // a report written after the first sighting is the result
   const f = tabs.reportFile(p.cwd, 'b1-implementer');
@@ -1177,7 +1182,7 @@ test('R3-5: a bad regex in devCommands drops that one pattern, the guard and the
   assert.ok(tabs.devMatch('my-server', ['(unclosed', '^my-server(?:\\s|$)'], false));
 });
 
-test('R3-6: a tab with a result line is never STALLED without one; after RESULT? it stays quiet until its status changes', () => {
+test('R3-6: after RESULT? a tab stays quiet (no OVERTIME) until its status changes; a result line older than the first sighting does not silence STALLED', () => {
   const p = project({ idleMin: 10, overtimeMin: 45 });
   const pre = path.join(__dirname, 'mock-now.cjs').split('\\').join('/');
   const at = (ms, list) => mon(p, 'UserPromptSubmit', { GHORC_CAPACITY_HERDR_JSON: list, NODE_OPTIONS: `--require "${pre}"`, GHORC_MOCK_NOW_MS: String(ms) });
@@ -1188,11 +1193,14 @@ test('R3-6: a tab with a result line is never STALLED without one; after RESULT?
   assert.match(first, /tabs RESULT\?: a1-scout has a result line from \d\d:\d\d/);
   for (const min of [5, 12, 30, 50, 80]) {
     const text = ctx(at(T + min * 60000, idle));
-    assert.equal(/STALLED|OVERTIME|RESULT\?/.test(text), false, `${min}m: ${text}`);
+    assert.equal(/OVERTIME|RESULT\?|NORESULT/.test(text), false, `${min}m: ${text}`);
+    // the line is older than the first sighting (T is later than its mtime): stale, so STALLED is not silenced
+    assert.equal(/STALLED/.test(text), min >= 10, `${min}m: ${text}`);
   }
-  // the status changes: the result line still exists, so never STALLED; OVERTIME counts again
+  // the status changes: OVERTIME counts again; working is not stalled, and idle again is stalled by the stale line
   assert.equal(/STALLED/.test(ctx(at(T + 81 * 60000, hdr([agent('a1-scout', 'working', p.cwd)])))), false);
-  assert.equal(/STALLED/.test(ctx(at(T + 120 * 60000, idle))), false);
+  assert.match(ctx(at(T + 120 * 60000, idle)), /tabs NORESULT: a1-scout/, 'seen working, idle again, stale line: NORESULT');
+  assert.equal(/STALLED/.test(ctx(at(T + 135 * 60000, idle))), false, 'NORESULT takes the place of STALLED');
   // a tab without a result line is stalled as before
   const q = project({ idleMin: 10 });
   const at2 = (ms, list) => mon(q, 'UserPromptSubmit', { GHORC_CAPACITY_HERDR_JSON: list, NODE_OPTIONS: `--require "${pre}"`, GHORC_MOCK_NOW_MS: String(ms) });

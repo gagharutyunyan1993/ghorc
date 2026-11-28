@@ -204,8 +204,8 @@ test('#17: applying statusLine saves the previous one; --restore puts it back; c
 
 test('manifests carry the same version', () => {
   const v = (f) => JSON.parse(fs.readFileSync(path.join(ROOT, f), 'utf8'));
-  assert.equal(v('package.json').version, '0.11.4');
-  assert.equal(v('.claude-plugin/plugin.json').version, '0.11.4');
+  assert.equal(v('package.json').version, '0.11.5');
+  assert.equal(v('.claude-plugin/plugin.json').version, '0.11.5');
   const mp = v('.claude-plugin/marketplace.json');
-  assert.ok(JSON.stringify(mp).includes('0.11.4'));
+  assert.ok(JSON.stringify(mp).includes('0.11.5'));
 });

@@ -27,7 +27,8 @@ Done when:
 </constraints>
 
 <report_back>
-STATUS: DONE | HANDOFF | BLOCKED. Then: the change; the `npm test` output; unverified items;
-suggestions. Up to 25 lines,
-the rest goes to `.claude/ghorc-out/fix-slugify-report.md`.
+The change; the `npm test` output; unverified items; suggestions. Up to 25 lines, the rest goes to the report file
+<absolute path: lead project root>/.claude/ghorc-out/d1-implementer.md (this tab is named `d1-implementer`).
+The LAST line of the report file: `DONE d1-implementer` / `BLOCKED d1-implementer: <reason>` / `HANDOFF d1-implementer`.
+A result line printed only in the terminal does not count: the lead does not see your screen as a result.
 </report_back>

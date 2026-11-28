@@ -172,7 +172,9 @@ The autocompact percentage is of the context window and must compact above `ctxH
 
 Seven tags in order: `<role>`, `<context>`, `<read_first>`, `<you_own>`, `<steps>`, `<constraints>`,
 `<report_back>`. `/ghorc:brief` has the full templates. Reports, scratch and large outputs go to
-`<project>/.claude/ghorc-out/` (setup git-excludes it). A filled example:
+`.claude/ghorc-out/` of the lead's project root (setup git-excludes it); the brief gives the worker the ABSOLUTE path of its
+report file, because the tabs guard reads it only there and a worker's worktree is not that root. A wait returns on the
+worker's status and never reads the file. A filled example:
 
 ```
 <role>You are the implementer of task E12. You work alone and spawn no subagents.</role>
@@ -195,8 +197,10 @@ Done when: the three new tests pass and existing tests are unchanged.
 - No incidental refactoring. Checks only through npm run check:fast; no full suite.
 - After two failed fixes of the same cause, stop and report observations and hypotheses.
 </constraints>
-<report_back>STATUS: DONE | HANDOFF | BLOCKED; SHA; behavior change; checks with output;
-unverified; next step; suggestions. Up to 25 lines.</report_back>
+<report_back>SHA; behavior change; checks with output; unverified; next step; suggestions. Up to 25 lines, the rest
+goes to the report file <absolute path: lead project root>/.claude/ghorc-out/<name>.md. The LAST line of the report
+file: `DONE <name>` / `BLOCKED <name>: <reason>` / `HANDOFF <name>`. A result line printed only in the terminal does
+not count: the lead does not see your screen as a result.</report_back>
 ```
 
 The effort goes on the Agent call (`effort: "medium"`), not in the brief. A smaller, runnable example is
@@ -205,8 +209,10 @@ The effort goes on the Agent call (`effort: "medium"`), not in the brief. A smal
 
 ## How to accept a report
 
-- The first line is `STATUS: DONE | HANDOFF | BLOCKED` (implementer, integrator, release) or a verdict
-  `ACCEPT | ACCEPT_WITH_NOTES | CHANGES_REQUIRED | BLOCKED` (reviewers). Details belong in a file, not the report.
+- The result is the LAST line of the report file at the absolute path the brief gave: `DONE <name>`,
+  `BLOCKED <name>: <reason>` or `HANDOFF <name>` (implementer, integrator, release), or `VERDICT <ACCEPT |
+  ACCEPT_WITH_NOTES | CHANGES_REQUIRED | BLOCKED>` (reviewers). A line printed only in the terminal is not a result.
+  Details belong in a file, not the report.
 - Accept by facts: the SHA exists, `git diff --stat <base>..<sha>` stays inside `<you_own>`, every check comes with
   its command and output. "Unverified" items and "Suggestions" are the lead's decision.
 - `CHANGES_REQUIRED` needs a P0/P1 finding with `file:line` and a reproduction. A clarification on the same task (at

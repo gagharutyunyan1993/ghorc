@@ -70,9 +70,17 @@ Every deny is also in `<tmp>/ghorc-<user>/denials.log` ([hooks.md](hooks.md#deni
 
 - **A worker does not see new rules from `.claude/ghorc.json`.** The hooks read the config from the worker session's
   cwd, not from the command's. Start the worker in a worktree based on a fresh `origin/main`.
-- **The lead waited and nothing came.** The worker printed `DONE` to its terminal but not as the last line of its
-  report file, which is what the wait reads; the brief must say so. A Stop with working workers and no background wait
-  is blocked once (`tabs NOWAIT`).
+- **The lead waited and the result never showed up.** The wait (`herdr agent wait`, `hc wait`) returns on the worker's
+  status; it does not read the report file. Only the tabs guard reads the file, from the lead's project root, at
+  SessionStart, when the lead submits a prompt and when it stops. Two causes: the worker printed `DONE` to its terminal
+  only, or it wrote the file at a relative path inside its own worktree, where the guard never looks. The brief must
+  give the absolute report path and say the LAST line of that file is the result. The lead then follows the "Missing
+  result" rule of skill `ghorc:lead`: the package is not delivered, the same worker gets one prompt to write the file,
+  otherwise one re-brief, then BLOCKED to the owner. A result line counts only if the file was written after the lead
+  last sent that worker a task (with no send the guard recorded, after the guard first saw the tab), so a line from an
+  earlier round is stale, and so is the line of a worker that was sent a question after its result: the one prompt
+  "write the report file again" is the whole remedy. The `NORESULT` flag marks this state. A Stop with working workers
+  and no background wait is blocked once (`tabs NOWAIT`).
 - **A brief or a multi-line file written with a Bash heredoc is empty or missing.** Quoting broke it; write it with the
   Write tool and check the file exists before the launch.
 - **A check hangs and one core stays at 100%.** A `python -` (script on stdin) waits for input; use `python -I -c` or a

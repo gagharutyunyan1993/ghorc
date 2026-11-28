@@ -103,8 +103,15 @@ function resultLine(root, name) {
 // ---------------------------------------------------------------------------------------------------------------------
 // Command parsing
 const PROGRAMS = { hc: /^(?:.*[\\/])?hc(?:\.exe)?$/i, herdr: /^(?:.*[\\/])?herdr(?:\.exe)?$/i };
-const CLAUDE = /^(?:.*[\\/])?claude(?:\.exe|\.cmd)?$/i;
+const CLAUDE = /^(?:.*[\\/])?claude(?:\.exe|\.cmd|\.ps1)?$/i;
 const ENV_BIN = /^(?:.*[\\/])?env(?:\.exe)?$/i;
+// The prefilter for a command that may carry hc or herdr. No \b in front: env -Shc run ... holds hc inside a word of env's option
+// (peelWrappers reads it); a word that only ends in hc costs one more parse, nothing else.
+const HC_HERDR_WORD = /(?:hc|herdr)(?:\.exe)?\b/i;
+// The options of env that parseHc models in front of the program: -i, a lone -, --ignore-environment, -u NAME, --unset=NAME and
+// --unset NAME (and `--`, skipped in parseHc). -> the words the option takes, 0 for any other option (-S, -C, -v, -iu ...: not
+// modelled, the command is denied)
+const envOptWords = (t) => (t === '-i' || t === '-' || t === '--ignore-environment' || /^--unset=/.test(t) ? 1 : t === '-u' || t === '--unset' ? 2 : 0);
 // Words that may stand in front of the program of a segment (env assignments, shells and their flags, small wrappers).
 const LEADING = /^(?:[A-Za-z_][A-Za-z0-9_]*=\S*|&|call|start|cmd(?:\.exe)?|\/[ckr]|bash|sh|zsh|dash|-[A-Za-z]*c|sudo|env(?:\.exe)?|time|nohup|exec|command|powershell(?:\.exe)?|pwsh(?:\.exe)?|-command|-noprofile|-noninteractive|-nologo|"")$/i;
 const HC_OTHER = new Set(['send', 'exec', 'keys', 'interrupt', 'ls', 'list', 'get', 'kill', 'rm', 'wait', 'read', 'ps', 'attach', 'logs']);
@@ -220,6 +227,7 @@ function parseHc(tokens, low) {
   const opts = [];
   let i = run + 1;
   let envIdx = -1;
+  let envBad = null;
   const assigns = [];
   for (; i < tokens.length; i++) {
     const t = tokens[i];
@@ -233,19 +241,34 @@ function parseHc(tokens, low) {
       } else opts.push({ name: t.toLowerCase(), value: undefined, i, inline: false });
       continue;
     }
-    if (ENV_BIN.test(t) && envIdx < 0) {
-      envIdx = i;
+    if (ENV_BIN.test(t)) {
+      // a second env behind the first is read like the first (env -i env GHORC_ROLE=worker claude)
+      if (envIdx < 0) envIdx = i;
       continue;
     }
     if (envIdx >= 0 && /^[A-Za-z_][A-Za-z0-9_]*=/.test(t)) {
       assigns.push({ t, i });
       continue;
     }
+    // an option of env in front of the program: skipped when modelled, else the program cannot be told (checkParsed denies)
+    if (envIdx >= 0 && (t === '-' || optStr(t))) {
+      const n = envOptWords(t);
+      if (n) {
+        // -i empties the environment, so a GHORC_ROLE set before it is gone; -u NAME / --unset=NAME drops that one name
+        const unset = t === '-u' || t === '--unset' ? tokens[i + 1] : t.startsWith('--unset=') ? t.slice(8) : undefined;
+        for (let k = assigns.length - 1; k >= 0; k--) {
+          if (unset === undefined || assigns[k].t.slice(0, assigns[k].t.indexOf('=')).toLowerCase() === String(unset).toLowerCase()) assigns.splice(k, 1);
+        }
+        i += n - 1;
+        continue;
+      }
+      envBad = t;
+    }
     break;
   }
   if (opts.some(isHelp)) return null;
   const prog = i < tokens.length ? tokens[i] : null;
-  return { type: 'hc-run', tokens, run, opts, envIdx, assigns, progIdx: i, claude: Boolean(prog && CLAUDE.test(prog)), args: tokens.slice(i + 1) };
+  return { type: 'hc-run', tokens, run, opts, envIdx, envBad, assigns, progIdx: i, claude: Boolean(prog && CLAUDE.test(prog)), args: tokens.slice(i + 1) };
 }
 
 // cmd.cjs blanks quoted text and cuts at braces, so the values this guard judges are made readable first: ${HERDR_WORKSPACE_ID}
@@ -342,7 +365,7 @@ function parseCommand(command, powershell) {
   const seen = new Set();
   const text = readable(command);
   for (const seg of segments(powershell ? text : splitSubs(text), { powershell })) {
-    if (!/\b(?:hc|herdr)(?:\.exe)?\b/i.test(seg)) continue;
+    if (!HC_HERDR_WORD.test(seg)) continue;
     // a wrapper cmd.cjs leaves in place (timeout 5, nice -n 5, env -u X ...) is peeled as in the send checks
     const p = parseSegment(seg) || parseSegment(peelWrappers(String(seg).trim().split(/\s+/)));
     if (!p) continue;
@@ -473,24 +496,61 @@ function rawSegments(command, powershell) {
   return segs;
 }
 
-// Wrappers in front of a decoded command that cliTokens does not know: timeout, nice, stdbuf, setsid, and env, command and
-// exec with their options (env -u NAME, exec -a NAME). -> the words from the program on.
-const WRAP_VALUE = { timeout: ['-s', '--signal', '-k', '--kill-after'], nice: ['-n', '--adjustment'], stdbuf: ['-i', '-o', '-e', '--input', '--output', '--error'], setsid: [], env: ['-u', '--unset', '-C', '--chdir', '-S', '--split-string'], command: [], exec: ['-a'] };
-function peelWrappers(words) {
+// Wrappers in front of a decoded command that cliTokens does not know: timeout, nice, stdbuf, setsid, nohup, time, and env, command
+// and exec with their options (env -u NAME, exec -a NAME). -> the words from the program on. A path in front of one is dropped.
+const WRAP_VALUE = { timeout: ['-s', '--signal', '-k', '--kill-after'], nice: ['-n', '--adjustment'], stdbuf: ['-i', '-o', '-e', '--input', '--output', '--error'], ionice: ['-c', '-n', '-p', '-P', '-u', '--class', '--classdata', '--pid', '--pgid', '--uid'], chrt: [], setsid: [], nohup: [], time: [], env: [], command: [], exec: ['-a'] };
+// Programs that run another program, for the "claude behind a program" rule (RUNNERS): the wrappers above and the ones cmd.cjs
+// peels. Package runners (npx, pnpx, bunx) take arbitrary arguments, so only the program they run counts (PKG_RUNNERS).
+const RUNNER_VALUE = {
+  ...WRAP_VALUE,
+  gtimeout: WRAP_VALUE.timeout,
+  sudo: ['-u', '-g', '-h', '-p', '-C', '-D', '-R', '-r', '-T', '-U', '--user', '--group', '--host', '--prompt', '--chdir', '--role', '--type'],
+  doas: ['-u', '-C'],
+  xargs: ['-I', '-n', '-P', '-s', '-E', '-d', '-a', '-L'],
+  taskset: ['-c', '--cpu-list'],
+  flock: ['-w', '-E', '--timeout', '--wait'],
+  watch: ['-n', '--interval'],
+  winpty: [],
+  start: [],
+  call: [],
+  builtin: [],
+  'cross-env': [],
+  npx: ['-p', '--package', '-c', '--call'],
+  pnpx: ['-p', '--package', '-c', '--call'],
+  bunx: [],
+};
+const PKG_RUNNERS = new Set(['npx', 'pnpx', 'bunx']);
+const RUNNERS = new Set(Object.keys(RUNNER_VALUE).filter((n) => !PKG_RUNNERS.has(n)));
+// The words one option of env takes at ws[i]. u, C, S and a take a value: the rest of the word (-uNAME, -iuNAME, --unset=NAME), else
+// the next word (-iu NAME, --unset NAME). The value of S is a string env splits into words: they stay in the command (ws is
+// spliced), so `env -S "herdr pane run ..."` is still seen.
+function envOptLen(ws, i) {
+  const t = ws[i];
+  const long = /^--(unset|chdir|split-string|argv0)(?:=([\s\S]*))?$/.exec(t);
+  const k = long || !/^-[0-9A-Za-z]/.test(t) ? -1 : t.search(/[uCSa]/); // -S'hc run' is the word -Shc run: only its start is a cluster
+  if (!long && k < 0) return 1;
+  const own = long ? long[2] : k < t.length - 1 ? t.slice(k + 1) : undefined;
+  const n = own === undefined ? 2 : 1;
+  const val = own === undefined ? ws[i + 1] : own;
+  if ((long ? long[1] === 'split-string' : t[k] === 'S') && val !== undefined) ws.splice(i + n, 0, ...String(val).split(/\s+/).filter(Boolean));
+  return n;
+}
+function peelWrappers(words, table = WRAP_VALUE) {
+  const ws = words.slice();
   let i = 0;
-  for (let guard = 0; guard < 16 && i < words.length; guard++) {
-    const w = String(words[i]).toLowerCase().replace(/\.exe$/, '');
-    if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(words[i])) {
+  for (let guard = 0; guard < 16 && i < ws.length; guard++) {
+    const w = String(ws[i]).toLowerCase().replace(/^.*[\\/]/, '').replace(/\.exe$/, '');
+    if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(ws[i])) {
       i++;
       continue;
     }
-    if (!(w in WRAP_VALUE)) break;
+    if (!Object.hasOwn(table, w)) break;
     i++;
-    while (i < words.length && /^-/.test(words[i]) && words[i] !== '--') i += WRAP_VALUE[w].includes(words[i]) ? 2 : 1;
-    if (words[i] === '--') i++;
-    if (w === 'timeout' && i < words.length && /^\d/.test(words[i])) i++; // the duration
+    while (i < ws.length && /^-/.test(ws[i]) && ws[i] !== '--') i += w === 'env' ? envOptLen(ws, i) : table[w].includes(ws[i]) ? 2 : 1;
+    if (ws[i] === '--') i++;
+    if ((w === 'timeout' || w === 'gtimeout' || w === 'chrt') && i < ws.length && /^\d/.test(ws[i])) i++; // the duration, the priority
   }
-  return words.slice(i);
+  return ws.slice(i);
 }
 
 // The lead's sends into a pane: `herdr pane run|send-text|send-keys <pane> <payload...>` -> [{ verb, target, payload }],
@@ -1041,6 +1101,146 @@ function nameViolation(name, leadPrefix, what) {
   return p.ok ? null : `${what} "${name}" is not allowed (${p.why}); ${POLICY_TEXT} (${leadPrefix}<name>)`;
 }
 
+// A claude program word (claude, claude.exe, .cmd, .ps1, with or without a path) behind a program of an hc run that is not claude:
+// nothing in front of it is checked (GHORC_ROLE, --model, --effort, -n, the permission args). It is judged only where claude can be
+// the program of what runs: behind a program that runs another program (RUNNERS: nohup, timeout, sudo, xargs ... and a NAME=value
+// word, which needs env in front), behind a package runner (npx claude: the program it runs), inside the command string of a shell
+// (claude as the program of a command of the string), and as a substitution or variable whose text says claude. Behind any other
+// program claude is an argument (grep claude x, node claude, docker run --name claude img).
+const SHELL_PROGS = new Set(['bash', 'sh', 'zsh', 'dash', 'ksh', 'fish', 'csh', 'tcsh', 'cmd', 'pwsh', 'powershell']);
+const SHELL_KEYWORDS = new Set(['if', 'then', 'elif', 'else', 'do', 'while', 'until', 'time', '!', '{']);
+const SHELL_CMD =/^(?:-[A-Za-z]*c|\/[ckr]|-command)$/i; // the option that takes the command string; sh ./claude has none
+const QUOTED_AFTER_ENV = 'a quoted word after env cannot be read (it may be an env option, a NAME=value word or the program): write the env options and NAME=value words unquoted';
+const SPLIT_QUOTED = 'a quoted env -S string in front of hc or herdr cannot be read: write the hc or herdr command without env -S';
+const TAIL = 'start claude directly or behind env with plain NAME=value words';
+const runName = (w) => progName(w).replace(/\.(?:cmd|bat)$/, '');
+// the words of a command string (decoded, after the -c / /c / -Command option): does claude run as the program of one of its commands?
+function stringRunsClaude(words) {
+  const k = words.findIndex((w) => SHELL_CMD.test(w));
+  if (k < 0) return false;
+  return words
+    .slice(k + 1)
+    .join(' ')
+    .replace(/["']/g, '')
+    .split(/[;&|()`\n]+/)
+    .some((seg) => {
+      let w = seg.trim().split(/\s+/);
+      if (w[0] === '&') w = w.slice(1);
+      // shell keywords and grouping words in front of the program (if, then, do, while, !, {, ...) are skipped, before and after the wrappers
+      const skip = () => {
+        while (w.length && SHELL_KEYWORDS.has(w[0])) w = w.slice(1);
+      };
+      skip();
+      w = peelWrappers(w, RUNNER_VALUE);
+      skip();
+      return w.length > 0 && CLAUDE.test(w[0]);
+    });
+}
+// An env -S string with a space in it in front of the program: the string was quoted, cmd.cjs blanked it, so the hc or herdr
+// inside it is not seen as a start. The words up to the first hc / herdr word are looked at; the string has to say hc or herdr.
+function envSplitQuoted(words) {
+  for (let i = 0; i < words.length; i++) {
+    if (PROGRAMS.hc.test(words[i]) || PROGRAMS.herdr.test(words[i])) return false;
+    const m = /^(?:-[iv0]*S|--split-string=?)([\s\S]*)$/.exec(words[i]);
+    const val = m ? (m[1] !== '' ? m[1] : words[i + 1]) : undefined;
+    if (val !== undefined && /\s/.test(val) && HC_HERDR_WORD.test(val)) return true;
+  }
+  return false;
+}
+const hiddenSplit = (command, powershell) => rawSegments(command, powershell).some(envSplitQuoted);
+// What the decoded words of an hc run show and the blanked segment does not: a quoted word that hides the start (env "-i" ...,
+// env "GHORC_ROLE=worker" claude), a quoted env -S string, and a claude program behind a program (see above). Only when a blanked
+// hc run was found at all (cmds), so text that merely contains the words (a heredoc) is not judged. -> reasons
+const AMP_AFTER_RUN = '`&` ends the hc run there, so the program after it would run in the lead\'s own shell and not in the tab: write the program (env GHORC_ROLE=worker claude ...) directly after the hc run options';
+// PowerShell: a mid-line `&` (a word `&`, or `&` glued to the next word) ends the statement, so the words after it are a command of
+// their own (rawSegments keeps a lone & inside the segment: the call operator). A leading `&` stays the call operator.
+function splitAmp(segs) {
+  const out = [];
+  for (const words of segs) {
+    let cur = [];
+    for (let i = 0; i < words.length; i++) {
+      const w = words[i];
+      if (i > 0 && /^&(?:[^\s&]+)?$/.test(w)) { // not a quoted string that starts with `& ` (powershell -Command "& claude ...")
+        cur.ampNext = w.length > 1 ? w.slice(1) : words[i + 1] || ''; // the first word of what follows the `&`
+        out.push(cur);
+        cur = w.length > 1 ? [w.slice(1)] : [];
+      } else cur.push(w);
+    }
+    out.push(cur);
+    if (words.pipe) out[out.length - 1].pipe = true;
+  }
+  return out.filter((w) => w.length);
+}
+// A decoded token against a blanked one: the same word, the same word behind a quoted program path, or a blanked quoted word.
+const sameWord = (d, b) => d === b || b.includes('""') || d.replace(/^.*[\\/]/, '').toLowerCase() === b.toLowerCase();
+const sameRun = (d, b) => d.length === b.length && d.every((t, i) => i === 0 || sameWord(t, b[i]));
+// The blanked hc run (hcs, parseCommand) that a decoded hc run is the same text as, or null when that cannot be told for certain.
+// A run whose words are the same in both readings, or a command with one run in each reading, pairs at once; with more runs they are
+// paired by position when both readings found the same number and every word agrees, else by the one blanked run whose words agree.
+// Never by "some other run is a claude start": a correct start next to a hidden one must not switch the check off for it.
+function blankedPartner(r, key, decoded, hcs) {
+  const same = hcs.find((p) => p.tokens.join(' ') === key);
+  if (same) return same;
+  if (decoded.length === 1 && hcs.length === 1) return hcs[0];
+  const at = decoded.indexOf(key);
+  if (decoded.length === hcs.length && at >= 0 && sameRun(r.tokens, hcs[at].tokens)) return hcs[at];
+  const cand = hcs.filter((p) => sameRun(r.tokens, p.tokens));
+  return cand.length === 1 ? cand[0] : null;
+}
+function rawRunReasons(command, powershell, cmds) {
+  const hcs = cmds.filter((p) => p.type === 'hc-run');
+  const out = [];
+  const raw = rawSegments(command, powershell);
+  const segs = powershell ? splitAmp(raw) : raw;
+  // the decoded hc runs, one per distinct text and in order, as parseCommand lists the blanked ones
+  const decoded = [];
+  if (hcs.length) {
+    for (const words of segs) {
+      const c = cliTokens(words) || cliTokens(peelWrappers(words));
+      if (!c || c.prog !== 'hc') continue;
+      const r = parseHc(c.tokens, c.tokens.map((t) => t.toLowerCase()));
+      if (r && !decoded.includes(r.tokens.join(' '))) decoded.push(r.tokens.join(' '));
+    }
+  }
+  for (let n = 0; n < segs.length; n++) {
+    const words = segs[n];
+    if (envSplitQuoted(words)) out.push(SPLIT_QUOTED);
+    const c = cliTokens(words) || cliTokens(peelWrappers(words));
+    if (!c) continue;
+    if (c.prog !== 'hc' || !hcs.length) continue;
+    const r = parseHc(c.tokens, c.tokens.map((t) => t.toLowerCase()));
+    if (!r) continue;
+    if (words.ampNext !== undefined && (ENV_BIN.test(words.ampNext) || CLAUDE.test(words.ampNext))) out.push(AMP_AFTER_RUN);
+    const key = r.tokens.join(' ');
+    if (r.claude || r.envBad) {
+      const partner = blankedPartner(r, key, decoded, hcs);
+      if ((r.claude && !(partner && partner.claude)) || (r.envBad && !(partner && partner.envBad))) out.push(QUOTED_AFTER_ENV);
+      continue;
+    }
+    if (r.progIdx >= r.tokens.length) continue;
+    let k = r.progIdx;
+    if (r.tokens[k] === '&' && k + 1 < r.tokens.length) k++; // PowerShell call operator
+    const prog = r.tokens[k];
+    const rest = r.tokens.slice(k + 1);
+    const name = runName(prog);
+    if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(prog)) {
+      if (rest.some((w) => CLAUDE.test(w))) out.push(`${prog} in front of claude needs env: write env ${prog} claude ...`);
+    } else if (prog[0] === '$' || prog[0] === '`') {
+      // a substitution (the segmenter cuts $( ... ) into the next segment) or a variable that says claude
+      const text = prog === '$' ? (segs[n + 1] || []).join(' ') : prog[0] === '`' ? r.tokens.slice(k).join(' ') : prog;
+      if (/claude/i.test(text)) out.push(`the program is a substitution or variable that says claude: ${TAIL}`);
+    } else if (RUNNERS.has(name)) {
+      if (rest.some((w) => CLAUDE.test(w))) out.push(`claude behind ${name} cannot be checked: ${TAIL}`);
+    } else if (PKG_RUNNERS.has(name)) {
+      const w = peelWrappers(r.tokens.slice(k), RUNNER_VALUE);
+      if (w.length && CLAUDE.test(w[0])) out.push(`claude behind ${name} cannot be checked: ${TAIL}`);
+    } else if (SHELL_PROGS.has(name) && stringRunsClaude(rest)) {
+      out.push(`claude inside the command string of ${name} cannot be checked: ${TAIL}`);
+    }
+  }
+  return out;
+}
+
 // ctx: { s: settings, list: (kind) => entries|null (memoised), root, self, session, workspace (own herdr workspace id or ''), powershell,
 //        devRe (compiled tabs.devCommands), pending: [{ name, agent }] }.
 // -> { violations: string[], fixed: string|null }
@@ -1218,7 +1418,10 @@ function checkParsed(p, ctx) {
       v.push(`${name} is a long-lived tab (kind ${parsed.kind}): start it with --outlive-parent, otherwise closing the lead kills it`);
       inserts.push('--outlive-parent');
     }
-    if (!p.claude && known && parsed.kind !== 'runner' && ctx.devRe.length && p.progIdx < p.tokens.length) {
+    if (p.envBad) {
+      v.push(`the env option ${p.envBad} cannot be checked: the guard cannot tell which program it starts, so a claude start could hide behind it (understood: -i, -, --ignore-environment, -u NAME, --unset NAME, --unset=NAME, --); pass plain NAME=value words after env instead`);
+    }
+    if (!p.claude && !p.envBad && known && parsed.kind !== 'runner' && ctx.devRe.length && p.progIdx < p.tokens.length) {
       const payload = p.tokens.slice(p.progIdx).join(' ');
       if (matches(payload, ctx.devRe, { powershell: ctx.powershell })) {
         v.push(`"${payload}" is a long-running process (tabs.devCommands): it runs only in a runner tab, hc run --bg --outlive-parent --name <pkg>-runner --cwd <dir> <cmd>`);
@@ -1234,7 +1437,7 @@ function checkParsed(p, ctx) {
       }
       fixedArgs = checkClaudeArgs(p.args, name, known, role === 'lead' ? s.leadPerm : s.workerPerm, v, s.leadPrefix);
     }
-    if (v.length) {
+    if (v.length && !p.envBad) { // with an env option that cannot be read a corrected form would only echo it
       let head = tk.slice(0, p.progIdx);
       if (envRole) {
         if (p.envIdx >= 0) head.splice(p.envIdx + 1, 0, `GHORC_ROLE=${envRole}`);
@@ -1287,10 +1490,10 @@ const UNREADABLE = 'the guard could not parse this command (nesting too deep or 
 // workspace: the own herdr workspace id, or a function that returns it (asked once, only when a herdr command is judged).
 function checkCommand(command, { powershell = false, s, list, root, cwd, self, session, workspace = '', envWorkspace = '' }) {
   try {
-    if (!/\b(?:hc|herdr)(?:\.exe)?\b/i.test(command)) return null;
+    if (!HC_HERDR_WORD.test(command)) return null;
     const cmds = parseCommand(command, powershell);
     const sends = sendCommands(command, powershell);
-    if (!cmds.length && !sends.length && !/\btab\b/i.test(command)) return null;
+    if (!cmds.length && !sends.length && !/\btab\b/i.test(command) && !hiddenSplit(command, powershell)) return null;
     const cache = {};
     const needWs = sends.length > 0 || cmds.some((p) => p.type !== 'hc-run');
     let ws = workspace;
@@ -1315,6 +1518,12 @@ function checkCommand(command, { powershell = false, s, list, root, cwd, self, s
       lines.push(`${head}:`);
       for (const x of r.violations) lines.push(`- ${x}`);
       if (r.fixed) lines.push(`Corrected form: ${r.fixed}`);
+    }
+    try {
+      const extra = rawRunReasons(command, powershell, cmds).filter((x) => !lines.includes(`- ${x}`));
+      if (extra.length) lines.push('hc run:', ...[...new Set(extra)].map((x) => `- ${x}`));
+    } catch {
+      /* the blanked reading above stands */
     }
     // the shape of a tab create (see TAB_SHAPE) and the --cwd values of the canonical form
     if (/\btab\b/i.test(command)) {
@@ -1362,12 +1571,18 @@ function devMatch(command, patterns, powershell) {
   return null;
 }
 
+// The bound of a `herdr agent list` read of the guard: 2500 ms, or GHORC_TOOL_TIMEOUT_MS when it is a positive number (tests on a loaded machine).
+const listMs = (env = process.env) => {
+  const n = Number(env.GHORC_TOOL_TIMEOUT_MS);
+  return Number.isFinite(n) && n > 0 ? n : 2500;
+};
+
 // The terminal backend of this session, 'hc' | 'herdr' | 'none' (the test seams count as a backend); asked only after a match.
 function backendKind(env = process.env, cwd, session) {
   try {
     if (env.GHORC_CAPACITY_HC_JSON !== undefined) return 'hc';
     if (env.GHORC_CAPACITY_HERDR_JSON !== undefined) return 'herdr';
-    return backend.detect({ env, cwd, timeoutMs: 2500, session, verdictOnly: true }).backend;
+    return backend.detect({ env, cwd, timeoutMs: listMs(env), session, verdictOnly: true }).backend;
   } catch {
     return 'none';
   }
@@ -1437,7 +1652,7 @@ function readLive(env = process.env, cwd, prefer, session) {
       if (r) return r.entries ? r : null;
     }
     // the verdict may come from the 30 s cache, the list never does: the probe below is a fresh `herdr agent list`
-    const d = backend.detect({ env, cwd, prefer, timeoutMs: 2500, session });
+    const d = backend.detect({ env, cwd, prefer, timeoutMs: listMs(env), session });
     if (d.backend === 'hc') {
       const raw = backend.hcText(env);
       const entries = raw === null ? null : parseHcList(raw);
@@ -1458,9 +1673,10 @@ const closeCmd = (live, e) => (live.kind === 'hc' ? `hc kill ${e.name}; hc rm ${
 const BLOCKED_RESULT = /^(?:BLOCKED\s|VERDICT BLOCKED(?:\s|$))/;
 
 // evaluate(live, state, now, { root, s }) -> { live: n, lines: [], blocked: [names], finished: [names], stopNew: [{ key, flag }], state, toNotify: [names] }
-// Does not touch the disk except for the report files; the caller saves state. A result line counts only when the report is not
-// older than the first sighting of the tab (a name is reused across fix rounds, so an old report is normal). stopNew: the
-// BLOCKED / FINISHED flags that have not yet blocked Stop (state `sb`); the caller records them with markStopped when it blocks.
+// Does not touch the disk except for the report files; the caller saves state. A result line counts only when the report was written
+// at or after the last recorded task send to that worker, else (no send recorded) at or after the first sighting of the tab (a name is
+// reused across fix rounds, so an old report is normal; see freshSince). stopNew: the
+// BLOCKED / FINISHED / NORESULT flags that have not yet blocked Stop (state `sb`); the caller records them with markStopped when it blocks.
 // Whether the Stop input shows no live background wait: true only when background_tasks is a list and none of its in-flight
 // entries is a shell or monitor task (the form a background `hc wait` / `herdr agent wait` takes). Unknown input: false.
 const WAIT_TYPE = /^(shell|bash|local_bash|monitor|monitor_mcp)$/i;
@@ -1471,6 +1687,113 @@ function noLiveWait(tasks) {
 }
 const NOWAIT_REPEAT_MS = 10 * 60 * 1000;
 const CLOSE_CHECK_MS = 60 * 60 * 1000;
+// NORESULT: a worker that was just sent a task turns `working` a moment later, so the flag waits this long after the send; a send
+// whose tab has not shown up in the list yet is remembered this long
+const NORESULT_GRACE_MS = 60 * 1000;
+const TASK_KEEP_MS = 60 * 60 * 1000;
+
+// A text that only drives the session (/exit, /clear, /compact ...) is not a task: the closing sequence (result accepted, `/exit`)
+// must not make the delivered result stale. Judged on the decoded text of the send, before quotes are blanked.
+const SESSION_COMMAND = /^\/(?:exit|quit|clear|compact|resume|rewind|help|status|cost|context|usage|model|config|doctor|memory|login|logout)(?:\s.*)?$/i;
+const isTaskText = (words) => {
+  const t = words.join(' ').trim();
+  return t !== '' && !SESSION_COMMAND.test(t);
+};
+const PROMPT_OPTS = new Set([...HERDR_VALUE_OPTS, '--until']);
+
+// Whether the claude arguments of an hc run carry a prompt: a positional word (a quoted word is blanked to "" by cmd.cjs), not the
+// value of an option. An option that takes exactly one value consumes the next word; a flag takes none; a variadic option (--allowedTools
+// ...) or one this list does not know may take the next words, so a word after it is not taken for the prompt. Where it cannot tell
+// it answers false: the start then records nothing (the seen-working signal still covers the worker).
+const CLAUDE_VALUE_OPTS = new Set(['--model', '--effort', '-n', '--name', '--permission-mode', '--append-system-prompt', '--system-prompt', '--append-system-prompt-file', '--system-prompt-file', '--settings', '--session-id', '--agent', '--agents', '--fallback-model', '--output-format', '--input-format', '--max-turns', '--max-budget-usd', '--setting-sources', '--permission-prompt-tool']);
+const CLAUDE_FLAGS = new Set(['--dangerously-skip-permissions', '--allow-dangerously-skip-permissions', '--verbose', '--continue', '-c', '--print', '-p', '--strict-mcp-config', '--fork-session', '--bare', '--include-partial-messages', '--no-session-persistence', '--chrome', '--no-chrome']);
+function claudeHasPrompt(args) {
+  let unsure = false; // after an option that may take several or unknown values: until the next option word
+  for (let i = 0; i < args.length; i++) {
+    const t = args[i];
+    if (t === '--') return i + 1 < args.length; // everything after is positional
+    if (t.startsWith('-') && t !== '-' && t !== '""') {
+      unsure = false;
+      if (t.includes('=') || CLAUDE_FLAGS.has(t)) continue;
+      if (CLAUDE_VALUE_OPTS.has(t)) i++;
+      else unsure = true;
+      continue;
+    }
+    if (!unsure) return true; // a positional word that no option takes
+  }
+  return false;
+}
+
+// The workers a command hands a task to (lowercase names): `hc run ... claude ... "<task>"`, `hc send <name> "<text>"`, the text
+// sends `herdr pane run|send-text <pane or name> "<text>"` and `herdr agent prompt <name or pane> "<text>"` (a pane id is resolved by
+// the herdr list, read only when needed). A send whose decoded text is only a session command (SESSION_COMMAND) is not a task.
+// Recorded by the PreToolUse check for NORESULT; what it cannot read records nothing. A herdr send counts only for a pane of this
+// lead's own inventory (the workspace and project test of the worker list; ctx = { root, self, leadPrefix, workspace: () => id });
+// a name that is not listed at all is taken as a tab that has not shown up yet.
+function taskNames(command, powershell, list, ctx = {}) {
+  const out = [];
+  const add = (n) => {
+    if (typeof n === 'string' && !unknownValue(n) && !out.includes(n.toLowerCase())) out.push(n.toLowerCase());
+  };
+  const herdrWorker = (target) => {
+    if (!target || unknownValue(target)) return;
+    const low = target.toLowerCase();
+    const all = list('herdr');
+    const same = (a) => (a.pane && a.pane.toLowerCase() === low) || (a.name && a.name.toLowerCase() === low);
+    const ws = String(typeof ctx.workspace === 'function' ? ctx.workspace() : ctx.workspace || '').toLowerCase();
+    const mine = all ? inventory(all, 'herdr', { root: ctx.root, self: ctx.self, leadPrefix: ctx.leadPrefix, workspace: ws }).find(same) : null;
+    if (mine) add(mine.name);
+    else if (!target.includes(':') && !(all && all.some(same))) add(target);
+  };
+  if (!HC_HERDR_WORD.test(String(command))) return out; // the prefilter of parseCommand: every form the start checks see is seen here
+  for (const p of parseCommand(command, powershell)) {
+    if (p.type !== 'hc-run' || !p.claude || !claudeHasPrompt(p.args)) continue;
+    const nm = optVals(p.opts, '--name')[0];
+    if (nm) add(nm.value);
+  }
+  for (const words of rawSegments(command, powershell)) {
+    const c = cliTokens(words) || cliTokens(peelWrappers(words));
+    if (!c) continue;
+    const t = c.tokens;
+    if (c.prog === 'hc') {
+      const { pos } = scan(t, 1, t.length, HC_VALUE_OPTS);
+      if (pos.length > 1 && pos[0].t.toLowerCase() === 'send' && isTaskText(t.slice(pos[1].i + 1))) add(pos[1].t);
+      continue;
+    }
+    for (let i = 1; i + 1 < t.length; i++) {
+      if (t[i].toLowerCase() !== 'agent' || t[i + 1].toLowerCase() !== 'prompt') continue;
+      const { opts, pos } = scan(t, i + 2, t.length, PROMPT_OPTS);
+      if (!opts.some(isHelp) && pos.length > 1 && isTaskText(pos.slice(1).map((x) => x.t))) herdrWorker(pos[0].t);
+      break;
+    }
+  }
+  for (const x of sendCommands(command, powershell)) {
+    if (x.verb !== 'send-keys' && isTaskText(x.payload)) herdrWorker(x.target);
+  }
+  return out;
+}
+
+// One definition of "fresh" for FINISHED, NORESULT, STALLED and GONE: a result line counts when its report was written at or after the
+// last recorded task send to that worker; only when no send is recorded (0) the tab's first sighting is the bound. A report written
+// after the send is fresh whenever the guard first saw the tab (the lead often starts a worker and sees the tab only after it finished),
+// and a second task in the same tab is not answered by the first task's line.
+const freshSince = (firstSeen, taskAt) => (taskAt > 0 ? taskAt : firstSeen);
+const clock = (ms) => {
+  const d = new Date(ms);
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+};
+// " (its report still ends with a result line from 07:14, written before the task sent at 07:20)": the note of NORESULT and STALLED
+// when the report has a result line that is not fresh; empty without one
+const staleNote = (res, since, sent) => (res ? ` (its report still ends with a result line from ${clock(res.mtimeMs)}, written before ${sent ? 'the task sent' : 'this tab was first seen'} at ${clock(since)})` : '');
+
+// Records in the state of this session that these workers were handed a task now, for the NORESULT flag.
+function recordTasks(session, names, now = Date.now()) {
+  if (!names.length) return;
+  const st = readTabState(session);
+  st.tasked = { ...(st.tasked && typeof st.tasked === 'object' && !Array.isArray(st.tasked) ? st.tasked : {}) };
+  for (const n of names) st.tasked[n] = now;
+  writeTabState(session, st, now);
+}
 
 // Records the names of an hc close in the state of this session, for the CLOSE? check of the next report.
 function recordClose(session, names, now = Date.now()) {
@@ -1488,17 +1811,23 @@ function evaluate(live, prevState, now, { root, s, workspace = '', session = '' 
   const rows = [];
   const toNotify = [];
   const stopNew = [];
+  const taskedOld = prevState.tasked && typeof prevState.tasked === 'object' && !Array.isArray(prevState.tasked) ? prevState.tasked : {};
   for (const e of inv) {
     const key = e.name.toLowerCase();
     const prev = prevState.workers[key];
     const isNew = !(prev && typeof prev === 'object' && typeof prev.firstSeen === 'number');
     const w = isNew ? { firstSeen: now, status: e.status, statusSince: now, notified: false } : { ...prev };
+    const taskAt = typeof taskedOld[key] === 'number' ? taskedOld[key] : 0; // the last recorded task send to this worker
     const res0 = isNew ? resultLine(root, key) : null;
-    if (isNew && res0 && e.status !== 'working' && e.status !== 'blocked') w.rq = true; // first seen with a result line: quiet until its status changes
+    if (isNew && res0 && !taskAt && e.status !== 'working' && e.status !== 'blocked') w.rq = true; // first seen with a result line of an unplaced round (no recorded send): quiet until its status changes
     if (w.status !== e.status) {
       w.status = e.status;
       w.statusSince = now;
       delete w.rq;
+    }
+    if (e.status === 'working') {
+      w.worked = true; // the guard saw it work: it was given a task
+      w.wAt = now; // when: a sighting after a recorded send ends that send's grace period
     }
     if (e.status !== 'blocked') w.notified = false;
     else if (!w.notified) {
@@ -1507,7 +1836,9 @@ function evaluate(live, prevState, now, { root, s, workspace = '', session = '' 
     }
     const long = e.parsed.long;
     const res = resultLine(root, key);
-    const fresh = res && res.mtimeMs >= w.firstSeen ? res : null;
+    const since = freshSince(w.firstSeen, taskAt);
+    const fresh = res && res.mtimeMs >= since ? res : null;
+    const stale = res && !fresh ? staleNote(res, since, taskAt > 0) : ''; // a result line that is there but not fresh, said in the NORESULT and STALLED texts
     const runMin = Math.max(0, Math.floor((now - w.firstSeen) / 60000));
     const idleMin = IDLE.has(e.status) ? Math.max(0, Math.floor((now - w.statusSince) / 60000)) : 0;
     const flags = [];
@@ -1520,21 +1851,37 @@ function evaluate(live, prevState, now, { root, s, workspace = '', session = '' 
     }
     // a result line already there at the first sighting (a worker that finished before this lead saw it, e.g. after a restart): a soft
     // question, never a Stop block; a tab that is working or blocked has not finished
-    if (isNew && res && e.status !== 'working' && e.status !== 'blocked') {
-      const d = new Date(res.mtimeMs);
-      const hhmm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-      flags.push(['RESULT?', `${e.name} has a result line from ${hhmm}: if it is the current round, accept it and close the tab`]);
+    // (only when no send is recorded for the worker: with a recorded send the line is placed, fresh (FINISHED) or the previous task's
+    // (NORESULT), so there is nothing to ask)
+    const soft = isNew && res && !taskAt;
+    if (soft && e.status !== 'working' && e.status !== 'blocked') {
+      flags.push(['RESULT?', `${e.name} has a result line from ${clock(res.mtimeMs)}: if it is the current round, accept it and close the tab`]);
+    }
+    // NORESULT: a tasked worker (seen working, or sent a task by a command this guard recorded) is idle or done and its report has no
+    // fresh result line, so its package is not delivered. Not within NORESULT_GRACE_MS of the send unless the guard has seen the worker
+    // work since the send, and not for a tab that RESULT? asks about
+    const grace = taskAt > 0 && now - taskAt < NORESULT_GRACE_MS && !(typeof w.wAt === 'number' && w.wAt > taskAt);
+    const noResult = !long && !fresh && IDLE.has(e.status) && (w.worked === true || taskAt > 0) && !soft && !grace;
+    if (noResult) {
+      flags.push(['NORESULT', `${e.name} is ${e.status} and has no fresh result line${stale}, so its package is NOT delivered. Expected report: ${path.resolve(reportFile(root, key))}. Read its screen (${readCmd(live, e)}), ask the same worker once to write the file with the result line last, and do not continue without it.`]);
     }
     // a status that is none of the four herdr and hc are known to report is shown, so a renamed status cannot hide a dialog
     if (!KNOWN_STATUS.has(e.status)) flags.push(['UNKNOWN', `${e.name} reports status ${JSON.stringify(e.status)}: read its screen`]);
-    // a tab that has a result line (old or fresh) is never "stalled without a result line"
-    if (!long && !res && idleMin >= s.idleMin) flags.push(['STALLED', `${e.name} has been idle ${idleMin}m without a result line. Read its screen (${readCmd(live, e)}) and decide.`]);
+    // a tab without a fresh result line (a stale one from an earlier round does not count) is "stalled"; NORESULT already says it
+    if (!long && !fresh && !noResult && idleMin >= s.idleMin) flags.push(['STALLED', `${e.name} has been idle ${idleMin}m without ${stale ? `a fresh result line${stale}` : 'a result line'}. Read its screen (${readCmd(live, e)}) and decide.`]);
     if (!long && !finished && !w.rq && runMin >= s.overtimeMin) flags.push(['OVERTIME', `${e.name} runs ${runMin}m (tabs.overtimeMin ${s.overtimeMin}). Read its screen (${readCmd(live, e)}) and decide.`]);
     const names = flags.map((f) => f[0]);
     w.sb = (Array.isArray(w.sb) ? w.sb : []).filter((f) => names.includes(f)); // a flag that went away may block Stop again later
-    for (const f of ['BLOCKED', 'FINISHED']) if (names.includes(f) && !w.sb.includes(f)) stopNew.push({ key, flag: f });
+    for (const f of ['BLOCKED', 'FINISHED', 'NORESULT']) if (names.includes(f) && !w.sb.includes(f)) stopNew.push({ key, flag: f });
     state.workers[key] = w;
     rows.push({ e, runMin, flags, long });
+  }
+  // a recorded send is kept while the worker is in the inventory, or while its tab has not shown up yet (never seen, not listed, under
+  // TASK_KEEP_MS); a worker that left the inventory is forgotten, so a later tab of the same name starts clean
+  const listedNames = new Set(live.entries.map((e) => String(e.name).toLowerCase()));
+  for (const [key, at] of Object.entries(taskedOld)) {
+    if (typeof at !== 'number') continue;
+    if (state.workers[key] || (!prevState.workers[key] && !listedNames.has(key) && now - at < TASK_KEEP_MS)) state.tasked = { ...(state.tasked || {}), [key]: at };
   }
   const agentCount = rows.filter((r) => !r.long).length;
   const lines = [];
@@ -1565,9 +1912,9 @@ function evaluate(live, prevState, now, { root, s, workspace = '', session = '' 
     if (listed.has(key) || !w || typeof w !== 'object' || typeof w.firstSeen !== 'number') continue;
     if (parseName(key, s.leadPrefix).long) continue;
     const res = resultLine(root, key);
-    if (res && res.mtimeMs >= w.firstSeen) continue;
+    if (res && res.mtimeMs >= freshSince(w.firstSeen, typeof taskedOld[key] === 'number' ? taskedOld[key] : 0)) continue;
     state.gone = { ...(state.gone || {}), [key]: w };
-    lines.push(`tabs GONE: ${key} left ${live.kind === 'hc' ? 'hc ls' : 'herdr agent list'} without a result line: its tab was closed or its session ended. Read its report file (.claude/ghorc-out/${key}.md) if there is one, then re-brief or drop the package.`);
+    lines.push(`tabs GONE: ${key} left ${live.kind === 'hc' ? 'hc ls' : 'herdr agent list'} without a result line: its tab was closed or its session ended. Read its report file (${path.resolve(reportFile(root, key))}) if there is one, then re-brief or drop the package.`);
   }
   // an hc close (hc kill / hc rm, recorded by the PreToolUse check) whose name is still listed: these hc forms are not verified
   // against a live hc, so the close is checked here once and reported, never repeated
@@ -1656,6 +2003,9 @@ module.exports = {
   sendCommands,
   hcCloseNames,
   recordClose,
+  taskNames,
+  recordTasks,
+  NORESULT_GRACE_MS,
   parseHerdrList,
   parseHcList,
   inside,
