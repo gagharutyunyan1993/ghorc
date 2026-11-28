@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.11.5 - 2026-11-28
 
 ### Added
 - A worker that finished without writing its report file left the lead with no signal. The tabs guard now raises
@@ -47,6 +47,15 @@
   re-brief and then BLOCKED to the owner, and an `hc send` line is a notice, never the result; the demo example and
   `docs/workflow.md` follow the same rules (`skills/lead`, `skills/brief`, `agents/`, `docs/workflow.md`,
   `docs/troubleshooting.md`, `examples/demo/`).
+
+### Not run against a live herdr
+- `NORESULT` and the result freshness rule ran only against fake `herdr` and `hc` backends: that a live
+  `herdr agent list` shows a worker that ended its turn as `idle` or `done`, and that the 60 seconds after a send are
+  enough for a real worker to be seen `working`.
+- That the guard records the lead's real task sends in the forms listed above (`herdr agent prompt`,
+  `herdr pane run|send-text`, `hc send`, the prompt of `hc run ... claude`).
+- The start checks ran on command text only: no `hc run` with an `env` option, a runner program or a mid-line `&` was
+  started in a real tab.
 
 ## 0.11.4 - 2026-11-28
 
