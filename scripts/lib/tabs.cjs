@@ -568,8 +568,9 @@ function isSink(words) {
   return !args.some((x) => /^(?:-[A-Za-z]*o|--output)/.test(x)) && args.filter((x) => x === '-' || !/^-/.test(x)).length <= 1;
 }
 // An unquoted output redirect to anything but the null device or another stream (> run.sh, >> x, 2> x, &> x); the target
-// must be exactly that (> nul.ps1 and > /dev/null.sh write files), and $null is the null device only in PowerShell.
-const NULL_TARGET = { sh: /^>?\s*(?:&\d+|\/dev\/null|nul)(?=\s|$|[;|&)])/i, ps: /^>?\s*(?:&\d+|\/dev\/null|\$null|nul)(?=\s|$|[;|&)])/i };
+// must be exactly that (> nul.ps1 and > /dev/null.sh write files); $null and nul are the null device only in PowerShell, and
+// bash paths are case-sensitive.
+const NULL_TARGET = { sh: /^>?\s*(?:&\d+|\/dev\/null)(?=\s|$|[;|&)])/, ps: /^>?\s*(?:&\d+|\/dev\/null|\$null|nul)(?=\s|$|[;|&)])/i };
 function writesFile(t, ps) {
   let s = t;
   for (let guard = 0; guard < 10000 && s; guard++) {

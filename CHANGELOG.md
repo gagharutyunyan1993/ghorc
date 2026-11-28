@@ -49,7 +49,7 @@
   `--textconv`/`--exec`/`--upload-pack`/`--receive-pack`, `gh` not for `alias`, `extension` or `--shell`; and with those words
   in the text a program that runs text (a shell, `eval`, `xargs`, `iex`, `Start-Process`, `node -e`), a pipe from a text
   program into anything but a text program or a sink (`head`, `jq`, `Select-Object`; `sort`/`uniq` only without an output
-  file) and a redirect into a file (the null device only as exactly `/dev/null`, `nul`, `&N`, or `$null` in PowerShell) are
+  file) and a redirect into a file (the null device only as exactly `/dev/null` or `&N`, and `$null` or `nul` in PowerShell) are
   denied; `git --output` counts as writing a file.
   In the allowed shape the `--cwd` is judged
   as before; an absolute value is normalized first (`D:/proj/..` and `<root>/.claude/worktrees/../..` were taken as inside),
