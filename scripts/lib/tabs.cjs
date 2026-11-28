@@ -383,6 +383,8 @@ function rawSegments(command, powershell) {
       continue;
     }
     if (c === '\n' || c === '\r' || c === ';' || c === '|' || c === '(' || c === ')' || (c === '&' && (!powershell || s[i + 1] === '&'))) {
+      endWord();
+      if (words.length && c === '|' && s[i + 1] !== '|') words.pipe = true; // its output feeds the next segment
       endSeg();
       if ((c === '&' || c === '|') && s[i + 1] === c) i++;
       continue;
@@ -528,15 +530,48 @@ const HERDR_RAW = /(?<![\w.-])herdr(?:\.exe)?(?![\w.\\/-])/i;
 const TAB_NEXT_CREATE = /\btab['"\s,@()]*create\b/i;
 const failClosed = (t) => HERDR_RAW.test(t) && TAB_NEXT_CREATE.test(t);
 const TEXT_PROGS = new Set(['gh', 'glab', 'echo', 'printf', 'write-output', 'write-host', 'grep', 'egrep', 'fgrep', 'rg', 'select-string', 'sls', 'findstr']);
-// A segment of a text program: its arguments are text, not commands (git only for commit, tag, log, grep, show and notes).
+const progName = (w) => String(w || '').replace(/^.*[\\/]/, '').replace(/\.exe$/i, '').toLowerCase();
+// git options that run a program or read one from config (a pager, a diff driver, a remote helper)
+const GIT_RUNS = /^(?:-c|-O|--open-files-in-pager|--ext-diff|--textconv|--exec|--upload-pack|--receive-pack|--config-env|--exec-path)/;
+// A segment of a text program: its arguments are text, not commands. Only a bare program: no VAR=value or wrapper in front;
+// git only as `git commit|tag|log|grep|show|notes` with no global option before the subcommand and no option that runs a
+// program; gh/glab not for alias, extension or --shell. A redirect or a pipe into a shell is judged in usesTabCreate.
 function isTextSegment(words) {
-  let w = peelWrappers(words);
+  let w = words;
   while (w.length && /^(?:time|nohup)$/i.test(w[0])) w = w.slice(1);
-  if (!w.length) return false;
-  const prog = String(w[0]).replace(/^.*[\\/]/, '').replace(/\.exe$/i, '').toLowerCase();
+  if (!w.length || /^[A-Za-z_][A-Za-z0-9_]*=/.test(w[0])) return false;
+  const prog = progName(w[0]);
+  if (prog === 'gh' || prog === 'glab') return !/^(?:alias|extension|ext)$/.test(w[1] || '') && !w.some((x) => /^--shell\b/.test(x));
   if (prog !== 'git') return TEXT_PROGS.has(prog);
-  const k = w[1] === '-C' ? 3 : 1;
-  return /^(?:commit|tag|log|grep|show|notes)$/.test(w[k] || '');
+  return /^(?:commit|tag|log|grep|show|notes)$/.test(w[1] || '') && !w.some((x) => GIT_RUNS.test(x));
+}
+// Programs that run their text: shells, eval, xargs, PowerShell's Invoke-Expression and Start-Process, an interpreter with -e/-c.
+const RUNS_TEXT = new Set(['bash', 'sh', 'zsh', 'dash', 'ksh', 'fish', 'csh', 'tcsh', 'busybox', 'wsl', 'cmd', 'pwsh', 'powershell', 'eval', 'exec', 'source', '.', 'xargs', 'parallel', 'iex', 'invoke-expression', 'invoke-command', 'icm', 'start-process', 'saps', 'start']);
+const INTERPRETERS = /^(?:node|deno|bun|python[\d.]*|py|perl|ruby|php|osascript)$/;
+function runsText(words) {
+  let w = words;
+  while (w.length && (/^(?:time|nohup|&)$/i.test(w[0]) || /^[A-Za-z_][A-Za-z0-9_]*=/.test(w[0]))) w = w.slice(1);
+  for (const p of [progName(w[0]), progName(peelWrappers(w)[0])]) {
+    if (RUNS_TEXT.has(p)) return true;
+    if (INTERPRETERS.test(p) && w.some((x) => /^(?:-[ecrpE]|--eval|--print|eval|-command)$/i.test(x))) return true;
+  }
+  return false;
+}
+// What a text program may pipe into without running the text.
+const PIPE_SINKS = new Set(['head', 'tail', 'less', 'more', 'wc', 'sort', 'uniq', 'cat', 'cut', 'tr', 'column', 'nl', 'fold', 'jq', 'select-object', 'select', 'out-string', 'out-host', 'out-null', 'measure-object', 'format-table', 'format-list', 'ft', 'fl']);
+// An unquoted output redirect to anything but the null device or another stream (> run.sh, >> x, 2> x, &> x).
+function writesFile(t, ps) {
+  let s = t;
+  for (let guard = 0; guard < 10000 && s; guard++) {
+    const sc = scanLine(s, ps);
+    if (!sc) return false;
+    for (const { i, c } of sc.specials) if (c === '>' && !/^>?\s*(?:&\d|\/dev\/null\b|\$null\b|nul\b)/i.test(s.slice(i + 1)) && s[i + 1] !== '>') return true;
+    if (sc.comment < 0) return false;
+    const nl = s.indexOf('\n', sc.comment);
+    if (nl < 0) return false;
+    s = s.slice(nl + 1);
+  }
+  return true;
 }
 // PowerShell: the bodies of $( ) subexpressions, also inside "..." and @"..."@ (they run there too), nested ones included.
 function psCloseParen(s, k, d) {
@@ -613,18 +648,29 @@ function commandTexts(command, ps) {
   return texts;
 }
 // Does the command run a herdr tab create? herdr as a command word with tab create after it, or the fail-closed words outside
-// the arguments of a text program. A quote that does not close next to a mention counts.
+// the arguments of a text program. A quote that does not close next to a mention counts. Backstop when the fail-closed words
+// are in the text at all: a program that runs text (sh, eval, xargs, iex, node -e), a text program piped into anything but a
+// text program or a plain sink (head, jq, Select-Object), or an output redirect to a file count as running it.
 function usesTabCreate(command, ps) {
+  const fc = failClosed(String(command));
   const residual = [];
   for (const { t, ps: p } of commandTexts(command, ps)) {
     const segs = rawSegments(t, p);
     if (segs.unclosed && MENTION.test(t)) return true;
-    for (const words of segs) {
+    if (fc && writesFile(t, p)) return true;
+    for (let k = 0; k < segs.length; k++) {
+      const words = segs[k];
       for (let j = 0; j < words.length; j++) if (HERDR_WORD.test(words[j]) && /\btab\s+create\b/i.test(words.slice(j + 1).join(' '))) return true;
-      if (!isTextSegment(words)) residual.push(words.join(' '));
+      const text = isTextSegment(words);
+      // also without a short option glued to its value (-O'herdr ...' is the word -Oherdr ...)
+      if (!text) residual.push(words.join(' '), words.map((x) => x.replace(/^-[A-Za-z]/, '')).join(' '));
+      if (!fc) continue;
+      if (runsText(words)) return true;
+      const next = segs[k + 1];
+      if (text && words.pipe && next && !isTextSegment(next) && !PIPE_SINKS.has(progName(next[0]))) return true;
     }
   }
-  return failClosed(String(command)) && failClosed(residual.join('\n'));
+  return fc && failClosed(residual.join('\n'));
 }
 // Unquoted characters that make a command more than one plain command: -> { specials: [{ i, c }], comment } or null (a quote
 // does not close). bash: \ escapes, '...' literal, "..." with \ escapes; PowerShell: ` escapes, '...' with '', "..." with ` and "".

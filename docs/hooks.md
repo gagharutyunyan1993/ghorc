@@ -377,7 +377,10 @@ that binds every session (lead, subagent, worker) is the dev-command rule below.
   as `sh -c`, `Start-Process`, `xargs` or `eval`, a heredoc, a `cd`) is denied with that form, and so is a PowerShell `"$(...)"` subexpression or a `Start-Process` argument list; on the line the only variables are
   `$PWD` after `--cwd` and `$HERDR_WORKSPACE_ID` after `--workspace`. Fail-closed: a command whose text has herdr as a word and `tab` next to
   `create` must be that form, unless the words are only in the arguments of a text program (`git commit`/`tag`/`log`, `gh`, `echo`, `grep`, `rg`):
-  a commit message or a search is not a command. A command with an `hc` or `herdr` word that
+  a commit message or a search is not a command. A text program counts only bare (no `VAR=value` or wrapper in front; `git <subcommand>` with no global
+  option and no option that runs a program, such as `-c`, `-O`, `--ext-diff`, `--textconv`; `gh` not for `alias`, `extension` or `--shell`), and with those
+  words in the text a shell, `eval`, `xargs`, `iex`, `Start-Process` or `node -e`, a pipe from a text program into anything but a text program or a sink
+  (`head`, `jq`, `Select-Object`) and a redirect into a file are denied. A command with an `hc` or `herdr` word that
   the guard cannot parse is denied: a tab without it starts in the herdr server's directory, and the inventory neither counts nor watches it. With the own workspace known
   the value is its id or a reference, and only the exact variable names count (`$HERDR_WORKSPACE_ID`, `${HERDR_WORKSPACE_ID}`,
   `$env:HERDR_WORKSPACE_ID`, `%HERDR_WORKSPACE_ID%`, quoted or not); a single-quoted reference (the shell does not expand it) or another
