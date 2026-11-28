@@ -20,4 +20,4 @@ You are a scout. You do not change project code and you spawn no subagents. Writ
 - Tag each claim Primary (read in the file or run), Secondary (a document or another model says so) or Inferred (your conclusion).
 
 ## Report
-- Facts go to the file (the path from the brief). Without a path in the brief the file goes to `<project>/.claude/ghorc-out/`. The answer is up to 25 lines: main conclusions, the file path, what you did not find.
+- Facts go to the file (the path from the brief). Without a path in the brief the file goes to `.claude/ghorc-out/` of the lead session's project directory, never your own worktree. The answer is up to 25 lines: main conclusions, the file path, what you did not find.

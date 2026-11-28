@@ -33,7 +33,7 @@ The same structure for every role; the question changes, not the form. An ordina
 - Sonnet high is justified only when the scope is bounded (at most 4 writable files), the acceptance command is deterministic and the cause is named; the brief names the move-up condition (see `ghorc:lead`, Effort).
 - On a critical package, write the pre-mortem first (at most 3 ways it could pass review and still be wrong) and turn each into a check in `<steps>`.
 - Agents read `<project>/CLAUDE.md` and the config themselves; do not retell them in the brief.
-- Reports, scratch and large outputs go to `<project>/.claude/ghorc-out/` (setup git-excludes it); name it in `<report_back>`.
+- Reports, scratch and large outputs go to `<project>/.claude/ghorc-out/` (setup git-excludes it); name the report file in `<report_back>` by its ABSOLUTE path, `<lead project root>/.claude/ghorc-out/<name>.md`, where the project root is the lead session's project directory (the one the lead was started in, where the tabs guard reads `.claude/ghorc-out/`) and never the worker's worktree, because the tabs guard reads the file only there and a relative path written in a worker's worktree is never seen. A tab worker does not load the role files, so every template carries the rule in full.
 - A critical reviewer's model must differ from the implementer's (ordinary review stays Sonnet whatever the implementer ran on); when the default would be equal, pass `model` and `effort` on the Agent call and say so in `<context>` (Opus work: the critical reviewer runs on `fable` at `medium`, never at the frontmatter's `high`).
 - A `ghorc:log-reader` brief is three lines: the log path(s), the result file path and the name for the last line. No question about causes, because the role copies failures and does not diagnose.
 
@@ -70,7 +70,7 @@ Done when:
 </constraints>
 
 <report_back>
-SHA; behavior change; acceptance map (one line per acceptance item, PASS/FAIL/UNVERIFIED); checks with output and links; unverified items; blockers; next step; suggestions. Up to 25 lines, the rest goes to file <path> (under `.claude/ghorc-out/`). The LAST line of the file: `DONE <name>` / `BLOCKED <name>: <reason>` / `HANDOFF <name>`.
+SHA; behavior change; acceptance map (one line per acceptance item, PASS/FAIL/UNVERIFIED); checks with output and links; unverified items; blockers; next step; suggestions. Up to 25 lines, the rest goes to the report file <absolute path: lead project root>/.claude/ghorc-out/<name>.md; never a relative path, never your worktree. The LAST line of the report file: `DONE <name>` / `BLOCKED <name>: <reason>` / `HANDOFF <name>`. A result line printed only in the terminal does not count: the lead does not see your screen as a result.
 </report_back>
 ```
 
@@ -107,7 +107,7 @@ Start with the diff. Widen reading to the affected dependencies, calling code an
 </constraints>
 
 <report_back>
-All substantiated findings go to the review file <path under .claude/ghorc-out/>; its LAST line is `VERDICT <ACCEPT|ACCEPT_WITH_NOTES|CHANGES_REQUIRED|BLOCKED>`. In the answer: blockers, scope of the check, gaps. Up to 30 lines.
+All substantiated findings go to the review file <absolute path: lead project root>/.claude/ghorc-out/<name>.md (never a relative path, never your worktree); the LAST line of the review file is `VERDICT <ACCEPT|ACCEPT_WITH_NOTES|CHANGES_REQUIRED|BLOCKED>`. A verdict printed only in the terminal does not count: the lead does not see your screen as a result. In the answer: blockers, scope of the check, gaps. Up to 30 lines.
 </report_back>
 ```
 
@@ -129,7 +129,7 @@ All substantiated findings go to the review file <path under .claude/ghorc-out/>
 
 <constraints>If the input does not match the description - BLOCKED with the reason, because a guess on mismatched input passes silently. Assume nothing, because the operation is mechanical and has no room for interpretation.</constraints>
 
-<report_back>The result in the stated format; up to 10 lines; the LAST line `DONE <name>` or `BLOCKED <name>: <reason>`.</report_back>
+<report_back>The result in the stated format, written to the report file <absolute path: lead project root>/.claude/ghorc-out/<name>.md; up to 10 lines; the LAST line of the report file `DONE <name>` or `BLOCKED <name>: <reason>`. A line printed only in the terminal does not count: the lead does not see your screen as a result.</report_back>
 ```
 
 ## Antipatterns
@@ -141,7 +141,7 @@ All substantiated findings go to the review file <path under .claude/ghorc-out/>
 | Asking for reasoning to be returned | Output tokens settle in the lead window |
 | Invented check commands | Checks go only through the config `checks` |
 | A brief without `file:line` for Sonnet | The agent looks for entry points itself |
-| A brief that does not say "the LAST line of the report FILE is `DONE <name>`" | The worker prints DONE to the terminal only and the lead's wait never fires |
+| A brief that does not say "the LAST line of the report FILE is `DONE <name>`", or names the file by a relative path | The worker prints DONE to the terminal only, or writes the file inside its own worktree; the wait returns on status, the tabs guard reads only the lead's root, and the lead never sees the result |
 | Invariants retold inside the task text | The reviewer misses one: give them as a separate block, one per line |
 | A heredoc for a brief or a multi-line file in Bash | Quoting can leave the file unwritten: write it with the Write tool and check it exists before the launch |
 | `python -` (a script on stdin) in a check | A hung interpreter holds a core and breaks the full run: `python -I -c` or a script file |

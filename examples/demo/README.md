@@ -21,7 +21,8 @@ files and from running the heavy suite.
 - If it reads the same file again and again, the read guard answers `DENIED` after the third read without an edit.
 - If it tries `npm run test:full` or `node scripts/slow-check.js`, the heavy guard answers `DENIED`: only the lead
   may run the full check.
-- The worker report lands in `.claude/ghorc-out/`; compare it with `expected-report.md`.
+- The worker report lands in `.claude/ghorc-out/` of the lead's project directory, at the absolute path the brief
+  gives (`d1-implementer.md`), with `DONE d1-implementer` as its last line; compare it with `expected-report.md`.
 - The lead runs `npm run test:full` once, in the background: tests pass, then `full check ok` after about 3 seconds.
 
 `npm run test:full` fails on the first step until the bug is fixed; that is expected.
