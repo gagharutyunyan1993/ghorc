@@ -30,6 +30,9 @@
   `env -Shc run ...` is no longer dropped by the prefilter, and the herdr send checks, the subagent deny and the
   heavy-command matching see through the same env options, `env --` included. Not judged: a variable program
   whose text does not say claude, and a claude word a shell string builds up.
+- The tabs guard's `herdr agent list` reads (2.5 s) now honour `GHORC_TOOL_TIMEOUT_MS` like the other tool reads
+  (unset or invalid: 2.5 s as before); two tests (`review1` worktree root, `herdr-fixes` fresh list) no longer depend on
+  machine load.
 - A second task sent to a tab whose first task already ended in `DONE` was answered by the old line, so the guard showed
   `FINISHED` for a round with no result. A result line is now fresh when its report was written at or after the last recorded
   task send to that worker (the tab's first sighting only when no send is recorded, so a report written after the send

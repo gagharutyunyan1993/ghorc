@@ -1526,12 +1526,18 @@ function devMatch(command, patterns, powershell) {
   return null;
 }
 
+// The bound of a `herdr agent list` read of the guard: 2500 ms, or GHORC_TOOL_TIMEOUT_MS when it is a positive number (tests on a loaded machine).
+const listMs = (env = process.env) => {
+  const n = Number(env.GHORC_TOOL_TIMEOUT_MS);
+  return Number.isFinite(n) && n > 0 ? n : 2500;
+};
+
 // The terminal backend of this session, 'hc' | 'herdr' | 'none' (the test seams count as a backend); asked only after a match.
 function backendKind(env = process.env, cwd, session) {
   try {
     if (env.GHORC_CAPACITY_HC_JSON !== undefined) return 'hc';
     if (env.GHORC_CAPACITY_HERDR_JSON !== undefined) return 'herdr';
-    return backend.detect({ env, cwd, timeoutMs: 2500, session, verdictOnly: true }).backend;
+    return backend.detect({ env, cwd, timeoutMs: listMs(env), session, verdictOnly: true }).backend;
   } catch {
     return 'none';
   }
@@ -1601,7 +1607,7 @@ function readLive(env = process.env, cwd, prefer, session) {
       if (r) return r.entries ? r : null;
     }
     // the verdict may come from the 30 s cache, the list never does: the probe below is a fresh `herdr agent list`
-    const d = backend.detect({ env, cwd, prefer, timeoutMs: 2500, session });
+    const d = backend.detect({ env, cwd, prefer, timeoutMs: listMs(env), session });
     if (d.backend === 'hc') {
       const raw = backend.hcText(env);
       const entries = raw === null ? null : parseHcList(raw);

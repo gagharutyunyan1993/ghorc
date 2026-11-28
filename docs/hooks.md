@@ -345,7 +345,7 @@ lost during a compaction stays a phantom agent for at most 3 hours; phantoms are
 scope, so a project that never opted in is neither judged nor reported (the hook is silent there, for every rule and every session). The tab rules act for the lead only: a session with an `agent_id` or
 `GHORC_ROLE=worker` is not checked against them, because `heavy-check-guard.cjs` already denies those every agent start. The one rule
 that binds every session (lead, subagent, worker) is the dev-command rule below. Timeout
-8 s: one list call per run (`hc ls --json` or `herdr agent list`, 3 s limit; `backend.detect` decides when both backends are present, `GHORC_HC_BIN` / `GHORC_HERDR_BIN` are honoured; a tab command of the other backend skips its list rules instead of reading a second list; with both backends the herdr probe is bounded to 2.5 s before `hc ls`).
+8 s: one list call per run (`hc ls --json` or `herdr agent list`, 3 s limit; `backend.detect` decides when both backends are present, `GHORC_HC_BIN` / `GHORC_HERDR_BIN` are honoured; a tab command of the other backend skips its list rules instead of reading a second list; with both backends the herdr probe is bounded to 2.5 s before `hc ls`; `GHORC_TOOL_TIMEOUT_MS`, when set to a positive number, replaces the 2.5 s of the guard's own list reads, for tests on a loaded machine).
 
 **What PreToolUse denies.** Tab commands that break the policy. Every reason names the rule and ends with a
 `Corrected form:` of the command.

@@ -5,6 +5,10 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { runScript, isDeny, tmpProject, ctxPath, bareProject, sid } = require('./helpers.cjs');
+// The in-process root.cjs calls of this file (config.projectRoot, ctxPath) share one git budget of 2.5 x this timeout; the default
+// 1000 ms runs out on a loaded machine. Set before root.cjs is first loaded (it reads the variable at require time). Not in helpers.cjs:
+// tests/v051.test.cjs asserts the 1000 ms default in-process.
+if (process.env.GHORC_HOOK_GIT_TIMEOUT_MS === undefined) process.env.GHORC_HOOK_GIT_TIMEOUT_MS = '15000';
 
 const read = (s, cwd, file, ti = {}, agent_id = 'ag1') => ({
   hook_event_name: 'PreToolUse',
