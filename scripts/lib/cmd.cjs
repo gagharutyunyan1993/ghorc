@@ -181,14 +181,14 @@ function stripQuotes(command, ps = false) {
   });
 }
 
-// Heredoc operators on one line, outside quotes: [{ tag, dash }]. <<< (a here-string) is not one.
+// Heredoc operators on one line, outside quotes and comments: [{ tag, dash }]. <<< (a here-string) and \<< are not one.
 function heredocTags(line) {
-  const masked = line.replace(new RegExp(`${BASH_DQ}|${SQ}`, 'g'), (q) => ' '.repeat(q.length));
+  const masked = line.replace(new RegExp(`${BASH_DQ}|${SQ}`, 'g'), (q) => ' '.repeat(q.length)).replace(/(^|\s)#.*$/, (m) => ' '.repeat(m.length));
   const out = [];
   const re = /<<(-?)[ \t]*(?:'([^']+)'|"([^"]+)"|\\?(\w+))/g;
   let m;
   while ((m = re.exec(line))) {
-    if (masked.slice(m.index, m.index + 2) !== '<<' || line[m.index - 1] === '<') continue;
+    if (masked.slice(m.index, m.index + 2) !== '<<' || line[m.index - 1] === '<' || line[m.index - 1] === '\\') continue;
     out.push({ tag: m[2] || m[3] || m[4], dash: m[1] === '-' });
   }
   return out;
@@ -521,6 +521,9 @@ function hcSendTargets(command, opts = {}) {
 
 module.exports = {
   inlineWrapped,
+  stripHeredocs,
+  stdinScripts,
+  encodedScripts,
   BUILTIN_SUBAGENT_DENY,
   HERDR_AGENT_START,
   HC_AGENT_START,

@@ -368,8 +368,20 @@ that binds every session (lead, subagent, worker) is the dev-command rule below.
   it is, and when both are set and disagree, or neither is, the workspace is unknown and only presence checks apply. When the row
   names another workspace than `HERDR_WORKSPACE_ID` (the pane was moved), `--workspace "$HERDR_WORKSPACE_ID"` is denied, because the
   variable still holds the old id, and the deny shows the row's id (the id forms
-  `w1` and `w1:p1` are herdr's documented public ids; `herdr api schema` lists `workspace_id` in every agent entry). `herdr tab create` needs `--workspace`, `--no-focus` and `--cwd` inside the project root (a worktree under `.claude/worktrees` counts; a relative path is read from the session's cwd; a space escaped with `\` in bash or a backtick in PowerShell is decoded; besides plain paths only `$PWD`, `${PWD}`, `$(pwd)` and
-  `$env:PWD`, alone or with a relative subpath without `..`, pass, and any other variable, expansion or `~` is denied): a tab without it starts in the herdr server's directory, and the inventory neither counts nor watches it. With the own workspace known
+  `w1` and `w1:p1` are herdr's documented public ids; `herdr api schema` lists `workspace_id` in every agent entry). `herdr tab create` needs `--workspace`, `--no-focus` and `--cwd` inside the project root (a worktree under `.claude/worktrees` counts; a relative path is read from the session's cwd; a space escaped with `\` in bash or a backtick in PowerShell is decoded; an absolute path is normalized first (`..`, separators, drive case; Git Bash rewrites `/d/x` to `d:/x` unless `MSYS_NO_PATHCONV=1`, and in PowerShell a rooted path without a drive is on the drive of the session's directory); besides plain paths only `$PWD`, `${PWD}` and
+  `$(pwd)` (case-sensitive in bash), alone or with a relative subpath without `..`, pass, and any other variable (PowerShell's `$env:PWD` too: it is the
+  client's environment, not the session's directory), expansion or `~` is denied). A `herdr tab create` is allowed only in one shape: a one-line
+  command of its own, `herdr tab create` (any path to herdr) with plain flags and values, optionally `MSYS_NO_PATHCONV=1` in front (bash), a capture
+  (`$t = ...` in PowerShell, `VAR=$(...)` or `VAR="$(...)"` in bash, with `| jq ...` or `| ConvertFrom-Json` inside) and a trailing `#` comment;
+  any other command where herdr is a command word with `tab create` after it (`;`, `&&`, `|`, a newline, a redirect, a block, a loop, a wrapper such
+  as `sh -c`, `Start-Process`, `xargs` or `eval`, a heredoc, a `cd`) is denied with that form, and so is a PowerShell `"$(...)"` subexpression or a `Start-Process` argument list; on the line the only variables are
+  `$PWD` after `--cwd` and `$HERDR_WORKSPACE_ID` after `--workspace`. Fail-closed: a command whose text has herdr as a word and `tab` next to
+  `create` must be that form, unless the words are only in the arguments of a text program (`git commit`/`tag`/`log`, `gh`, `echo`, `grep`, `rg`):
+  a commit message or a search is not a command. A text program counts only bare (no `VAR=value` or wrapper in front; `git <subcommand>` with no global
+  option and no option that runs a program, such as `-c`, `-O`, `--ext-diff`, `--textconv`; `gh` not for `alias`, `extension` or `--shell`), and with those
+  words in the text a shell, `eval`, `xargs`, `iex`, `Start-Process` or `node -e`, a pipe from a text program into anything but a text program or a sink
+  (`head`, `jq`, `Select-Object`) and a redirect into a file are denied. A command with an `hc` or `herdr` word that
+  the guard cannot parse is denied: a tab without it starts in the herdr server's directory, and the inventory neither counts nor watches it. With the own workspace known
   the value is its id or a reference, and only the exact variable names count (`$HERDR_WORKSPACE_ID`, `${HERDR_WORKSPACE_ID}`,
   `$env:HERDR_WORKSPACE_ID`, `%HERDR_WORKSPACE_ID%`, quoted or not); a single-quoted reference (the shell does not expand it) or another
   variable name is denied, known workspace or not. Without `--workspace` herdr uses the UI-focused workspace, which can belong to another

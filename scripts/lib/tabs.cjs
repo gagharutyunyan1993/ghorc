@@ -6,7 +6,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
-const { segments, matches, compile, inlineWrapped } = require('./cmd.cjs');
+const { segments, matches, compile, stripHeredocs, stdinScripts, encodedScripts } = require('./cmd.cjs');
 const backend = require('./backend.cjs');
 const { tmpDir, atomicWrite } = require('./tmp.cjs');
 const { safeId } = require('./hook-io.cjs');
@@ -146,9 +146,14 @@ function scan(tokens, from, to, valueOpts) {
 const isHelp = (o) => o.name === '--help' || o.name === '-h';
 const optVals = (opts, ...names) => opts.filter((o) => names.includes(o.name));
 
+// A PowerShell assignment in front of the program ($t = herdr tab create ...) is skipped like the other leading words.
 function cliTokens(segment) {
   const w = Array.isArray(segment) ? segment : String(segment).trim().split(/\s+/);
   for (let i = 0; i < w.length; i++) {
+    if (/^\$[\w:]+$/.test(w[i]) && w[i + 1] === '=') {
+      i++;
+      continue;
+    }
     for (const prog of ['hc', 'herdr']) if (PROGRAMS[prog].test(w[i])) return { prog, tokens: w.slice(i) };
     if (!LEADING.test(w[i])) return null;
   }
@@ -253,11 +258,90 @@ function readable(command) {
     .replace(/(--(?:workspace|label|pane|tab|name|kind)(?:=|\s+))(["'])([\w:.$%/-]*)\2/g, '$1$3');
 }
 
+// bash: a command substitution inside double quotes ("$(herdr tab create ... --cwd "$PWD" | jq .id)", "`...`") is taken out of
+// the quotes ("a$(X)b" -> "a"$(X)"b"), so the quotes inside it are its own and the command is seen. Unchanged when a quote or
+// a parenthesis does not close; nesting deeper than MAX_NEST throws (the caller denies).
+const MAX_NEST = 32;
+const tooDeep = (d) => {
+  if (d > MAX_NEST) throw new Error('nesting too deep');
+};
+function closeSub(s, k, tick, d = 0) {
+  tooDeep(d);
+  let depth = 1;
+  for (let i = k; i < s.length; i++) {
+    const c = s[i];
+    if (c === '\\') i++;
+    else if (tick) {
+      if (c === '`') return i;
+    } else if (c === "'" || c === '"') {
+      const e = c === "'" ? s.indexOf("'", i + 1) : closeDq(s, i + 1, d + 1);
+      if (e < 0) return -1;
+      i = e;
+    } else if (c === '(') tooDeep(++depth);
+    else if (c === ')' && --depth === 0) return i;
+  }
+  return -1;
+}
+function closeDq(s, k, d) {
+  tooDeep(d);
+  for (let i = k; i < s.length; i++) {
+    if (s[i] === '\\') i++;
+    else if (s[i] === '"') return i;
+    else if (s[i] === '$' && s[i + 1] === '(') {
+      const e = closeSub(s, i + 2, false, d + 1);
+      if (e < 0) return -1;
+      i = e;
+    } else if (s[i] === '`') {
+      const e = closeSub(s, i + 1, true, d + 1);
+      if (e < 0) return -1;
+      i = e;
+    }
+  }
+  return -1;
+}
+function splitSubs(s, d = 0) {
+  tooDeep(d);
+  if (!/"[^"]*(?:\$\(|`)/.test(s)) return s;
+  let out = '';
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (c === '\\') {
+      out += s.slice(i, i + 2);
+      i++;
+    } else if (c === "'") {
+      const e = s.indexOf("'", i + 1);
+      if (e < 0) return s;
+      out += s.slice(i, e + 1);
+      i = e;
+    } else if (c === '"') {
+      out += '"';
+      let j = i + 1;
+      for (; j < s.length && s[j] !== '"'; j++) {
+        if (s[j] === '\\') {
+          out += s.slice(j, j + 2);
+          j++;
+        } else if ((s[j] === '$' && s[j + 1] === '(') || s[j] === '`') {
+          const tick = s[j] === '`';
+          const e = closeSub(s, j + (tick ? 1 : 2), tick, d + 1);
+          if (e < 0) return s;
+          out += `"${tick ? s.slice(j, e + 1) : `$(${splitSubs(s.slice(j + 2, e), d + 1)})`}"`;
+          j = e;
+        } else out += s[j];
+      }
+      if (j >= s.length) return s;
+      out += '"';
+      i = j;
+    } else out += c;
+  }
+  return out;
+}
+
 // Every tab command of a shell command line: [{ type, ... }]. Segments come from cmd.cjs (quotes blanked, wrappers inlined).
 function parseCommand(command, powershell) {
   const out = [];
   const seen = new Set();
-  for (const seg of segments(readable(command), { powershell })) {
+  const text = readable(command);
+  for (const seg of segments(powershell ? text : splitSubs(text), { powershell })) {
     if (!/\b(?:hc|herdr)(?:\.exe)?\b/i.test(seg)) continue;
     // a wrapper cmd.cjs leaves in place (timeout 5, nice -n 5, env -u X ...) is peeled as in the send checks
     const p = parseSegment(seg) || parseSegment(peelWrappers(String(seg).trim().split(/\s+/)));
@@ -274,7 +358,8 @@ function parseCommand(command, powershell) {
 // `herdr pane run` is what is judged there). bash: '...' literal, "..." with \" \\ \$ \` escapes, $'...' with \n \t, a
 // backslash outside quotes escapes. PowerShell: '...' with '' for ', "..." with `x escapes (`n is a newline) and "" for ", a
 // backtick outside quotes escapes too. Cut into segments at unquoted ; | & ( ) and newlines (PowerShell: && only, a lone & is
-// the call operator). -> [[word, ...], ...]
+// the call operator). A PowerShell here-string (@'/@" at the end of a line up to a line that starts with '@/"@) is one word and
+// <# ... #> a comment. -> [[word, ...], ...]; .unclosed when a quote never closes
 const PS_ESC = { 0: '\0', a: '\x07', b: '\b', f: '\f', n: '\n', r: '\r', t: '\t', v: '\v' };
 const C_ESC = { n: '\n', t: '\t', r: '\r', '\\': '\\', "'": "'", '"': '"' };
 function rawSegments(command, powershell) {
@@ -298,8 +383,16 @@ function rawSegments(command, powershell) {
       continue;
     }
     if (c === '\n' || c === '\r' || c === ';' || c === '|' || c === '(' || c === ')' || (c === '&' && (!powershell || s[i + 1] === '&'))) {
+      endWord();
+      if (words.length && c === '|' && s[i + 1] !== '|') words.pipe = true; // its output feeds the next segment
       endSeg();
       if ((c === '&' || c === '|') && s[i + 1] === c) i++;
+      continue;
+    }
+    if (powershell && c === '<' && s[i + 1] === '#') {
+      // a PowerShell block comment <# ... #> ends at its #>, not at the end of the line
+      const e = s.indexOf('#>', i + 2);
+      i = e < 0 ? s.length : e + 1;
       continue;
     }
     if (c === '#' && cur === null) {
@@ -308,6 +401,20 @@ function rawSegments(command, powershell) {
       continue;
     }
     if (cur === null) cur = '';
+    if (powershell && c === '@' && (s[i + 1] === "'" || s[i + 1] === '"') && /^[ \t]*\r?\n/.test(s.slice(i + 2))) {
+      const q = s[i + 1];
+      const nl = s.indexOf('\n', i + 2);
+      const e = s.indexOf(`\n${q}@`, nl);
+      if (e < 0) {
+        cur += s.slice(nl + 1);
+        segs.unclosed = true;
+        i = s.length;
+      } else {
+        cur += s.slice(nl + 1, e).replace(/\r$/, '');
+        i = e + 2;
+      }
+      continue;
+    }
     if (!powershell && c === '$' && s[i + 1] === "'") {
       for (i += 2; i < s.length && s[i] !== "'"; i++) {
         if (s[i] === '\\' && i + 1 < s.length) {
@@ -315,6 +422,7 @@ function rawSegments(command, powershell) {
           cur += e in C_ESC ? C_ESC[e] : `\\${e}`;
         } else cur += s[i];
       }
+      if (i >= s.length) segs.unclosed = true;
       continue;
     }
     if (c === "'") {
@@ -329,6 +437,7 @@ function rawSegments(command, powershell) {
         }
         cur += s[i];
       }
+      if (i >= s.length) segs.unclosed = true;
       continue;
     }
     if (c === '"') {
@@ -350,6 +459,7 @@ function rawSegments(command, powershell) {
           if (e !== '\n') cur += e;
         } else cur += d;
       }
+      if (i >= s.length) segs.unclosed = true;
       continue;
     }
     if ((powershell ? c === '`' : c === '\\') && i + 1 < s.length) {
@@ -406,55 +516,315 @@ function sendCommands(command, powershell) {
   return out;
 }
 
-// The decoded --cwd values of every herdr tab create in a command line (for a value that cmd.cjs cut at an escaped space).
-function rawCwds(command, powershell) {
-  const out = [];
-  try {
-    // the same wrapper-inlined text cmd.cjs cuts (bash -c "..." and the like), so both see the same tab creates
-    for (const words of rawSegments(inlineWrapped(String(command).replace(/\$\(pwd\)|\$\{PWD\}/g, '$$PWD'), powershell), powershell)) {
-      const c = cliTokens(words) || cliTokens(peelWrappers(words));
-      if (!c || c.prog !== 'herdr') continue;
-      for (let i = 1; i + 1 < c.tokens.length; i++) {
-        if (c.tokens[i] === '--cwd') out.push(c.tokens[i + 1]);
-        else if (c.tokens[i].startsWith('--cwd=')) out.push(c.tokens[i].slice(6));
+// A herdr tab create is allowed only in one shape: a one-line command of its own, `herdr tab create <plain flags>`, with an
+// optional MSYS_NO_PATHCONV=1 in front (bash), an optional capture ($t = ... in PowerShell; VAR=$(...) or VAR="$(...)" in bash,
+// with an optional `| jq ...` / `| ConvertFrom-Json` inside) and an optional trailing # comment. Fail-closed: a command whose
+// text has herdr as a word and tab next to create must be that shape, unless the words sit only in the arguments of a text
+// program (git commit/tag/log, gh, echo, grep and the like: a commit message, a search).
+const TAB_FORM = 'herdr tab create --workspace "$HERDR_WORKSPACE_ID" --no-focus --label <name> --cwd <dir> --env GHORC_ROLE=worker (PowerShell: --workspace $env:HERDR_WORKSPACE_ID)';
+const TAB_SHAPE = `herdr tab create is allowed only as a one-line command of its own: ${TAB_FORM}; optional: MSYS_NO_PATHCONV=1 in front (bash), a capture ($t = ... in PowerShell, VAR=$(...) or VAR="$(...)" in bash, with | jq ... or | ConvertFrom-Json inside) and a trailing # comment. No ;, &&, |, newline, redirect, block, loop, wrapper (sh -c, Start-Process, xargs, eval, heredoc) or cd around it; values are plain words or quoted text, and the only variables are $PWD after --cwd and $HERDR_WORKSPACE_ID after --workspace`;
+const MENTION = /\bherdr(?:\.exe)?\b[\s\S]*?\btab\s+create\b/i;
+const HERDR_WORD = /^(?:.*[`({\\/])?herdr(?:\.exe)?$/i;
+// herdr as a word: not part of a longer name (herdr-fixes.test.cjs) or a directory (.../herdr/x); a path to it counts
+const HERDR_RAW = /(?<![\w.-])herdr(?:\.exe)?(?![\w.\\/-])/i;
+const TAB_NEXT_CREATE = /\btab['"\s,@()]*create\b/i;
+const failClosed = (t) => HERDR_RAW.test(t) && TAB_NEXT_CREATE.test(t);
+const TEXT_PROGS = new Set(['gh', 'glab', 'echo', 'printf', 'write-output', 'write-host', 'grep', 'egrep', 'fgrep', 'rg', 'select-string', 'sls', 'findstr']);
+const progName = (w) => String(w || '').replace(/^.*[\\/]/, '').replace(/\.exe$/i, '').toLowerCase();
+// git options that run a program or read one from config (a pager, a diff driver, a remote helper) or write a file (--output)
+const GIT_RUNS = /^(?:-c|-O|--open-files-in-pager|--ext-diff|--textconv|--exec|--upload-pack|--receive-pack|--config-env|--exec-path|--output)/;
+// A segment of a text program: its arguments are text, not commands. Only a bare program: no VAR=value or wrapper in front;
+// git only as `git commit|tag|log|grep|show|notes` with no global option before the subcommand and no option that runs a
+// program; gh/glab not for alias, extension or --shell. A redirect or a pipe into a shell is judged in usesTabCreate.
+function isTextSegment(words) {
+  let w = words;
+  while (w.length && /^(?:time|nohup)$/i.test(w[0])) w = w.slice(1);
+  if (!w.length || /^[A-Za-z_][A-Za-z0-9_]*=/.test(w[0])) return false;
+  const prog = progName(w[0]);
+  if (prog === 'gh' || prog === 'glab') return !/^(?:alias|extension|ext)$/.test(w[1] || '') && !w.some((x) => /^--shell\b/.test(x));
+  if (prog !== 'git') return TEXT_PROGS.has(prog);
+  return /^(?:commit|tag|log|grep|show|notes)$/.test(w[1] || '') && !w.some((x) => GIT_RUNS.test(x));
+}
+// Programs that run their text: shells, eval, xargs, PowerShell's Invoke-Expression and Start-Process, an interpreter with -e/-c.
+const RUNS_TEXT = new Set(['bash', 'sh', 'zsh', 'dash', 'ksh', 'fish', 'csh', 'tcsh', 'busybox', 'wsl', 'cmd', 'pwsh', 'powershell', 'eval', 'exec', 'source', '.', 'xargs', 'parallel', 'iex', 'invoke-expression', 'invoke-command', 'icm', 'start-process', 'saps', 'start']);
+const INTERPRETERS = /^(?:node|deno|bun|python[\d.]*|py|perl|ruby|php|osascript)$/;
+function runsText(words) {
+  let w = words;
+  while (w.length && (/^(?:time|nohup|&)$/i.test(w[0]) || /^[A-Za-z_][A-Za-z0-9_]*=/.test(w[0]))) w = w.slice(1);
+  for (const p of [progName(w[0]), progName(peelWrappers(w)[0])]) {
+    if (RUNS_TEXT.has(p)) return true;
+    if (INTERPRETERS.test(p) && w.some((x) => /^(?:-[ecrpE]|--eval|--print|eval|-command)$/i.test(x))) return true;
+  }
+  return false;
+}
+// What a text program may pipe into without running the text or writing a file (no less: -o/--log-file write one; sort and
+// uniq only without -o/--output and with at most one positional, uniq's second one is its output file).
+const PIPE_SINKS = new Set(['head', 'tail', 'more', 'wc', 'sort', 'uniq', 'cat', 'cut', 'tr', 'column', 'nl', 'fold', 'jq', 'select-object', 'select', 'out-string', 'out-host', 'out-null', 'measure-object', 'format-table', 'format-list', 'ft', 'fl']);
+function isSink(words) {
+  const prog = progName(words[0]);
+  if (!PIPE_SINKS.has(prog)) return false;
+  if (prog !== 'sort' && prog !== 'uniq') return true;
+  const args = words.slice(1);
+  return !args.some((x) => /^(?:-[A-Za-z]*o|--output)/.test(x)) && args.filter((x) => x === '-' || !/^-/.test(x)).length <= 1;
+}
+// An unquoted output redirect to anything but the null device or another stream (> run.sh, >> x, 2> x, &> x); the target
+// must be exactly that (> nul.ps1 and > /dev/null.sh write files); $null and nul are the null device only in PowerShell, and
+// bash paths are case-sensitive.
+const NULL_TARGET = { sh: /^>?\s*(?:&\d+|\/dev\/null)(?=\s|$|[;|&)])/, ps: /^>?\s*(?:&\d+|\/dev\/null|\$null|nul)(?=\s|$|[;|&)])/i };
+function writesFile(t, ps) {
+  let s = t;
+  for (let guard = 0; guard < 10000 && s; guard++) {
+    const sc = scanLine(s, ps);
+    if (!sc) return false;
+    for (const { i, c } of sc.specials) if (c === '>' && s[i + 1] !== '>' && !NULL_TARGET[ps ? 'ps' : 'sh'].test(s.slice(i + 1))) return true;
+    if (sc.comment < 0) return false;
+    const nl = s.indexOf('\n', sc.comment);
+    if (nl < 0) return false;
+    s = s.slice(nl + 1);
+  }
+  return true;
+}
+// PowerShell: the bodies of $( ) subexpressions, also inside "..." and @"..."@ (they run there too), nested ones included.
+function psCloseParen(s, k, d) {
+  tooDeep(d);
+  let depth = 1;
+  for (let i = k; i < s.length; i++) {
+    const c = s[i];
+    if (c === '`') i++;
+    else if (c === "'") {
+      for (i++; i < s.length && s[i] !== "'"; i++);
+      if (i >= s.length) return -1;
+    } else if (c === '"') {
+      for (i++; i < s.length; i++) {
+        if (s[i] === '`' || (s[i] === '"' && s[i + 1] === '"')) i++;
+        else if (s[i] === '"') break;
+        else if (s[i] === '$' && s[i + 1] === '(') {
+          const e = psCloseParen(s, i + 2, d + 1);
+          if (e < 0) return -1;
+          i = e;
+        }
       }
+      if (i >= s.length) return -1;
+    } else if (c === '(') tooDeep(++depth);
+    else if (c === ')' && --depth === 0) return i;
+  }
+  return -1;
+}
+function psSubs(s, d = 0) {
+  tooDeep(d);
+  const out = [];
+  // -> the index after the subexpression at i, or -1 when it does not close
+  const sub = (i) => {
+    const e = psCloseParen(s, i + 2, d + 1);
+    if (e < 0) return -1;
+    const body = s.slice(i + 2, e);
+    out.push(body, ...psSubs(body, d + 1));
+    return e;
+  };
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    const here = s[i - 1] === '@' && /^[ \t]*\r?\n/.test(s.slice(i + 1));
+    if (c === '`') i++;
+    else if (c === "'") {
+      const e = here ? s.indexOf("\n'@", i) : s.indexOf("'", i + 1);
+      if (e < 0) break;
+      i = here ? e + 2 : e;
+    } else if (c === '"') {
+      const end = here ? s.indexOf('\n"@', i) : -1;
+      let j = i + 1;
+      for (; j < s.length; j++) {
+        if (here ? j === end : s[j] === '"' && s[j + 1] !== '"') break;
+        if (s[j] === '`' || (!here && s[j] === '"')) j++;
+        else if (s[j] === '$' && s[j + 1] === '(') {
+          const e = sub(j);
+          if (e < 0) return out;
+          j = e;
+        }
+      }
+      i = here ? j + 2 : j;
+    } else if (c === '$' && s[i + 1] === '(') {
+      const e = sub(i);
+      if (e < 0) return out;
+      i = e;
     }
-  } catch {
-    /* unreadable: nothing decoded */
   }
   return out;
 }
-
-// The --cwd value the shell will pass, from the cmd.cjs word (quotes blanked, cut at an escaped space). A plain word is judged
-// as it is. A word cut at an escaped space takes the decoded value that continues it with a space. A blanked word, or one
-// with an escape of the shell, takes the decoded value only when the line holds exactly one tab create and one decoded
-// value, so the two parsers cannot pair different tab creates. Otherwise null (denied as unreadable).
-function cwdValue(raw, decoded, tabCreates, powershell) {
-  const esc = powershell ? '`' : '\\';
-  // PowerShell: cmd.cjs drops the backtick of an escaped space, so a word with one tab create may be cut without a mark
-  if (raw.endsWith(esc) || (powershell && tabCreates === 1)) {
-    const cut = raw.endsWith(esc) ? raw.slice(0, -1) : raw;
-    const longer = decoded.find((r) => cut && r.length > cut.length && r.startsWith(cut) && r[cut.length] === ' ');
-    if (longer) return longer;
-  }
-  if (/["']/.test(raw) || raw.includes(esc)) return tabCreates === 1 && decoded.length === 1 ? decoded[0] : null;
-  return raw;
+// The texts the shell runs: bash with heredoc bodies dropped (they are data unless fed to a shell: those are added) and with a
+// substitution inside double quotes taken out of them; PowerShell with its subexpressions; encoded PowerShell.
+function commandTexts(command, ps) {
+  const raw = String(command);
+  const texts = (ps ? [raw, ...psSubs(raw)] : [splitSubs(stripHeredocs(raw)), ...stdinScripts(raw)]).map((t) => ({ t, ps }));
+  for (const t of encodedScripts(raw)) texts.push({ t, ps: true });
+  return texts;
 }
-const PWD_REF = /^(?:\$PWD|\$\{PWD\}|\$\(pwd\)|\$env:PWD)(?=$|[\\/])/i;
-// -> a deny line for a --cwd value, or '' when it is inside the project
-function cwdProblem(val, ctx) {
-  const ask = 'pass a plain absolute or relative path inside the project, or $PWD (a worktree under .claude/worktrees counts)';
+// Does the command run a herdr tab create? herdr as a command word with tab create after it, or the fail-closed words outside
+// the arguments of a text program. A quote that does not close next to a mention counts. Backstop when the fail-closed words
+// are in the text at all: a program that runs text (sh, eval, xargs, iex, node -e), a text program piped into anything but a
+// text program or a plain sink (head, jq, Select-Object), or an output redirect to a file count as running it.
+function usesTabCreate(command, ps) {
+  const fc = failClosed(String(command));
+  const residual = [];
+  for (const { t, ps: p } of commandTexts(command, ps)) {
+    const segs = rawSegments(t, p);
+    if (segs.unclosed && MENTION.test(t)) return true;
+    if (fc && writesFile(t, p)) return true;
+    for (let k = 0; k < segs.length; k++) {
+      const words = segs[k];
+      for (let j = 0; j < words.length; j++) if (HERDR_WORD.test(words[j]) && /\btab\s+create\b/i.test(words.slice(j + 1).join(' '))) return true;
+      const text = isTextSegment(words);
+      // also without a short option glued to its value (-O'herdr ...' is the word -Oherdr ...)
+      if (!text) residual.push(words.join(' '), words.map((x) => x.replace(/^-[A-Za-z]/, '')).join(' '));
+      if (!fc) continue;
+      if (runsText(words)) return true;
+      const next = segs[k + 1];
+      if (text && words.pipe && next && !isTextSegment(next) && !isSink(next)) return true;
+    }
+  }
+  return fc && failClosed(residual.join('\n'));
+}
+// Unquoted characters that make a command more than one plain command: -> { specials: [{ i, c }], comment } or null (a quote
+// does not close). bash: \ escapes, '...' literal, "..." with \ escapes; PowerShell: ` escapes, '...' with '', "..." with ` and "".
+// $( and backticks count also inside double quotes.
+function scanLine(s, ps) {
+  const specials = [];
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (c === (ps ? '`' : '\\')) i++;
+    else if (c === "'") {
+      for (i++; i < s.length; i++) {
+        if (ps && s[i] === "'" && s[i + 1] === "'") i++;
+        else if (s[i] === "'") break;
+      }
+      if (i >= s.length) return null;
+    } else if (c === '"') {
+      for (i++; i < s.length; i++) {
+        if (s[i] === (ps ? '`' : '\\')) i++;
+        else if (ps && s[i] === '"' && s[i + 1] === '"') i++;
+        else if (s[i] === '"') break;
+        else if ((s[i] === '$' && s[i + 1] === '(') || (!ps && s[i] === '`')) specials.push({ i, c: '$(' });
+      }
+      if (i >= s.length) return null;
+    } else if (c === '#' && (i === 0 || /\s/.test(s[i - 1]))) return { specials, comment: i };
+    else if (c === '$' && s[i + 1] === '(') specials.push({ i, c: '$(' });
+    else if (';&|<>(){}`'.includes(c) || (ps && c === ',')) specials.push({ i, c });
+  }
+  return { specials, comment: -1 };
+}
+// Every word of the canonical line with a $ outside single quotes (or a PowerShell @ splat) must be $PWD after --cwd or
+// $HERDR_WORKSPACE_ID after --workspace.
+const RAW_TOKEN = /(?:[^\s"']+|"(?:[^"\\`]|[\\`][\s\S])*"|'[^']*')+/g;
+function plainVariables(body, ps) {
+  const toks = body.match(RAW_TOKEN) || [];
+  const pwd = ps ? /^"?\$PWD(?:[\\/][^"$`]*)?"?$/i : /^"?\$PWD(?:[\\/][^"$`]*)?"?$/;
+  const ws = ps ? /^"?\$(?:env:)?HERDR_WORKSPACE_ID"?$/i : /^"?\$(?:env:)?HERDR_WORKSPACE_ID"?$/;
+  const unquoted = (t) => {
+    let out = '';
+    let dq = false;
+    for (let i = 0; i < t.length; i++) {
+      if (t[i] === '"') dq = !dq;
+      if (!dq && t[i] === "'") {
+        const e = t.indexOf("'", i + 1);
+        i = e < 0 ? t.length : e;
+      } else out += t[i];
+    }
+    return out;
+  };
+  return toks.every((t, k) => {
+    if (!unquoted(t).includes('$') && !(ps && t.startsWith('@'))) return true;
+    const m = /^(--cwd|--workspace)=(.*)$/.exec(t);
+    const [opt, val] = m ? [m[1], m[2]] : [toks[k - 1], t];
+    return (opt === '--cwd' && pwd.test(val)) || (opt === '--workspace' && ws.test(val));
+  });
+}
+const PIPE_TAIL = { sh: /^jq(?:\s+(?:'[^']*'|"[^"$`\\]*"|[\w.[\]-]+))*$/, ps: /^ConvertFrom-Json$/i };
+// -> { words, msys } of the canonical form, or null
+function canonicalTabCreate(command, ps) {
+  let s = String(command).trim();
+  if (/[\r\n]/.test(s)) return null;
+  s = s.replace(/\$\{((?:env:)?\w+)\}/gi, (_m, v) => `$${v}`).replace(/\$\(pwd\)/g, '$PWD');
+  let sc = scanLine(s, ps);
+  if (!sc) return null;
+  if (sc.comment >= 0) s = s.slice(0, sc.comment).trimEnd();
+  let body = s;
+  let capture = false;
+  const m = ps ? /^\$[A-Za-z_]\w*\s*=\s*([\s\S]+)$/.exec(s) : /^[A-Za-z_]\w*=(?:\$\(([\s\S]*)\)|"\$\(([\s\S]*)\)")$/.exec(s);
+  if (m) {
+    body = (m[1] !== undefined ? m[1] : m[2]).trim();
+    capture = true;
+  }
+  sc = scanLine(body, ps);
+  if (!sc || sc.comment >= 0) return null;
+  if (capture && sc.specials.length === 1 && sc.specials[0].c === '|') {
+    const at = sc.specials[0].i;
+    if (!PIPE_TAIL[ps ? 'ps' : 'sh'].test(body.slice(at + 1).trim())) return null;
+    body = body.slice(0, at).trim();
+    sc = scanLine(body, ps);
+  }
+  if (!sc || sc.specials.length || !plainVariables(body, ps)) return null;
+  const segs = rawSegments(body, ps);
+  if (segs.unclosed || segs.length !== 1) return null;
+  let w = segs[0];
+  let msys = false;
+  if (!ps && w[0] === 'MSYS_NO_PATHCONV=1') {
+    msys = true;
+    w = w.slice(1);
+  }
+  if (w.length < 3 || !PROGRAMS.herdr.test(w[0]) || w[1] !== 'tab' || w[2] !== 'create') return null;
+  return { words: w, msys };
+}
+
+// The tab-create lines of a command: the shape deny, or the --cwd values of the canonical form judged by cwdProblem (a tab
+// create without --cwd is reported unless the cmd.cjs check already did).
+const CWD_ASK = 'pass a plain absolute or relative path inside the project, or $PWD (a worktree under .claude/worktrees counts)';
+function tabCreateLines(command, ctx, missingShown) {
+  if (!usesTabCreate(command, ctx.powershell)) return [];
+  const c = canonicalTabCreate(command, ctx.powershell);
+  if (!c) return [TAB_SHAPE];
+  const t = c.words;
+  const dd = t.indexOf('--');
+  const end = dd < 0 ? t.length : dd;
+  if (t.slice(3, end).some((x) => x === '--help' || x === '-h') || !ctx.root) return []; // --help creates nothing
+  const vals = [];
+  for (let i = 3; i < end; i++) {
+    if (t[i] === '--cwd') vals.push(i + 1 < end ? t[++i] : null);
+    else if (t[i].startsWith('--cwd=')) vals.push(t[i].slice(6));
+  }
+  const out = [];
+  const add = (x) => {
+    if (x && !out.includes(x)) out.push(x);
+  };
+  if (!vals.length && !missingShown) add(`--cwd is missing: without it the tab starts in the herdr server's directory, outside the project; ${CWD_ASK}`);
+  for (const v of vals) add(v === null ? `--cwd has no value: ${CWD_ASK}` : cwdProblem(v, ctx, c.msys));
+  return out;
+}
+// The session's directory: bash $PWD, ${PWD} and $(pwd) (case matters there: $pwd is another, unset variable); PowerShell
+// reads $PWD in any case. PowerShell's $env:PWD is not it: that is the environment the client was started with.
+const PWD_REF = /^(?:\$PWD|\$\{PWD\}|\$\(pwd\))(?=$|[\\/])/;
+const PWD_REF_PS = /^(?:\$PWD|\$\{PWD\}|\$\(pwd\))(?=$|[\\/])/i;
+// -> a deny line for a --cwd value, or '' when it is inside the project. msys: bash with MSYS_NO_PATHCONV=1 (no /d/x rewrite).
+function cwdProblem(val, ctx, msys = false) {
+  const ask = CWD_ASK;
   if (val === null || val === '') return `--cwd ${val === null ? '(unreadable)' : '""'} cannot be read by the guard: ${ask}`;
   let rel = val;
   let base = /^(?:[A-Za-z]:)?[\\/]/.test(val) ? '' : ctx.cwd || ctx.root;
-  const m = PWD_REF.exec(val);
+  const m = (ctx.powershell ? PWD_REF_PS : PWD_REF).exec(val);
   if (m) {
     rel = val.slice(m[0].length).replace(/^[\\/]+/, '') || '.';
     base = ctx.cwd || ctx.root;
     if (rel.split(/[\\/]/).includes('..')) return `--cwd ${val} leaves the session's directory with "..": ${ask}`;
   }
-  if (/^~/.test(rel) || /[$%<>{}`()*?|;&]/.test(rel)) return `--cwd ${val} is a variable, an expansion or ~, so the guard cannot tell where it points: ${ask}`;
-  const abs = base ? path.resolve(base, rel) : rel;
+  if (/^~/.test(rel) || /[$%<>{}`()*?|;&"']/.test(rel)) return `--cwd ${val} is a variable, an expansion or ~, so the guard cannot tell where it points: ${ask}`;
+  // an absolute value is normalized before the compare. Git Bash rewrites /d/x to d:/x (not with MSYS_NO_PATHCONV=1); otherwise
+  // a rooted path without a drive is on the drive of the session's directory, as Windows reads it.
+  let abs;
+  if (base) abs = path.resolve(base, rel);
+  else {
+    let p = !ctx.powershell && !msys ? rel.replace(/^\/([A-Za-z])(?=\/|$)/, '$1:') : rel;
+    const drive = /^([a-z]:)/.exec(projectKey(ctx.cwd || ctx.root));
+    if (/^[\\/](?![\\/])/.test(p) && (ctx.powershell || msys) && drive) p = drive[1] + p;
+    abs = /^[A-Za-z]:/.test(p) ? path.win32.normalize(p) : path.posix.normalize(p.replace(/\\/g, '/'));
+  }
   if (!inside(abs, ctx.root)) return `--cwd ${val} is outside the project (${ctx.root}): the guard would neither count nor watch the tab; start it in the project or a worktree under .claude/worktrees`;
   return '';
 }
@@ -772,15 +1142,8 @@ function checkParsed(p, ctx) {
     if (!cwdOpt) {
       v.push("--cwd is missing: without it the tab starts in the herdr server's directory, outside the project, and the guard neither counts nor watches it; pass --cwd <dir> inside the project (a worktree under .claude/worktrees counts)");
       tail.push('--cwd', '<dir>');
-    } else if (ctx.root) {
-      // judged on the value as the shell passes it (decoded by rawSegments, quotes and escaped spaces resolved); allowed are a
-      // plain path inside the project and the session's own directory ($PWD, ${PWD}, $(pwd), PowerShell $PWD / $env:PWD), alone
-      // or with a relative subpath without "..". Any other variable, expansion, ~ or a value that cannot be decoded is denied:
-      // the guard cannot tell where it points.
-      const val = cwdValue(String(cwdOpt.value || ''), ctx.rawCwds || [], ctx.tabCreates, ctx.powershell);
-      const why = cwdProblem(val, ctx);
-      if (why) v.push(why);
     }
+    // the shape and the value are judged in tabCreateLines (checkCommand)
     if (v.length) fixed = [...tk, ...tail];
     if (valid) dupAndLimit(label.value);
   } else if (p.type === 'agent-start') {
@@ -918,19 +1281,16 @@ function checkSend(x, ctx) {
   return v;
 }
 
-// -> reason string, or null when the command is fine. Never throws (a parse problem is "fine").
+// -> reason string, or null when the command is fine. Never throws: a command with an hc or herdr word that the guard cannot
+// parse (an error, nesting deeper than MAX_NEST) is denied; any other command never gets here.
+const UNREADABLE = 'the guard could not parse this command (nesting too deep or an internal error): write it as plain one-line commands';
 // workspace: the own herdr workspace id, or a function that returns it (asked once, only when a herdr command is judged).
 function checkCommand(command, { powershell = false, s, list, root, cwd, self, session, workspace = '', envWorkspace = '' }) {
   try {
     if (!/\b(?:hc|herdr)(?:\.exe)?\b/i.test(command)) return null;
     const cmds = parseCommand(command, powershell);
-    let sends = [];
-    try {
-      sends = sendCommands(command, powershell);
-    } catch {
-      /* a parse problem is "fine" */
-    }
-    if (!cmds.length && !sends.length) return null;
+    const sends = sendCommands(command, powershell);
+    if (!cmds.length && !sends.length && !/\btab\b/i.test(command)) return null;
     const cache = {};
     const needWs = sends.length > 0 || cmds.some((p) => p.type !== 'hc-run');
     let ws = workspace;
@@ -941,7 +1301,7 @@ function checkCommand(command, { powershell = false, s, list, root, cwd, self, s
         ws = '';
       }
     }
-    const ctx = { s, root, cwd, self, session, workspace: ws, envWorkspace: String(envWorkspace || '').toLowerCase(), rawCwds: rawCwds(command, powershell), tabCreates: cmds.filter((c) => c.type === 'tab-create').length, powershell, devRe: compile(s.devCommands), pending: [], list: (kind) => (kind in cache ? cache[kind] : (cache[kind] = list(kind))) };
+    const ctx = { s, root, cwd, self, session, workspace: ws, envWorkspace: String(envWorkspace || '').toLowerCase(), powershell, devRe: compile(s.devCommands), pending: [], list: (kind) => (kind in cache ? cache[kind] : (cache[kind] = list(kind))) };
     const lines = [];
     for (const p of cmds) {
       let r;
@@ -955,6 +1315,14 @@ function checkCommand(command, { powershell = false, s, list, root, cwd, self, s
       lines.push(`${head}:`);
       for (const x of r.violations) lines.push(`- ${x}`);
       if (r.fixed) lines.push(`Corrected form: ${r.fixed}`);
+    }
+    // the shape of a tab create (see TAB_SHAPE) and the --cwd values of the canonical form
+    if (/\btab\b/i.test(command)) {
+      const v = tabCreateLines(command, ctx, lines.some((l) => l.startsWith('- --cwd is missing')));
+      if (v.length) {
+        lines.push('herdr tab create --cwd:');
+        for (const t of v) lines.push(`- ${t}`);
+      }
     }
     for (const x of sends) {
       let v = [];
@@ -970,7 +1338,7 @@ function checkCommand(command, { powershell = false, s, list, root, cwd, self, s
     if (!lines.length) return null;
     return `tabs-guard: tab command refused (config tabs, docs/hooks.md#tabs-guardcjs; tabs.enabled=false turns the guard off).\n${lines.join('\n')}`;
   } catch {
-    return null;
+    return `tabs-guard: tab command refused (config tabs, docs/hooks.md#tabs-guardcjs; tabs.enabled=false turns the guard off).\n- ${UNREADABLE}`;
   }
 }
 

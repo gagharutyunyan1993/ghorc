@@ -435,31 +435,255 @@ test('tabs-guard: --cwd forms: the session directory and plain paths pass; varia
   const head = 'herdr tab create --workspace w1 --no-focus --label a-implementer --env GHORC_ROLE=worker --cwd ';
   const ok = ['.', '$PWD', '${PWD}', '"$PWD"', '$(pwd)', '$PWD/.claude/worktrees/a', '"$PWD/.claude/worktrees/a b"', '${PWD}/sub', '$(pwd)/sub', '.claude/worktrees/a'];
   for (const v of ok) allowed(pre(p, head + v), v);
-  for (const v of ['$PWD', '$env:PWD', '"$PWD\\sub"', '.']) allowed(pre(p, head + v, { tool: 'PowerShell' }), `ps ${v}`);
+  for (const v of ['$PWD', '"$PWD\\sub"', '.']) allowed(pre(p, head + v, { tool: 'PowerShell' }), `ps ${v}`);
   const bad = ['$HOME/x', '"$HOME/x"', '%TEMP%', '~', '~/x', '$(echo /tmp)', '$PWD/../x', '"$OTHER"', '${HOME}', '`pwd`/x'];
   for (const v of bad) {
     const r = pre(p, head + v);
     assert.ok(denied(r), v);
-    assert.match(reasonOf(r), /--cwd .*(cannot|leaves|outside)/, v);
-    assert.match(reasonOf(r), /plain absolute or relative path inside the project|outside the project/, v);
+    assert.match(reasonOf(r), /--cwd .*(cannot|leaves|outside)|allowed only as a one-line command/, v);
+    assert.match(reasonOf(r), /plain absolute or relative path inside the project|outside the project|one-line command of its own/, v);
   }
-  for (const v of ['$env:TEMP', '$HOME', '%TEMP%']) assert.ok(denied(pre(p, head + v, { tool: 'PowerShell' })), `ps ${v}`);
+  for (const v of ['$env:PWD', '$env:TEMP', '$HOME', '%TEMP%']) assert.ok(denied(pre(p, head + v, { tool: 'PowerShell' })), `ps ${v}`);
 });
 
-test('tabs-guard: --cwd parser differential: wrapped commands and two tab creates are judged on their own values', () => {
+test('tabs-guard: tab create shape: wrapped commands and two tab creates in one command are denied with the one-line form', () => {
   const p = project();
   const tc = (label, cwd) => `herdr tab create --workspace w1 --no-focus --label ${label} --env GHORC_ROLE=worker --cwd ${cwd}`;
-  // wrappers
-  assert.ok(denied(pre(p, `timeout 5 ${tc('a-implementer', '"/tmp/x"')}`)));
-  allowed(pre(p, `timeout 5 ${tc('a-implementer', '"."')}`));
-  assert.ok(denied(pre(p, `bash -c "${tc('a-implementer', "'/tmp/x'")}"`)));
-  allowed(pre(p, `bash -c "${tc('a-implementer', '.')}"`));
-  // two tab creates, one outside: the inside one must not stand in for the other
+  allowed(pre(p, tc('a-implementer', '"."')));
+  for (const c of [
+    `timeout 5 ${tc('a-implementer', '"."')}`,
+    `bash -c "${tc('a-implementer', '.')}"`,
+    `${tc('a-implementer', '.')}; ${tc('b-implementer', '.claude/worktrees/b')}`,
+  ]) assert.match(reasonOf(pre(p, c)), /allowed only as a one-line command of its own/, c);
   for (const c of [
     `${tc('a-implementer', '"."')}; bash -c "${tc('b-implementer', "'/tmp/x'")}"`,
     `${tc('a-implementer', '.')}; ${tc('b-implementer', '/tmp/x')}`,
     `${tc('a-implementer', '"."')}; ${tc('b-implementer', '"/tmp/x"')}`,
     `${tc('a-implementer', '"/tmp/x"')} && ${tc('b-implementer', '.')}`,
   ]) assert.ok(denied(pre(p, c)), c);
-  allowed(pre(p, `${tc('a-implementer', '.')}; ${tc('b-implementer', '.claude/worktrees/b')}`));
+});
+
+test('tabs-guard: --cwd one parser: each tab create is judged on its own decoded words, never on another --cwd in the line', () => {
+  const base = project();
+  const spaced = path.join(path.dirname(base.cwd), `proj y ${process.pid}-${Date.now()}`);
+  fs.cpSync(base.cwd, spaced, { recursive: true });
+  const p = { cwd: spaced, sid: base.sid };
+  const fwd = spaced.replace(/\\/g, '/');
+  const outside = path.dirname(fwd) + '/other y';
+  const tc = (label, cwd) => `herdr tab create --workspace w1 --no-focus --label ${label} --env GHORC_ROLE=worker --cwd ${cwd}`;
+  const tick = (x) => x.replace(/ /g, '` ');
+  // PowerShell, one tab create with a backtick-escaped space, and another --cwd elsewhere in the line
+  allowed(pre(p, tc('a-implementer', tick(fwd) + '/.claude/worktrees/p2'), { tool: 'PowerShell' }));
+  assert.ok(denied(pre(p, `${tc('a-implementer', tick(outside))}; Write-Output "--cwd ${fwd}"`, { tool: 'PowerShell' })));
+  assert.ok(denied(pre(p, `Write-Output "--cwd ${fwd}"; ${tc('a-implementer', tick(outside))}`, { tool: 'PowerShell' })));
+  // a quoted outside path next to an in-project path of another tab create, both orders and both shells
+  for (const tool of ['Bash', 'PowerShell']) {
+    assert.ok(denied(pre(p, `${tc('a-implementer', '"/tmp/x"')}; ${tc('b-implementer', '"."')}`, { tool })), tool);
+    assert.ok(denied(pre(p, `${tc('a-implementer', '"."')}; ${tc('b-implementer', "'/tmp/x'")}`, { tool })), tool);
+  }
+  // --cwd after -- is not an option of the tab create
+  const head = 'herdr tab create --workspace w1 --no-focus --label a-implementer --env GHORC_ROLE=worker';
+  assert.ok(denied(pre(p, `${head} -- --cwd .`)));
+  assert.ok(denied(pre(p, `${head} --cwd /tmp/x -- --cwd .`)));
+  allowed(pre(p, `${head} --cwd . -- --cwd /tmp/x`));
+  // a quote that is not closed
+  assert.match(reasonOf(pre(p, `${head} --cwd "/tmp/x`)), /one-line command of its own/);
+});
+
+test('tabs-guard: --cwd review cases: only the one-line shape passes, .. is normalized, $env:PWD and bash $pwd are denied; legit forms pass', () => {
+  const tabs = require('../scripts/lib/tabs.cjs');
+  const s = tabs.settings({});
+  const root = 'D:/proj/app';
+  const verdict = (cmd, ps) => (tabs.checkCommand(cmd, { powershell: ps, s, list: () => [], root, cwd: root, self: '', session: 'x', workspace: 'w1', envWorkspace: 'w1' }) ? 'deny' : 'allow');
+  const B = 'herdr tab create --workspace w1 --no-focus --label a-implementer --env GHORC_ROLE=worker';
+  const P = 'herdr tab create --workspace $env:HERDR_WORKSPACE_ID --no-focus --label a-implementer --env GHORC_ROLE=worker';
+  const T = (ws, cwd, extra = '') => `herdr tab create --workspace ${ws} --no-focus --label a-implementer --cwd ${cwd} --env GHORC_ROLE=worker${extra}`;
+  const BW = '"$HERDR_WORKSPACE_ID"';
+  const N = (ws, cwd) => `herdr tab create --workspace ${ws} --label a-implementer --cwd ${cwd} --env GHORC_ROLE=worker`; // no --no-focus
+  const PW = '$env:HERDR_WORKSPACE_ID';
+  // [id, command, powershell, verdict]
+  const cases = [
+    // R-1: tab creates in blocks, substitutions, xargs, Start-Process and heredocs fed to a shell
+    ['G1', `{ ${B} --cwd /tmp; }`, false, 'deny'],
+    ['R4', `{ ${B} --cwd /tmp; } > out.json`, false, 'deny'],
+    ['G5', `echo \`${B} --cwd /tmp\``, false, 'deny'],
+    ['G7', `echo x | xargs ${B} --cwd /tmp`, false, 'deny'],
+    ['P1', `if ($true) { ${P} --cwd C:/tmp }`, true, 'deny'],
+    ['P2', `1..2 | ForEach-Object { ${P} --cwd C:/tmp }`, true, 'deny'],
+    ['P3', `& { ${P} --cwd C:/tmp }`, true, 'deny'],
+    ['R1', `foreach ($d in @('C:/tmp')) { ${P} --cwd $d }`, true, 'deny'],
+    ['R3', `try { ${P} --cwd C:/tmp } catch { $_ }`, true, 'deny'],
+    ['P9', `Start-Process herdr -ArgumentList 'tab create --workspace w1 --no-focus --label a-implementer --env GHORC_ROLE=worker --cwd C:/tmp'`, true, 'deny'],
+    ['H2', `Write-Output x # <<EOF\n${P} --cwd C:/tmp\nEOF`, true, 'deny'],
+    ['H3', `bash <<EOF\n${B} --cwd /tmp\nEOF`, false, 'deny'],
+    ['R5', `bash <<'EOF'\nset -e\n${B} --cwd /tmp\nEOF`, false, 'deny'],
+    ['H4', `cat <<EOF | sh\n${B} --cwd /tmp\nEOF`, false, 'deny'],
+    ['P4', `<# c #> ${P} --cwd C:/tmp`, true, 'deny'],
+    ['N1', `cmd /c start "" ${B} --cwd C:/tmp`, false, 'deny'],
+    // R-2: absolute values are normalized
+    ['A1', `${B} --cwd D:/proj/app/..`, false, 'deny'],
+    ['A2', `${B} --cwd D:/proj/app/.claude/worktrees/../../..`, false, 'deny'],
+    ['A3', `${P} --cwd 'D:\\proj\\app\\..\\other'`, true, 'deny'],
+    ['A4', `${B} --cwd /d/proj/app/../other`, false, 'deny'],
+    ['A5', `${B} --cwd D:/proj/app/x/../..`, false, 'deny'],
+    ['A6', `${B} --cwd D:/proj/app/.claude/worktrees/a/../b`, false, 'allow'],
+    ['A7', `${P} --cwd d:\\proj\\APP`, true, 'allow'],
+    // R-3: $env:PWD is the client's environment, not the session's directory
+    ['Q4', `${P} --cwd "$env:PWD"`, true, 'deny'],
+    ['F17', T(PW, '"$env:PWD"'), true, 'deny'],
+    // R-4: a cd earlier in the same command
+    ['C1', `cd .. && ${B} --cwd .`, false, 'deny'],
+    ['C2', `cd D:/other; ${B} --cwd "$PWD"`, false, 'deny'],
+    ['C3', `Set-Location C:/; ${P} --cwd .`, true, 'deny'],
+    ['C4', `pushd /tmp && ${B} --cwd $PWD`, false, 'deny'],
+    ['K1', `cd D:/proj/app && ${B} --cwd D:/proj/app/.claude/worktrees/a`, false, 'deny'], // shape
+    // R-5: escaped quotes inside sh -c "..." and pwsh -c "..."
+    ['R6', `sh -c "${B} --cwd \\"D:/other proj\\""`, false, 'deny'],
+    ['W2', `sh -c "${B} --cwd \\"/tmp\\""`, false, 'deny'],
+    ['E1', `sh -c "${B} --cwd \\"D:/proj/app/x y\\""`, false, 'deny'], // shape
+    ['E2', `pwsh -c "${P} --cwd \`"C:/other\`""`, true, 'deny'],
+    // R-6: bash $pwd is another variable
+    ['L1', `${B} --cwd $pwd/sub`, false, 'deny'],
+    ['L2', `${B} --cwd $Pwd`, false, 'deny'],
+    ['L4', `${P} --cwd $pwd`, true, 'allow'],
+    // R-7: an unclosed-looking quote outside a tab create
+    ['F13', "git commit -m @'\nfix(tabs): herdr tab create --cwd, don't miss it\n'@", true, 'allow'],
+    ['F15', "echo herdr tab create docs; echo it's", false, 'deny'], // shape
+    ['U1', `${B} --cwd 'D:/proj/app`, false, 'deny'],
+    // a captured tab create: PowerShell $t = ..., bash TAB=$(...), TAB="$(...)" and backticks; the whole tab policy applies
+    ['P5', `$t = ${T('w1', 'C:/tmp')}`, true, 'deny'],
+    ['P5b', `$t = ${T(PW, '$PWD')} | ConvertFrom-Json`, true, 'allow'],
+    ['P5c', `$t = ${N(PW, '$PWD')} | ConvertFrom-Json`, true, 'deny'],
+    ['P5d', `$tab = ${T(PW, 'D:/proj/app/.claude/worktrees/a')}`, true, 'allow'],
+    ['G8', `TAB="$(${T('w1', '"/tmp"')} | jq -r .id)"`, false, 'deny'],
+    ['G8b', `TAB="$(${T(BW, '"$PWD"')} | jq -r .result.tab.tab_id)"`, false, 'allow'],
+    ['G8c', `TAB="$(${N(BW, '"$PWD"')} | jq -r .id)"`, false, 'deny'],
+    ['G8d', `TAB=$(${T(BW, '"$PWD"')} | jq -r .id)`, false, 'allow'],
+    ['G8e', `TAB=$(${N(BW, '.')} | jq -r .id)`, false, 'deny'],
+    ['G8f', `TAB="\`${T(BW, '"/tmp"')}\`"`, false, 'deny'],
+    ['G8g', `echo "tab: $(${T(BW, '"$PWD/.claude/worktrees/a"')} | jq -r .id) done"`, false, 'deny'], // shape
+    // round 2: PowerShell subexpressions, Start-Process lists, variables on the line, fail-closed words outside text programs
+    ['R2-S1', `Write-Output "$(${P} --cwd C:/tmp)"`, true, 'deny'],
+    ['R2-S2', `$t = "$(${P} --cwd C:/tmp)"`, true, 'deny'],
+    ['R2-S3', `$m = @"\nCreated: $(${P} --cwd C:/tmp)\n"@`, true, 'deny'],
+    ['R2-T1', "Start-Process herdr -ArgumentList 'tab','create','--workspace','w1','--cwd','C:/tmp'", true, 'deny'],
+    ['R2-T2', "Start-Process herdr -ArgumentList @('tab','create','--cwd','C:/tmp')", true, 'deny'],
+    ['R2-T4', `${B} --cwd . $EXTRA`, false, 'deny'],
+    ['R2-T4b', `${B} --cwd . "$EXTRA"`, false, 'deny'],
+    ['R2-T5', `${P} --cwd . $extra`, true, 'deny'],
+    ['R2-T6', `${P} --cwd . @extra`, true, 'deny'],
+    ['R2-S5', `& ([scriptblock]::Create('${B} --cwd C:/tmp'))`, true, 'deny'],
+    ['R2-S6', `node -e "require('child_process').execSync('${B} --cwd /tmp')"`, false, 'deny'],
+    ['R2-S7', `git -c alias.t='!${B} --cwd /tmp' t`, false, 'deny'],
+    ['R2-X5', 'h=herdr; $h tab create --workspace w1 --cwd /tmp', false, 'deny'],
+    ['R2-N3', `grep -rln "herdr tab create" docs | xargs sed -i 's/a/b/'`, false, 'deny'],
+    ['R2-N4', 'time git commit -m "herdr tab create: shape rule"', false, 'allow'],
+    ['R2-N5', 'git commit -m "herdr tab create" && npm test', false, 'allow'],
+    ['R2-N6', "git commit -F - <<'EOF'\nfix: herdr tab create\nEOF", false, 'allow'],
+    ['R2-N7', 'git log --grep "herdr tab create" | head', false, 'allow'],
+    ['R2-N8', "git commit -m 'herdr tab create: it''s fixed'", true, 'allow'],
+    ['R2-N13', 'rg "herdr tab create" skills/ && env NODE_ENV=test npm test', false, 'allow'],
+    ['R2-N13b', 'rg "herdr tab create" skills/ && env NODE_ENV=test node -e "1"', false, 'deny'],
+    ['R2-N14', 'herdr tab close w1:t2 && herdr agent list', false, 'allow'],
+    ['R2-N15', 'gh pr create --title "herdr: tab create shape" --body "x"', false, 'allow'],
+    ['R2-N16', 'node --test --test-name-pattern "tab create" tests/herdr-fixes.test.cjs', false, 'allow'],
+    ['R2-N18', `${P} --cwd $PWD`, true, 'allow'],
+    ['R2-N19', `${B} --cwd "$PWD/.claude/worktrees/a b"`, false, 'allow'],
+    ['R2-N20', 'herdr tab create --workspace "$HERDR_WORKSPACE_ID" --no-focus --label a-implementer --cwd=. --env GHORC_ROLE=worker', false, 'allow'],
+    ['R2-N21', `$t = ${P} --cwd $PWD | ConvertFrom-Json`, true, 'allow'],
+    ['R2-N22', `TAB=$(${B} --cwd "$PWD" | jq -r .result.tab_id)`, false, 'allow'],
+    // text programs that run text: an env prefix, git options that run a program, gh alias/extension/--shell, a pipe into a
+    // shell or xargs, a redirect into a file
+    ['R3-1', "GIT_PAGER='herdr tab create --cwd /x' git log", false, 'deny'],
+    ['R3-2', "git -c core.pager='herdr tab create --cwd /x' log", false, 'deny'],
+    ['R3-3', "git log -O'herdr tab create --cwd /x'", false, 'deny'],
+    ['R3-4', "git grep --open-files-in-pager='herdr tab create --cwd /x' foo", false, 'deny'],
+    ['R3-5', 'git log --ext-diff --grep "herdr tab create"', false, 'deny'],
+    ['R3-6', "gh alias set x '!herdr tab create --cwd /x'", false, 'deny'],
+    ['R3-7', "gh extension exec x 'herdr tab create --cwd /x'", false, 'deny'],
+    ['R3-8', "gh api /x --shell 'herdr tab create --cwd /x'", false, 'deny'],
+    ['R3-9', "echo 'herdr tab create --cwd /x' | bash", false, 'deny'],
+    ['R3-10', "echo 'herdr tab create --cwd /x' | sh", false, 'deny'],
+    ['R3-11', "echo 'herdr tab create --cwd /x' | pwsh -", false, 'deny'],
+    ['R3-12', "Write-Output 'herdr tab create --cwd C:/x' | iex", true, 'deny'],
+    ['R3-13', "echo 'herdr tab create --cwd /x' | xargs -I{} sh -c '{}'", false, 'deny'],
+    ['R3-14', "echo 'herdr tab create --cwd /x' > run.sh", false, 'deny'],
+    ['R3-15', "echo 'herdr tab create --cwd /x' >> run.sh && ./run.sh", false, 'deny'],
+    ['R3-16', "Write-Output 'herdr tab create --cwd C:/x' | Out-File run.ps1", true, 'deny'],
+    ['R3-17', "echo 'herdr tab create --cwd /x' | tee run.sh", false, 'deny'],
+    ['R3-18', "env GIT_PAGER='herdr tab create --cwd /x' git log", false, 'deny'],
+    ['R3-19', 'git commit -m "herdr tab create" && bash scripts/x.sh', false, 'deny'],
+    // a redirect target is matched exactly, $null is the null device only in PowerShell; sinks and git options that write a file
+    ['R4-1', "echo 'herdr tab create --cwd /x' > nul.ps1", false, 'deny'],
+    ['R4-2', "Write-Output 'herdr tab create --cwd C:/x' > $nullx", true, 'deny'],
+    ['R4-3', "echo 'herdr tab create --cwd /x' > /dev/null.sh", false, 'deny'],
+    ['R4-4', "echo 'herdr tab create --cwd /x' >&1x", false, 'deny'],
+    ['R4-5', "echo 'herdr tab create --cwd /x' > $null", false, 'deny'],
+    ['R4-6', "echo 'herdr tab create --cwd /x' | sort -o run.sh", false, 'deny'],
+    ['R4-7', "echo 'herdr tab create --cwd /x' | sort --output=run.sh", false, 'deny'],
+    ['R4-8', "echo 'herdr tab create --cwd /x' | uniq - run.sh", false, 'deny'],
+    ['R4-9', "echo 'herdr tab create --cwd /x' | less -o run.sh", false, 'deny'],
+    ['R4-10', 'git log --grep "herdr tab create" --output=run.sh', false, 'deny'],
+    ['R4-11', 'git diff --output=run.sh -S "herdr tab create"', false, 'deny'],
+    ['R4-12', "echo 'herdr tab create --cwd /x' > nul", false, 'deny'],
+    ['R4-13', "echo 'herdr tab create --cwd /x' > /DEV/NULL", false, 'deny'],
+    ['R4-N4', "Write-Output 'herdr tab create' > nul", true, 'allow'],
+    ['R4-N1', "Write-Output 'herdr tab create' > $null", true, 'allow'],
+    ['R4-N2', 'git log --grep "herdr tab create" | sort | uniq -c', false, 'allow'],
+    ['R4-N3', 'git log --grep "herdr tab create" > /dev/null; echo done', false, 'allow'],
+    ['R3-N1', 'gh pr create --title "fix(tabs): herdr tab create shape" --body "x"', false, 'allow'],
+    ['R3-N2', 'git commit -m "fix: herdr tab create --cwd x"', false, 'allow'],
+    ['R3-N3', 'node --test --test-name-pattern "tab create" tests/herdr-fixes.test.cjs', false, 'allow'],
+    ['R3-N4', 'git log --grep "herdr tab create" 2>/dev/null | head -5', false, 'allow'],
+    ['R3-N5', 'git log --grep "herdr tab create" > /dev/null 2>&1', false, 'allow'],
+    // legit forms of the skills and docs
+    ['F1', T(BW, 'D:/proj/app/.claude/worktrees/a'), false, 'allow'],
+    ['F2', T(PW, 'D:\\proj\\app\\.claude\\worktrees\\a'), true, 'allow'],
+    ['F3', T(BW, "'D:\\proj\\app'"), false, 'allow'],
+    ['F4', T(BW, '/d/proj/app/.claude/worktrees/a'), false, 'allow'],
+    ['F5', T(BW, '"$PWD"'), false, 'allow'],
+    ['F6', T(PW, '$PWD'), true, 'allow'],
+    ['F8', T(PW, '"$PWD\\.claude\\worktrees\\a"'), true, 'allow'],
+    ['F9', 'MSYS_NO_PATHCONV=1 ' + T(BW, '.'), false, 'allow'],
+    ['F10', 'PANE=$(' + T(BW, '"$PWD"') + " | jq -r '.result.root_pane.pane_id') && herdr pane wait-output \"$PANE\" --regex '[>$#%] ?$' --timeout 15000", false, 'deny'], // shape
+    ['F12', T(BW, '.claude/worktrees/a', ' # start the worker'), false, 'allow'],
+    ['F14', 'git commit -m "$(cat <<\'EOF\'\nfix: herdr tab create --cwd, don\'t miss it\nEOF\n)"', false, 'allow'],
+    ['F16', T(BW, '"D:/proj/app/.claude/worktrees/\u0422\u0435\u0441\u0442 x"'), false, 'allow'],
+    ['G9', `TAB="$(${B} --cwd "$PWD" | jq -r .id)"`, false, 'allow'],
+    ['Q1', `${B} --cwd "$PWD"`, false, 'allow'],
+    ['Q2', `${B} --cwd "$(pwd)/.claude/worktrees/x"`, false, 'allow'],
+    ['Q3', `${P} --cwd $PWD`, true, 'allow'],
+    ['Q5', `${P} --cwd $PWD/.claude/worktrees/x`, true, 'allow'],
+    ['Q6', `${B} --cwd .claude/worktrees/x`, false, 'allow'],
+    ['Y1', `{ ${B} --cwd D:/proj/app; } > out.json`, false, 'deny'], // shape
+    ['Y2', `foreach ($d in 1) { ${P} --cwd D:/proj/app/.claude/worktrees/a }`, true, 'deny'], // shape
+    ['Y3', `echo {a,b} && ${B} --cwd .`, false, 'deny'], // shape
+    // the shape rule: one-line command of its own, plain values, a capture, MSYS_NO_PATHCONV=1, a trailing comment
+    ['S1', `${B} --help`, false, 'allow'],
+    ['S2', `MSYS_NO_PATHCONV=1 ${B} --cwd /d/proj/app`, false, 'deny'], // no Git-Bash rewrite: \d\proj\app on drive D:
+    ['S3', `${P} --cwd /proj/app/.claude/worktrees/a`, true, 'allow'], // rooted: the drive of the session's directory
+    ['S4', 'git commit -m "fix: herdr tab create --cwd x"', false, 'allow'],
+    ['S5', 'grep -rn "herdr tab create" docs | head -5', false, 'allow'],
+    ['S6', `${B} --cwd . # note result.root_pane.pane_id`, false, 'allow'],
+    ['S7', `bash -c "echo 'herdr tab create'"`, false, 'deny'],
+    ['S10', `"C:/Program Files/herdr/herdr.exe" tab create --workspace w1 --no-focus --label a-implementer --env GHORC_ROLE=worker --cwd D:/proj/app`, false, 'allow'],
+    ['S11', `${B} --cwd . > out.json`, false, 'deny'],
+    ['S12', 'herdr tab list', false, 'allow'],
+    ['H1', `echo x # <<EOF\n${B} --cwd /tmp\nEOF`, false, 'deny'],
+    ['H5', `echo \\<<EOF\n${B} --cwd /tmp\nEOF`, false, 'deny'],
+    ['P11', `$x = @"\n"\n"@\n${P} --cwd C:/tmp\n# "`, true, 'deny'],
+    ['G6', `eval ${B} --cwd .`, false, 'deny'],
+  ];
+  const wrong = cases.filter(([, c, ps, want]) => verdict(c, ps) !== want).map(([id, , , want]) => `${id} (want ${want})`);
+  assert.deepEqual(wrong, []);
+  assert.match(tabs.checkCommand(`timeout 5 ${B} --cwd .`, { powershell: false, s, list: () => [], root, cwd: root, self: '', session: 'x', workspace: 'w1', envWorkspace: 'w1' }), /allowed only as a one-line command of its own/);
+  // the jq tail of a capture is matched in linear time: 40 flags well under 100 ms
+  const t0 = process.hrtime.bigint();
+  assert.equal(verdict(`TAB=$(${B} --cwd "$PWD" | jq${' -a'.repeat(40)} /)`, false), 'deny');
+  assert.ok(Number(process.hrtime.bigint() - t0) / 1e6 < 100, 'jq tail too slow');
+  // nesting depth 5000: a command with an hc or herdr word that cannot be parsed is denied, without a stack overflow letting it through
+  const deep = (n) => 'echo "' + '$(echo "'.repeat(n) + 'x' + '")'.repeat(n) + '"; herdr tab list';
+  assert.equal(verdict(deep(5000), false), 'deny');
+  assert.equal(verdict(deep(5), false), 'allow');
+  assert.equal(tabs.checkCommand('echo "' + '$(echo "'.repeat(5000) + '"', { powershell: false, s, list: () => [], root, cwd: root, self: '', session: 'x', workspace: 'w1', envWorkspace: 'w1' }), null); // no hc/herdr word: not judged
 });
