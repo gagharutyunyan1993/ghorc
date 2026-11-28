@@ -531,8 +531,8 @@ const TAB_NEXT_CREATE = /\btab['"\s,@()]*create\b/i;
 const failClosed = (t) => HERDR_RAW.test(t) && TAB_NEXT_CREATE.test(t);
 const TEXT_PROGS = new Set(['gh', 'glab', 'echo', 'printf', 'write-output', 'write-host', 'grep', 'egrep', 'fgrep', 'rg', 'select-string', 'sls', 'findstr']);
 const progName = (w) => String(w || '').replace(/^.*[\\/]/, '').replace(/\.exe$/i, '').toLowerCase();
-// git options that run a program or read one from config (a pager, a diff driver, a remote helper)
-const GIT_RUNS = /^(?:-c|-O|--open-files-in-pager|--ext-diff|--textconv|--exec|--upload-pack|--receive-pack|--config-env|--exec-path)/;
+// git options that run a program or read one from config (a pager, a diff driver, a remote helper) or write a file (--output)
+const GIT_RUNS = /^(?:-c|-O|--open-files-in-pager|--ext-diff|--textconv|--exec|--upload-pack|--receive-pack|--config-env|--exec-path|--output)/;
 // A segment of a text program: its arguments are text, not commands. Only a bare program: no VAR=value or wrapper in front;
 // git only as `git commit|tag|log|grep|show|notes` with no global option before the subcommand and no option that runs a
 // program; gh/glab not for alias, extension or --shell. A redirect or a pipe into a shell is judged in usesTabCreate.
@@ -557,15 +557,25 @@ function runsText(words) {
   }
   return false;
 }
-// What a text program may pipe into without running the text.
-const PIPE_SINKS = new Set(['head', 'tail', 'less', 'more', 'wc', 'sort', 'uniq', 'cat', 'cut', 'tr', 'column', 'nl', 'fold', 'jq', 'select-object', 'select', 'out-string', 'out-host', 'out-null', 'measure-object', 'format-table', 'format-list', 'ft', 'fl']);
-// An unquoted output redirect to anything but the null device or another stream (> run.sh, >> x, 2> x, &> x).
+// What a text program may pipe into without running the text or writing a file (no less: -o/--log-file write one; sort and
+// uniq only without -o/--output and with at most one positional, uniq's second one is its output file).
+const PIPE_SINKS = new Set(['head', 'tail', 'more', 'wc', 'sort', 'uniq', 'cat', 'cut', 'tr', 'column', 'nl', 'fold', 'jq', 'select-object', 'select', 'out-string', 'out-host', 'out-null', 'measure-object', 'format-table', 'format-list', 'ft', 'fl']);
+function isSink(words) {
+  const prog = progName(words[0]);
+  if (!PIPE_SINKS.has(prog)) return false;
+  if (prog !== 'sort' && prog !== 'uniq') return true;
+  const args = words.slice(1);
+  return !args.some((x) => /^(?:-[A-Za-z]*o|--output)/.test(x)) && args.filter((x) => x === '-' || !/^-/.test(x)).length <= 1;
+}
+// An unquoted output redirect to anything but the null device or another stream (> run.sh, >> x, 2> x, &> x); the target
+// must be exactly that (> nul.ps1 and > /dev/null.sh write files), and $null is the null device only in PowerShell.
+const NULL_TARGET = { sh: /^>?\s*(?:&\d+|\/dev\/null|nul)(?=\s|$|[;|&)])/i, ps: /^>?\s*(?:&\d+|\/dev\/null|\$null|nul)(?=\s|$|[;|&)])/i };
 function writesFile(t, ps) {
   let s = t;
   for (let guard = 0; guard < 10000 && s; guard++) {
     const sc = scanLine(s, ps);
     if (!sc) return false;
-    for (const { i, c } of sc.specials) if (c === '>' && !/^>?\s*(?:&\d|\/dev\/null\b|\$null\b|nul\b)/i.test(s.slice(i + 1)) && s[i + 1] !== '>') return true;
+    for (const { i, c } of sc.specials) if (c === '>' && s[i + 1] !== '>' && !NULL_TARGET[ps ? 'ps' : 'sh'].test(s.slice(i + 1))) return true;
     if (sc.comment < 0) return false;
     const nl = s.indexOf('\n', sc.comment);
     if (nl < 0) return false;
@@ -667,7 +677,7 @@ function usesTabCreate(command, ps) {
       if (!fc) continue;
       if (runsText(words)) return true;
       const next = segs[k + 1];
-      if (text && words.pipe && next && !isTextSegment(next) && !PIPE_SINKS.has(progName(next[0]))) return true;
+      if (text && words.pipe && next && !isTextSegment(next) && !isSink(next)) return true;
     }
   }
   return fc && failClosed(residual.join('\n'));
