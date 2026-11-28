@@ -69,8 +69,13 @@ const ENV_PREFIX = /^(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)+/;
 const RUNNER_PREFIX = /^(?:npm\s+run|npx)\s+/i;
 // Shell wrappers that run their argument as a command line.
 const SHELLS = String.raw`(?:\S*[\\/])?(?:bash|sh|zsh|dash|ksh|cmd|powershell|pwsh)(?:\.exe)?`;
-// env with a path (/usr/bin/env, C:\Git\usr\bin\env.exe) and its options: -i, -u NAME, NAME=value (peel drops those too).
-const ENV_WRAPPER = String.raw`(?:\S*[\\/])?env(?:\.exe)?\s+(?:(?:-u\s+\S+|-\w+|[A-Za-z_][A-Za-z0-9_]*=\S*)\s+)*`;
+// env with a path (/usr/bin/env, C:\Git\usr\bin\env.exe) and its options: -i, a lone -, --ignore-environment, -u NAME (also in a
+// cluster of flags: -iu NAME), --unset NAME, --unset=NAME, -C DIR, --chdir DIR, NAME=value (peel drops those too). A value takes
+// the next word only after the letter u, C or a at the END of the word, with no-value flags (i, v, 0) in front of it: an attached
+// value (-uDATA, -ua, -Ca) is one word. The regex runs with the i flag, so the letters stay a list of flags, not [A-Za-z0-9]*.
+// A lone -- (env -- claude -p hi) ends the options and is peeled too.
+// -S with the string attached (env -Shc run ..., env -Snpm test) ends the options: the program starts inside that word.
+const ENV_WRAPPER = String.raw`(?:\S*[\\/])?env(?:\.exe)?\s+(?:(?:-[iv0]*[uCa]\s+\S+|-(?![iv0]*S\S)\w*|--(?:unset|chdir|argv0)\s+\S+|--(?=\s)|--[\w-]+(?:=\S*)?|[A-Za-z_][A-Za-z0-9_]*=\S*)\s+)*(?:-[iv0]*S(?=\S))?`;
 // xargs and its options; the ones that take a separate value are listed (-I x, -n 1, -P 4, -s n, -E x, -d x, -a f, -L n).
 const XARGS_WRAPPER = String.raw`(?:\S*[\\/])?xargs(?:\.exe)?\s+(?:(?:-[InPsEdaLJ]\s*\S+|--[\w-]+(?:=\S+)?|-\w+)\s+)*`;
 const WRAPPER_PREFIX = new RegExp(

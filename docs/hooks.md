@@ -363,6 +363,27 @@ that binds every session (lead, subagent, worker) is the dev-command rule below.
   (`=lead` for a lead name) in front of claude (`env GHORC_ROLE=worker claude ...`), `--name`, the duplicate-name and
   `maxWorkers` checks against `hc ls --json`, and `--outlive-parent` for kinds `full`, `runner`, `train`.
   An `hc run` of another program gets the name, duplicate, limit and `--outlive-parent` checks only.
+  Behind `env` in an `hc run` the guard skips the options it understands (`-i`, a lone `-`, `--ignore-environment`, `-u NAME`,
+  `--unset NAME`, `--unset=NAME`) to reach the `NAME=value` words and the program (`-i` clears the environment, so `GHORC_ROLE` must follow
+  it; `-u NAME` drops that name); a second `env` behind the first is read the same way. Any other env option (`-S`, `-C`, `-v`, `-iu`, `-0`,
+  `--chdir`, ...) is denied whatever the program is, and so is a quoted word between `env` and the program (`env "-i" ...`,
+  `env "GHORC_ROLE=worker" claude`): the guard cannot tell which program it starts, and a `claude` start could hide behind it. Write the env
+  options and `NAME=value` words unquoted (a quoted value inside an assignment word, `FOO="a b"`, is fine). A claude program word
+  (`claude`, `claude.exe`, `.cmd`, `.ps1`, with or without a path) is denied, because nothing in front of it can be checked, in these
+  places only: behind a program that runs another program (`nohup`, `timeout`, `setsid`, `time`, `command`, `exec`, `nice`, `ionice`,
+  `chrt`, `stdbuf`, `sudo`, `doas`, `xargs`, `winpty`, `start`, ... ; every following word is looked at, quoted ones too, so
+  `timeout "60m" claude` is denied; `env` directly in front of the program is not one of them: it is read as the wrapper it is, and the
+  start checks apply to the program behind it), as the program a package runner (`npx`, `pnpx`, `bunx`) starts, as the program of a
+  command inside the command string of a shell (`bash -c "exec claude"`, `bash -c "if true; then claude; fi"`, `cmd /c env -i ... claude`,
+  `pwsh -Command`; shell keywords and grouping words such as `if`, `then`, `do`, `while`, `!`, `{` in front of the program are skipped), after a `NAME=value` word
+  without `env` (write `env NAME=value claude ...`), and as a substitution or variable program whose text says claude (`$(which claude)`,
+  the backtick form, `$CLAUDE_BIN`, `${CLAUDE}`, `$env:CLAUDE_EXE`). Behind any other program claude is an argument and the run is
+  judged as before (`grep claude src`, `git log --author claude`, `node claude`, `sh ./claude`, `docker run --name claude img`,
+  `bash -c "grep claude x.txt"`). Limits: a variable or substitution program whose text does not say claude (`$RUNNER`) is not judged,
+  and neither is a claude word that a shell string builds up (`bash -c "c=cla; ${c}ude"`). `chrt`, `ionice` and `nice` in front of `hc` or
+  `herdr` are skipped like `timeout` and `setsid`; a quoted `env -S` string in front of `hc` or `herdr` (`env -S'hc run' ...`) is
+  denied. The send checks, the built-in deny for subagents and workers and the heavy-command matching look through the same env
+  options, also with the string attached (`env -Shc run ...`) and with `env --`.
 - **Workspace (herdr).** The lead's own workspace is the `workspace_id` of this session's row in `herdr agent list` (matched by
   session id: a pane the owner moved gets a new id while the process keeps the old ones in its env); without that row it is the prefix of `HERDR_PANE_ID` (`w4:p1` is in `w4`); `HERDR_WORKSPACE_ID` alone is taken as
   it is, and when both are set and disagree, or neither is, the workspace is unknown and only presence checks apply. When the row
@@ -429,32 +450,47 @@ that binds every session (lead, subagent, worker) is the dev-command rule below.
 inside the project (directories compare in one form: separators, case, a Windows long-path prefix, Git-Bash `/c/x`; inventory names compare case-insensitively, the policy for new starts stays lowercase). UserPromptSubmit and SessionStart add, only while there are live workers, one line
 `tabs: N live (<name> <status> <minutes>m, ...)` (minutes since the hook first saw the tab) and one line per flag:
 - `BLOCKED`: status `blocked`; read its screen, tell the owner, never answer a permission prompt yourself.
-- `FINISHED`: a result line counts only when the report file is not older than the first sighting of the tab (a name is reused across fix rounds, so an earlier round's report is ignored). The last non-empty line of `<project root>/.claude/ghorc-out/<name>.md` is `DONE <name>`, `BLOCKED <name>: ...`,
+- `FINISHED`: a result line counts only when it is fresh: the report file was written at or after the last task send to that worker that the guard recorded (see `NORESULT`), and only when no send is recorded at or after the first sighting of the tab, so a report written after the send counts as fresh whenever the guard first saw the tab; a name is reused across fix rounds, and a second task sent to a tab whose first task already ended in `DONE` makes that line stale. The same rule is used by `NORESULT`, `STALLED` and `GONE`. The last non-empty line of `<project root>/.claude/ghorc-out/<name>.md` is `DONE <name>`, `BLOCKED <name>: ...`,
   `HANDOFF <name>` or `VERDICT <ACCEPT|ACCEPT_WITH_NOTES|CHANGES_REQUIRED|BLOCKED>` while the tab is still open (a tab that is
   `working` counts only when the report is newer than its last status change, so the report of an earlier round is not read as a
   result). A report ending `BLOCKED <name>: ...` (or `VERDICT BLOCKED`) is shown as "BLOCKED by the worker: bring it to the owner; close the tab after the owner decides". Otherwise: accept the report and close the tab (hc: `hc kill <name>; hc rm <name>`; herdr: `herdr tab close <tab_id>` with the `tab_id` of its `herdr agent list` row).
-- `STALLED`: idle (`idle` or `done`) for `tabs.idleMin` minutes with no result line (a tab whose report has a result line, old or fresh, is never stalled "without" one). `OVERTIME`: running `tabs.overtimeMin`
-  minutes and not finished. STALLED is judged on the fresh result line. Neither applies to `full`, `runner`, `train`.
+- `NORESULT`: the worker was given its task, is now `idle` or `done` (not `working`, not `blocked`) and its report has no fresh result line (fresh as for
+  `FINISHED`: written at or after the last recorded send, else at or after the first sighting, so a line of an earlier task of the same tab, or one left by
+  an earlier worker of the same name, does not count; when the report does have such a stale line the flag says so with its time and the time of the send it predates): the package is not delivered, whatever the worker's screen says. The line names the worker and the absolute path of the
+  expected report file, and says to read the screen, ask the same worker once to write the file with the result line last, and not to go on without
+  it. It blocks Stop once per occurrence exactly like `FINISHED` and is shown wherever `FINISHED` is shown. It goes away when a fresh result line
+  appears or the worker works again (a new idle period may block again); a tab that is closed falls under `GONE`. "Given its task" is one of two
+  things the guard can observe: it saw the tab `working` (any run, both backends), or the PreToolUse check allowed a command that hands a task
+  to it and recorded it: `hc run ... claude ... "<task>"` (the name of `--name`; the start carries a task only when the claude arguments hold a prompt, a positional word that is not the value of an option: `--allowedTools "Bash(git:*)"` or `--append-system-prompt "be terse"` is no task, and where the guard cannot tell it records nothing), `hc send <name> "<text>"`, `herdr pane run|send-text <pane or name>
+  "<text>"` and `herdr agent prompt <name or pane> "<text>"` (a pane id is resolved by the herdr list, and only a pane of this lead's own workspace and project counts: a send to a pane of another workspace records nothing, even when its agent has the same name). The recording is needed because a worker may go
+  `working` and `idle` between two hook runs, and it is also what makes a second task in the same tab count: the line of the first task is older than the send.
+  The text is read as the command line shows it (quotes decoded): a text that is only a session command (`/exit`, `/clear`, `/compact`, `/resume`, `/help`,
+  `/status`, `/cost`, `/context`, `/usage`, `/model`, `/config`, `/doctor`, `/memory`, `/rewind`, `/quit`, `/login`, `/logout`, with or without arguments) is
+  not a task and is not recorded, so the closing sequence (result accepted, `/exit`, tab closed) neither makes a delivered result stale nor raises
+  `NORESULT`. A worker that was only started, or whose task went another way (typed by the owner) and was never seen working, has no NORESULT; `STALLED` covers it. After a recorded send the flag waits 60 seconds (a worker turns `working` a moment after the send), and the wait ends as soon as the guard has seen the worker `working` after that send; the wait counts from
+  the recorded send, so a worker with no recorded send has none. `NORESULT` is not raised for `full`, `runner`, `train`, nor for a tab that `RESULT?` asks about (a first sighting with a result line and no recorded send).
+- `STALLED`: idle (`idle` or `done`) for `tabs.idleMin` minutes with no fresh result line (a result line older than the last recorded send, else older than the first sighting of the tab, from an earlier round or an earlier worker of the same name, no longer silences it; the text then names that line and the send or first sighting it predates). It is not raised for a worker that has `NORESULT`: one flag per worker,
+  and `NORESULT` is the one that blocks Stop. `OVERTIME`: running `tabs.overtimeMin` minutes and not finished. Neither applies to `full`, `runner`, `train`.
 - `OVER_LIMIT`: more than `tabs.maxWorkers` agent-kind workers are live.
-- `RESULT?`: at the first sighting of a tab that is not `working` or `blocked`, its report already ends in a result line (a worker that
-  finished before this lead saw it, e.g. after a lead restart): `tabs RESULT?: <name> has a result line from <HH:MM>: if it is the current
+- `RESULT?`: at the first sighting of a tab that is not `working` or `blocked`, its report already ends in a result line and no task send to the worker is recorded (a worker that
+  finished before this lead saw it, e.g. after a lead restart; the line is older than the first sighting, so it is not "fresh" for `STALLED`; with a recorded send the line is placed: written after the send it is fresh and `FINISHED` applies, written before it it is the previous task's and `NORESULT` covers it): `tabs RESULT?: <name> has a result line from <HH:MM>: if it is the current
   round, accept it and close the tab`. Shown on that run only; it never blocks Stop, and the tab stays quiet (no OVERTIME) until its status changes.
 - `UNKNOWN`: a status that is none of `working`, `idle`, `done`, `blocked`: `tabs UNKNOWN: <name> reports status "<x>": read its screen`, so a renamed
   status cannot hide a dialog (no Stop block).
 - `GONE`: a worker seen by an earlier run left the list without a fresh result line (its tab was closed or its session
-  ended): read its report file if there is one, then re-brief or drop the package. Only a name gone from the whole list counts,
+  ended): read its report file (the line shows its absolute path, built as in `NORESULT`) if there is one, then re-brief or drop the package. Only a name gone from the whole list counts,
   never a long-lived tab (runner, full, train). Kept until a report reaches the lead (a prompt, a session start or a blocking Stop;
   a Stop that does not block shows nothing), then forgotten.
 - `CLOSE?` (hc): the lead ran `hc kill <name>` or `hc rm <name>` (recorded by the PreToolUse check) and the next report still
   finds the name live in `hc ls`. These hc forms are not verified against a live hc, so the close is checked and reported once a report reaches the lead (within 1 h).
 - `BADNAME`: a live agent of this workspace (herdr) or a claude-code terminal of this terminal or project (hc) whose name breaks the policy
   (too long, uppercase, no `<pkg>-<kind>`): the guard neither counts nor watches it, so the line says so (this session's own tab is never listed).
-Stop blocks once per occurrence (never with `stop_hook_active`) when a tab turns `BLOCKED` or `FINISHED` and `tabs.stopBlock` is true, with the same
+Stop blocks once per occurrence (never with `stop_hook_active`) when a tab turns `BLOCKED`, `FINISHED` or `NORESULT` and `tabs.stopBlock` is true, with the same
 lines as the reason; the state remembers which (tab, flag) already blocked, so a worker that stays blocked does not force an extra turn on every lead turn (the prompt line still shows it), and a flag that went away may block again later. Stop stays silent, and no notification is raised, once `HANDOFF.md` says `status: SENT` for this session (same helper as the context guard), and for a candidate lead before ACTIVATE: `HANDOFF.md` (at most 2 hours old) names an `old_session_id` other than this session and the `Session:` field of `STATE.md` is not this session either (the candidate changes nothing before ACTIVATE; the activated lead rewrites STATE with its own session). A held-back notification is raised by the first run that may speak. On herdr, when a worker turns `blocked` and `tabs.notify` is true, it runs
 `herdr notification show "ghorc: <name> waits" --body "..." --sound request` once per transition.
 
 **State.** `<tmp>/ghorc-<user>/tabs-<first 16 characters of the session id>.json` remembers per name `firstSeen`, `status`,
-`statusSince`, `notified` and `sb` (the flags that already blocked Stop); it is what gives runtime and idle time across hook runs. A name that leaves the list is forgotten; `tabs-*.json` files of other sessions older than 7 days are removed when a state is written.
+`statusSince`, `notified`, `sb` (the flags that already blocked Stop), `worked` (the tab was seen `working`) and `wAt` (when it was last seen `working`: a sighting after a recorded send ends that send's 60-second wait); a top-level `tasked` maps a name to the time of the last recorded task send, which is the lower bound of "fresh" for that worker (kept while the worker is in the inventory, or for 1 hour while its tab has not shown up in the list). It is what gives runtime and idle time across hook runs. A name that leaves the list is forgotten; `tabs-*.json` files of other sessions older than 7 days are removed when a state is written.
 
 **Config** (`tabs`, [configuration.md](configuration.md)): `enabled` (true), `maxWorkers` (3, 1..20), `idleMin` (10, 1..1440),
 `overtimeMin` (45, 1..1440), `stopBlock` (true), `notify` (true), `devCommands` (regex strings, see above; validated; `[]` off). The own workspace comes from the environment (`HERDR_WORKSPACE_ID`), not from the config. Test seams: `GHORC_CAPACITY_HC_JSON` and
@@ -462,7 +498,7 @@ lines as the reason; the state remembers which (tab, flag) already blocked, so a
 reports use `hc` when its text is set, else herdr), `GHORC_TABS_NOTIFY_LOG=<file>` (appends the argv of the notification,
 program included, as one JSON line instead of running herdr), `GHORC_HC_BIN` / `GHORC_HERDR_BIN`.
 
-**Limits.** The report is only as fresh as the last hook event: a lead that works for a long time without a prompt or a stop is
+**Limits.** `NORESULT` needs one of its two signals: a task send in a command form the guard reads (see above; a text typed by the owner, or sent through a form it cannot parse, is not recorded; a text held in a variable is read as text, so a `/exit` sent through a variable counts as a task send) or a run that saw the tab `working`. A send is recorded when the lead issues it, also if another hook or the owner then refuses the command: the effect is one extra `NORESULT` round after a result that was already delivered, never a missed one. The signals are the same on herdr and hc; the only backend difference is how a pane or name is resolved (herdr: the list row; hc: the name). With an unreadable state file the guard starts with no memory: no `NORESULT` until a new send is recorded or the tab is seen `working`, and `STALLED` counts from the first sighting; an invalid config turns the guard off, as before. The report is only as fresh as the last hook event: a lead that works for a long time without a prompt or a stop is
 not told in between (the notification is raised at the next run too). herdr's `blocked` is read from the screen by herdr and may lag
 a Claude Code update that changes its dialogs. The runtime counts from the first sighting, so a tab that was already open when the
 lead started shows 0m. Identical repeated segments of one command line are read once, so a name opened twice in one command is

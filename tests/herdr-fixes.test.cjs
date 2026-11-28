@@ -166,7 +166,7 @@ test('tabs-guard: gone-flag: a worker that left the list without a result line i
   assert.doesNotMatch(ctx(mon(p, 'UserPromptSubmit', { GHORC_CAPACITY_HERDR_JSON: list })), /GONE/);
   const gone = ctx(mon(p, 'UserPromptSubmit', { GHORC_CAPACITY_HERDR_JSON: NONE }));
   assert.match(gone, /tabs GONE: a1-implementer left herdr agent list without a result line/);
-  assert.match(gone, /\.claude\/ghorc-out\/a1-implementer\.md/);
+  assert.ok(gone.includes(`(${path.resolve(p.cwd, '.claude', 'ghorc-out', 'a1-implementer.md')})`), gone); // the absolute path, as in NORESULT
   assert.doesNotMatch(ctx(mon(p, 'UserPromptSubmit', { GHORC_CAPACITY_HERDR_JSON: NONE })), /GONE/);
 });
 

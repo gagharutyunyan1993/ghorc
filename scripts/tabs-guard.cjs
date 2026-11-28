@@ -20,16 +20,16 @@ if (process.argv.includes('--help')) {
       '--outlive-parent for full/runner/train. The reason shows the corrected form. Internal errors and unreadable lists allow the command. ' +
       'tabs.devCommands (regexes; every session, backend hc or herdr): dev servers and watchers are denied outside a <pkg>-runner tab. '+
       'The other events list the project\'s worker tabs (`tabs: N live (name status minutes, ...)`) with a flag line for BLOCKED, FINISHED ' +
-      '(report file has a result line, tab still open), STALLED (idle >= tabs.idleMin, no result), OVERTIME (>= tabs.overtimeMin), OVER_LIMIT and RESULT? (a result line at the first sighting, never blocks Stop), ' +
+      '(report file has a result line, tab still open), NORESULT (a tasked worker is idle or done with no fresh result line; blocks Stop once), STALLED (idle >= tabs.idleMin, no fresh result), OVERTIME (>= tabs.overtimeMin), OVER_LIMIT and RESULT? (a result line at the first sighting, never blocks Stop), ' +
       'GONE (a worker seen before left the whole list without a fresh result line; not for long-lived tabs; kept until a report reaches the lead) and CLOSE? (a name still in hc ls after the lead ran hc kill / hc rm). ' +
-      'Stop blocks once per (tab, flag) occurrence (never on stop_hook_active) when a tab turns BLOCKED or FINISHED and tabs.stopBlock is true; it stays silent once HANDOFF.md says SENT for this session and for a candidate lead before ACTIVATE. On herdr a worker turning blocked ' +
+      'Stop blocks once per (tab, flag) occurrence (never on stop_hook_active) when a tab turns BLOCKED, FINISHED or NORESULT and tabs.stopBlock is true; it stays silent once HANDOFF.md says SENT for this session and for a candidate lead before ACTIVATE. On herdr a worker turning blocked ' +
       'raises one `herdr notification show` (tabs.notify). Test seams: GHORC_CAPACITY_HC_JSON, GHORC_CAPACITY_HERDR_JSON, GHORC_TABS_NOTIFY_LOG, ' +
       'GHORC_HC_BIN, GHORC_HERDR_BIN; HERDR_PANE_ID (prefix) / HERDR_WORKSPACE_ID is the own workspace; only a project with .claude/ghorc.json is judged.',
   );
   process.exit(0);
 }
 
-const TAB_WORD = /\b(?:hc|herdr)(?:\.exe)?\b/i;
+const TAB_WORD = /(?:hc|herdr)(?:\.exe)?\b/i; // no \b in front: env -Shc run ... holds hc inside a word (tabs.cjs HC_HERDR_WORD)
 const out = (obj) => process.stdout.write(JSON.stringify(obj));
 
 run((input) => {
@@ -91,6 +91,17 @@ run((input) => {
     }
     // an hc close is checked at the next report: these hc forms are unverified, so a name still listed is reported
     tabs.recordClose(session || 'unknown', tabs.hcCloseNames(command, ps));
+    // a task handed to a worker (hc run with a prompt, hc send, herdr pane run|send-text, herdr agent prompt) is recorded for the
+    // NORESULT flag; a herdr send counts only for a pane of this lead's own workspace and project
+    tabs.recordTasks(
+      session || 'unknown',
+      tabs.taskNames(command, ps, list, {
+        root,
+        self: String(process.env.HC_TERMINAL_ID || '').trim(),
+        leadPrefix: s.leadPrefix,
+        workspace: () => tabs.ownWorkspace(process.env, list('herdr'), session),
+      }),
+    );
     return;
   }
 
