@@ -1151,10 +1151,57 @@ const hiddenSplit = (command, powershell) => rawSegments(command, powershell).so
 // What the decoded words of an hc run show and the blanked segment does not: a quoted word that hides the start (env "-i" ...,
 // env "GHORC_ROLE=worker" claude), a quoted env -S string, and a claude program behind a program (see above). Only when a blanked
 // hc run was found at all (cmds), so text that merely contains the words (a heredoc) is not judged. -> reasons
+const AMP_AFTER_RUN = '`&` ends the hc run there, so the program after it would run in the lead\'s own shell and not in the tab: write the program (env GHORC_ROLE=worker claude ...) directly after the hc run options';
+// PowerShell: a mid-line `&` (a word `&`, or `&` glued to the next word) ends the statement, so the words after it are a command of
+// their own (rawSegments keeps a lone & inside the segment: the call operator). A leading `&` stays the call operator.
+function splitAmp(segs) {
+  const out = [];
+  for (const words of segs) {
+    let cur = [];
+    for (let i = 0; i < words.length; i++) {
+      const w = words[i];
+      if (i > 0 && /^&(?:[^\s&]+)?$/.test(w)) { // not a quoted string that starts with `& ` (powershell -Command "& claude ...")
+        cur.ampNext = w.length > 1 ? w.slice(1) : words[i + 1] || ''; // the first word of what follows the `&`
+        out.push(cur);
+        cur = w.length > 1 ? [w.slice(1)] : [];
+      } else cur.push(w);
+    }
+    out.push(cur);
+    if (words.pipe) out[out.length - 1].pipe = true;
+  }
+  return out.filter((w) => w.length);
+}
+// A decoded token against a blanked one: the same word, the same word behind a quoted program path, or a blanked quoted word.
+const sameWord = (d, b) => d === b || b.includes('""') || d.replace(/^.*[\\/]/, '').toLowerCase() === b.toLowerCase();
+const sameRun = (d, b) => d.length === b.length && d.every((t, i) => i === 0 || sameWord(t, b[i]));
+// The blanked hc run (hcs, parseCommand) that a decoded hc run is the same text as, or null when that cannot be told for certain.
+// A run whose words are the same in both readings, or a command with one run in each reading, pairs at once; with more runs they are
+// paired by position when both readings found the same number and every word agrees, else by the one blanked run whose words agree.
+// Never by "some other run is a claude start": a correct start next to a hidden one must not switch the check off for it.
+function blankedPartner(r, key, decoded, hcs) {
+  const same = hcs.find((p) => p.tokens.join(' ') === key);
+  if (same) return same;
+  if (decoded.length === 1 && hcs.length === 1) return hcs[0];
+  const at = decoded.indexOf(key);
+  if (decoded.length === hcs.length && at >= 0 && sameRun(r.tokens, hcs[at].tokens)) return hcs[at];
+  const cand = hcs.filter((p) => sameRun(r.tokens, p.tokens));
+  return cand.length === 1 ? cand[0] : null;
+}
 function rawRunReasons(command, powershell, cmds) {
   const hcs = cmds.filter((p) => p.type === 'hc-run');
   const out = [];
-  const segs = rawSegments(command, powershell);
+  const raw = rawSegments(command, powershell);
+  const segs = powershell ? splitAmp(raw) : raw;
+  // the decoded hc runs, one per distinct text and in order, as parseCommand lists the blanked ones
+  const decoded = [];
+  if (hcs.length) {
+    for (const words of segs) {
+      const c = cliTokens(words) || cliTokens(peelWrappers(words));
+      if (!c || c.prog !== 'hc') continue;
+      const r = parseHc(c.tokens, c.tokens.map((t) => t.toLowerCase()));
+      if (r && !decoded.includes(r.tokens.join(' '))) decoded.push(r.tokens.join(' '));
+    }
+  }
   for (let n = 0; n < segs.length; n++) {
     const words = segs[n];
     if (envSplitQuoted(words)) out.push(SPLIT_QUOTED);
@@ -1163,11 +1210,14 @@ function rawRunReasons(command, powershell, cmds) {
     if (c.prog !== 'hc' || !hcs.length) continue;
     const r = parseHc(c.tokens, c.tokens.map((t) => t.toLowerCase()));
     if (!r) continue;
-    if ((r.claude && !hcs.some((p) => p.claude)) || (r.envBad && !hcs.some((p) => p.envBad))) {
-      out.push(QUOTED_AFTER_ENV);
+    if (words.ampNext !== undefined && (ENV_BIN.test(words.ampNext) || CLAUDE.test(words.ampNext))) out.push(AMP_AFTER_RUN);
+    const key = r.tokens.join(' ');
+    if (r.claude || r.envBad) {
+      const partner = blankedPartner(r, key, decoded, hcs);
+      if ((r.claude && !(partner && partner.claude)) || (r.envBad && !(partner && partner.envBad))) out.push(QUOTED_AFTER_ENV);
       continue;
     }
-    if (r.claude || r.envBad || r.progIdx >= r.tokens.length) continue;
+    if (r.progIdx >= r.tokens.length) continue;
     let k = r.progIdx;
     if (r.tokens[k] === '&' && k + 1 < r.tokens.length) k++; // PowerShell call operator
     const prog = r.tokens[k];
@@ -1438,14 +1488,9 @@ function checkSend(x, ctx) {
 // parse (an error, nesting deeper than MAX_NEST) is denied; any other command never gets here.
 const UNREADABLE = 'the guard could not parse this command (nesting too deep or an internal error): write it as plain one-line commands';
 // workspace: the own herdr workspace id, or a function that returns it (asked once, only when a herdr command is judged).
-// PowerShell: the call operator between an hc run and its env (`hc run ... & "C:\Git\usr\bin\env.exe" GHORC_ROLE=worker claude.exe ...`)
-// is how a quoted program path is started; the segmenter cuts at it, so env would not be read as the wrapper of the run. It is
-// dropped for the reading (the run is judged as if env followed the options directly).
-const PS_CALL_ENV = /(\bhc(?:\.exe)?\s+run\b[^;|&\n]*?)\s&\s+(?=(?:"[^"]*[\\/]|'[^']*[\\/]|\S*[\\/])?env(?:\.exe)?["']?(?:\s|$))/gi;
 function checkCommand(command, { powershell = false, s, list, root, cwd, self, session, workspace = '', envWorkspace = '' }) {
   try {
     if (!HC_HERDR_WORD.test(command)) return null;
-    if (powershell) command = command.replace(PS_CALL_ENV, '$1 ');
     const cmds = parseCommand(command, powershell);
     const sends = sendCommands(command, powershell);
     if (!cmds.length && !sends.length && !/\btab\b/i.test(command) && !hiddenSplit(command, powershell)) return null;

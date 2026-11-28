@@ -423,15 +423,88 @@ test('env wrapper V1: a shell keyword or grouping word in front of claude does n
   }
 });
 
-test('env wrapper V2: an env after the PowerShell call operator is read as the env wrapper', () => {
+// A mid-line `&` in PowerShell ends the hc run: what follows is a command of its own, run in the lead's own shell. It is no worker
+// start (the old test pinned the rewrite that read it as one and allowed it).
+const AMP = /`&` ends the hc run there, so the program after it would run in the lead's own shell and not in the tab: write the program \(env GHORC_ROLE=worker claude \.\.\.\) directly after the hc run options/;
+test('env wrapper V2: a mid-line & between hc run and an env or claude program is denied with a reason a lead can act on', () => {
   const p = project();
   const ARGS = '-n a-implementer --effort medium --permission-mode bypassPermissions "Read the brief"';
-  allowed(pre(p, `${HEAD} & ${WIN_ENV} GHORC_ROLE=worker claude.exe ${ARGS.replace('--effort', '--model sonnet --effort')}`, 'PowerShell'));
-  allowed(pre(p, `${HEAD} & env GHORC_ROLE=worker claude.exe ${ARGS.replace('--effort', '--model sonnet --effort')}`, 'PowerShell'));
-  mustDeny(p, `${HEAD} & ${WIN_ENV} GHORC_ROLE=worker claude.exe ${ARGS}`, /--model is missing/, 'PowerShell');
-  mustDeny(p, `${HEAD} & env GHORC_ROLE=worker claude.exe ${ARGS}`, /--model is missing/, 'PowerShell');
-  mustDeny(p, `${HEAD} & env -i claude.exe ${ARGS.replace('--effort', '--model sonnet --effort')}`, /GHORC_ROLE=worker is missing/, 'PowerShell');
-  mustDeny(p, `${HEAD} & env -S x claude.exe ${ARGS}`, /env option -S/, 'PowerShell');
-  mustDeny(p, `${HEAD} & env GHORC_ROLE=worker timeout 5 claude.exe ${ARGS}`, BEHIND, 'PowerShell');
+  const ARGS_M = ARGS.replace('--effort', '--model sonnet --effort');
+  for (const c of [
+    `${HEAD} & ${WIN_ENV} GHORC_ROLE=worker claude.exe ${ARGS_M}`,
+    `${HEAD} & env GHORC_ROLE=worker claude.exe ${ARGS_M}`,
+    `${HEAD} & ${WIN_ENV} GHORC_ROLE=worker claude.exe ${ARGS}`,
+    `${HEAD} & env GHORC_ROLE=worker claude.exe ${ARGS}`,
+    `${HEAD} & env -i claude.exe ${ARGS_M}`,
+    `${HEAD} & env -S x claude.exe ${ARGS}`,
+    `${HEAD} & env GHORC_ROLE=worker timeout 5 claude.exe ${ARGS}`,
+    `${HEAD} & claude.exe ${ARGS_M}`,
+    `${HEAD} &env GHORC_ROLE=worker claude.exe ${ARGS_M}`,
+    `${HEAD} & env FOO=1 ls`,
+  ]) mustDeny(p, c, AMP, 'PowerShell');
+  // a program that is neither env nor claude after the `&`, a `&` that ends the line, and the call operator first, are as before
   allowed(pre(p, `${HEAD} & ${String.raw`"C:\Program Files\nodejs\node.exe"`} claude`, 'PowerShell'));
+  allowed(pre(p, 'hc run --bg --name x-scout --cwd . node a.js & echo hi', 'PowerShell'));
+  allowed(pre(p, `& hc run --bg --name a-implementer --cwd . env GHORC_ROLE=worker claude.exe ${GOOD}`, 'PowerShell'));
+  allowed(pre(p, `& "C:\\x\\hc.exe" run --bg --name a-implementer --cwd . env GHORC_ROLE=worker claude.exe ${GOOD}`, 'PowerShell'));
+  mustDeny(p, `& hc run --bg --name a-implementer --cwd . env GHORC_ROLE=worker claude.exe ${NO_MODEL}`, /--model is missing/, 'PowerShell');
+  allowed(pre(p, `${HEAD} env GHORC_ROLE=worker claude.exe ${GOOD}; Get-Date`, 'PowerShell'));
+  allowed(pre(p, `hc run --bg --name x-scout --cwd . node a.js\nenv FOO=1 ls`, 'PowerShell'));
+  allowed(pre(p, `hc run --bg --name x-scout --cwd . node a.js ; env GHORC_ROLE=worker claude.exe ${GOOD}`, 'PowerShell'));
+  // the Bash tool: `&` is an operator there as well and the guard reads it as one, so the two commands are judged as two (unchanged)
+  allowed(pre(p, `${HEAD} & env GHORC_ROLE=worker claude ${ARGS_M}`, 'Bash'));
+  allowed(pre(p, `${HEAD} & claude ${ARGS_M}`, 'Bash'));
+});
+
+// ---- S1: each decoded hc run is judged against its own blanked run ----
+const S1_A = 'hc run --bg --name a1-implementer --cwd . env GHORC_ROLE=worker claude --model sonnet --effort medium -n a1-implementer --permission-mode bypassPermissions "t"';
+const S1_B = 'hc run --bg --name b1-implementer --cwd . env "-i" GHORC_ROLE=worker claude --effort medium -n b1-implementer --permission-mode bypassPermissions "t"';
+const S1_B_OK = S1_B.replace('env "-i" ', 'env ').replace('--effort', '--model sonnet --effort');
+const S1_NPM = 'hc run --bg --name c1-runner --outlive-parent --cwd . npm run dev';
+const S1_NODE = 'hc run --bg --name d1-scout --cwd . env "FOO=1" node x.js';
+const SEPS = [' ; ', ' && ', '\n', ' | ', ' & '];
+test('env wrapper S1: a correct visible start in one run does not switch the quoted-word check off for another run', () => {
+  const p = project();
+  for (const tool of ['Bash', 'PowerShell']) {
+    for (const sep of SEPS) {
+      const at = `${tool} ${JSON.stringify(sep)}`;
+      for (const c of [S1_A + sep + S1_B, S1_B + sep + S1_A]) {
+        const r = pre(p, c, tool);
+        assert.ok(denied(r), at + c);
+        assert.match(reasonOf(r), QUOTED, at);
+      }
+      allowed(pre(p, S1_A + sep + S1_B_OK, tool), `${at} two correct starts`);
+      allowed(pre(p, S1_B_OK + sep + S1_A, tool), `${at} two correct starts, reversed`);
+      allowed(pre(p, S1_A + sep + S1_NPM, tool), `${at} start + hc run npm`);
+      allowed(pre(p, S1_NPM + sep + S1_A, tool), `${at} hc run npm + start`);
+      allowed(pre(p, S1_A + sep + S1_NODE, tool), `${at} start + env "FOO=1" node`);
+      allowed(pre(p, S1_NODE + sep + S1_A, tool), `${at} env "FOO=1" node + start`);
+    }
+    // a single run is judged as before
+    mustDeny(p, S1_B, QUOTED, tool);
+    allowed(pre(p, S1_A, tool));
+    allowed(pre(p, S1_NODE, tool));
+  }
+});
+
+test('env wrapper S1: runs that cannot be paired for certain fail closed; a hidden env option is denied as well', () => {
+  const p = project();
+  for (const tool of ['Bash', 'PowerShell']) {
+    // three runs, the hidden one in the middle
+    mustDeny(p, `${S1_A} ; ${S1_B} ; ${S1_B_OK.replace(/b1/g, 'e1')}`, QUOTED, tool);
+    // a run written inside a shell string is seen by the blanked reading only: the counts differ, the hidden run has no partner
+    mustDeny(p, `bash -c "${S1_A.replace('"t"', 't')}" ; ${S1_B}`, QUOTED, tool);
+    // the same start twice is one blanked run, and stays allowed
+    allowed(pre(p, `${S1_A} ; ${S1_A}`, tool));
+    // a hidden env option (not only a hidden claude) next to a visible start
+    const hid = 'hc run --bg --name f1-implementer --cwd . env "-v" GHORC_ROLE=worker claude --model sonnet --effort medium -n f1-implementer --permission-mode bypassPermissions "t"';
+    mustDeny(p, `${S1_A} ; ${hid}`, QUOTED, tool);
+    mustDeny(p, `${hid} ; ${S1_A}`, QUOTED, tool);
+  }
+  // PowerShell: a mid-line `&` ends a run too, so a hidden run after it is not lost inside the first one
+  for (const c of [`${S1_A} & ${S1_B}`, `${S1_B} & ${S1_A}`]) {
+    const r = pre(p, c, 'PowerShell');
+    assert.ok(denied(r), c);
+    assert.match(reasonOf(r), QUOTED);
+  }
 });

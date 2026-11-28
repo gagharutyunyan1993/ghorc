@@ -368,7 +368,10 @@ that binds every session (lead, subagent, worker) is the dev-command rule below.
   it; `-u NAME` drops that name); a second `env` behind the first is read the same way. Any other env option (`-S`, `-C`, `-v`, `-iu`, `-0`,
   `--chdir`, ...) is denied whatever the program is, and so is a quoted word between `env` and the program (`env "-i" ...`,
   `env "GHORC_ROLE=worker" claude`): the guard cannot tell which program it starts, and a `claude` start could hide behind it. Write the env
-  options and `NAME=value` words unquoted (a quoted value inside an assignment word, `FOO="a b"`, is fine). A claude program word
+  options and `NAME=value` words unquoted (a quoted value inside an assignment word, `FOO="a b"`, is fine). A command with several
+  `hc run` judges each one on its own text, and one the guard cannot match to its own reading is denied when it holds a claude
+  start or an env option. A mid-line `&` between an `hc run` and an `env` or claude program (PowerShell tool) is denied: `&` ends the
+  `hc run` there, so the program would run in the lead's own shell and not in the tab; write the program right after the options. A claude program word
   (`claude`, `claude.exe`, `.cmd`, `.ps1`, with or without a path) is denied, because nothing in front of it can be checked, in these
   places only: behind a program that runs another program (`nohup`, `timeout`, `setsid`, `time`, `command`, `exec`, `nice`, `ionice`,
   `chrt`, `stdbuf`, `sudo`, `doas`, `xargs`, `winpty`, `start`, ... ; every following word is looked at, quoted ones too, so
